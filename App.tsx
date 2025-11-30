@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord } from './types';
 import { 
@@ -325,16 +324,12 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex flex-col items-center w-full max-w-md z-10">
-          <div className="mb-12 text-center text-white scale-90 sm:scale-100 transform drop-shadow-lg">
-            <div className="flex items-end justify-center leading-none mb-2 relative">
-              <span className="text-[7rem] font-serif font-bold tracking-tighter">Z</span>
-              <div className="mx-1 mb-2 relative top-1">
-                <Building2 className="h-24 w-20" strokeWidth={2} absoluteStrokeWidth /> 
-                <div className="absolute inset-0 border-l-2 border-r-2 border-white/20 rounded opacity-0"></div>
-              </div>
-              <span className="text-[7rem] font-serif font-bold tracking-tighter">P</span>
-            </div>
-            <div className="text-2xl tracking-[0.3em] font-light font-sans pl-2">CONSULTORIA</div>
+          <div className="mb-8 text-center bg-white/10 backdrop-blur-sm p-4 rounded-xl border border-white/20 shadow-xl">
+             <img 
+               src="https://drive.google.com/uc?export=view&id=1KMygLD3zZGTCuvbOTNSMB5blFBrOAFZR" 
+               alt="Zip Consultoria" 
+               className="h-28 w-auto mx-auto object-contain drop-shadow-md"
+             />
           </div>
           
           <div className="w-full bg-white rounded-2xl shadow-2xl overflow-hidden">

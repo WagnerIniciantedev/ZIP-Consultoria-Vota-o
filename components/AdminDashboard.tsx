@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileSpreadsheet, 
@@ -223,10 +222,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <header className="bg-white shadow-sm border-b border-gray-200">
                 <div className="max-w-7xl mx-auto px-4 h-16 flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                        <div className="bg-red-600 p-1.5 rounded text-white">
-                            <Building2 className="h-6 w-6" />
-                        </div>
-                        <h1 className="text-xl font-bold text-gray-900">ZIP <span className="font-light">CONSULTORIA</span></h1>
+                        <img 
+                            src="https://drive.google.com/uc?export=view&id=1KMygLD3zZGTCuvbOTNSMB5blFBrOAFZR" 
+                            alt="Zip Consultoria" 
+                            className="h-10 w-auto object-contain"
+                        />
                     </div>
                     <div className="flex items-center gap-4">
                         <span className="text-sm font-semibold text-gray-700">{currentUser?.name}</span>
@@ -305,10 +305,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center gap-2">
-              <div className="bg-red-600 p-1.5 rounded text-white">
-                <Building2 className="h-6 w-6" />
-              </div>
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">ZIP <span className="font-light">CONSULTORIA</span></h1>
+               <img 
+                    src="https://drive.google.com/uc?export=view&id=1KMygLD3zZGTCuvbOTNSMB5blFBrOAFZR" 
+                    alt="Zip Consultoria" 
+                    className="h-10 w-auto object-contain"
+               />
             </div>
 
             <div className="flex-1 mx-4 lg:mx-8 text-center">
