@@ -9,15 +9,17 @@ import {
   getCondoName, saveCondoName,
   getAssemblies, saveAssemblies,
   getAssemblyStatus, saveAssemblyStatus,
-  saveSession, getSession, clearSession, // Imported Session Helpers
+  saveSession, getSession, clearSession,
   clearAllData
 } from './services/dataService';
+// Import Firebase Hookup
+import { db, ref, onValue } from './services/firebase';
 
 // UI Components
 import { AdminDashboard } from './components/AdminDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
 import { Button, Input } from './components/ui';
-import { Building2, Phone, Instagram, UserCheck, Eye, EyeOff, AlertTriangle, MonitorPlay } from 'lucide-react';
+import { Building2, Phone, Instagram, UserCheck, Eye, EyeOff, AlertTriangle, MonitorPlay, Wifi, WifiOff } from 'lucide-react';
 
 const App: React.FC = () => {
   
@@ -38,67 +40,123 @@ const App: React.FC = () => {
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPass, setAdminPass] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false); // New Remember Me State
+  const [rememberMe, setRememberMe] = useState(false); 
   const [loginError, setLoginError] = useState('');
+
+  // Firebase Connection Status
+  const [isConnected, setIsConnected] = useState(false);
 
   // ============================================================================
   // --- EFFECTS & PERSISTENCE ---
   // ============================================================================
   
-  // Initial Load
+  // Initial Load from LocalStorage
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const isResidentAccess = params.get('access') === 'resident';
 
-    // Load Data
-    const loadedUsers = getUsers();
     setResidents(getResidents());
     setPolls(getPolls());
     setVotes(getVotes());
-    setUsers(loadedUsers);
+    setUsers(getUsers());
     setCondoName(getCondoName());
     setPastAssemblies(getAssemblies());
     setIsAssemblyActive(getAssemblyStatus());
 
-    // --- CHECK FOR PERSISTED SESSION ---
     const savedUser = getSession();
     
-    // Priority: Resident Link > Saved Admin Session
     if (isResidentAccess) {
       setCurrentView(AppView.VOTE_IDENTIFY);
     } else if (savedUser) {
-      // Validate if the saved user still exists in the database
-      // (Safety check in case user was deleted while logged in on another tab)
-      const validSavedUser = loadedUsers.find(u => u.id === savedUser.id);
-      
+      const validSavedUser = getUsers().find(u => u.id === savedUser.id);
       if (validSavedUser) {
         setCurrentUser(validSavedUser);
         setCurrentView(AppView.ADMIN_DASHBOARD);
       } else {
-        clearSession(); // Invalid user, clear session
+        clearSession();
       }
     }
   }, []);
 
-  // --- TAB SYNCHRONIZATION (NEW) ---
-  // Allows multiple tabs on the SAME browser to stay in sync (Admin Tab + Projector Tab)
+  // --- FIREBASE REALTIME LISTENER ---
+  // This connects the app to the cloud db. When data changes in the cloud,
+  // it updates the local state automatically.
+  useEffect(() => {
+    if (!db) {
+      setIsConnected(false);
+      return;
+    }
+
+    // Determine the safe key based on condo name or localstorage default
+    // NOTE: This creates a dependency. If condoName changes, listeners re-bind.
+    const currentName = condoName || localStorage.getItem('condovote_condo_name') || 'setup';
+    const safeKey = currentName.replace(/[^a-zA-Z0-9]/g, '_');
+    
+    console.log(`[Firebase] Listening to nodes at /${safeKey}`);
+    setIsConnected(true);
+
+    const pollsRef = ref(db, `${safeKey}/polls`);
+    const votesRef = ref(db, `${safeKey}/votes`);
+    const residentsRef = ref(db, `${safeKey}/residents`);
+    const activeRef = ref(db, `${safeKey}/isActive`);
+
+    // Listeners
+    const unsubPolls = onValue(pollsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            setPolls(data);
+            localStorage.setItem('condovote_polls', JSON.stringify(data));
+        }
+    });
+
+    const unsubVotes = onValue(votesRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            setVotes(data);
+            localStorage.setItem('condovote_votes', JSON.stringify(data));
+        }
+    });
+
+    const unsubResidents = onValue(residentsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            setResidents(data);
+            localStorage.setItem('condovote_residents', JSON.stringify(data));
+        }
+    });
+
+    const unsubActive = onValue(activeRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data !== null) {
+            setIsAssemblyActive(data);
+            localStorage.setItem('condovote_is_active', JSON.stringify(data));
+        }
+    });
+
+    return () => {
+        unsubPolls();
+        unsubVotes();
+        unsubResidents();
+        unsubActive();
+    };
+  }, [condoName]); // Re-subscribe if Condo Name changes (e.g. starting new assembly)
+
+
+  // --- TAB SYNCHRONIZATION (LOCAL) ---
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      // If another tab updates these keys, update state immediately
       if (e.key === 'condovote_polls') setPolls(getPolls());
       if (e.key === 'condovote_votes') setVotes(getVotes());
       if (e.key === 'condovote_residents') setResidents(getResidents());
       if (e.key === 'condovote_is_active') setIsAssemblyActive(getAssemblyStatus());
       if (e.key === 'condovote_condo_name') setCondoName(getCondoName());
-      // Note: We don't sync 'users' automatically to prevent session weirdness
     };
-
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
 
-  // Persistence Listeners (Save state to localStorage whenever it changes)
+  // Persistence Listeners (Triggers Save -> which triggers Cloud Sync in dataService)
   useEffect(() => saveResidents(residents), [residents]);
   useEffect(() => savePolls(polls), [polls]);
   useEffect(() => saveVotes(votes), [votes]);
@@ -107,16 +165,11 @@ const App: React.FC = () => {
   useEffect(() => saveAssemblies(pastAssemblies), [pastAssemblies]);
   useEffect(() => saveAssemblyStatus(isAssemblyActive), [isAssemblyActive]);
 
-  // Sync Current User Data (Real-time updates if admin edits self)
   useEffect(() => {
     if (currentUser) {
       const updatedSelf = users.find(u => u.id === currentUser.id);
       if (updatedSelf && JSON.stringify(updatedSelf) !== JSON.stringify(currentUser)) {
         setCurrentUser(updatedSelf);
-        // We only update the storage type that was already in use (implicitly handled by getSession logic usually,
-        // but here we just default to saveSession which might upgrade them to localStorage if we aren't tracking where they came from.
-        // For simplicity, we just save to the active session type if we could track it, but saveSession(..., true) is safe enough or we skip auto-sync for session type
-        // Let's just update based on where it is.
         const isInLocal = localStorage.getItem('condovote_admin_auth');
         saveSession(updatedSelf, !!isInLocal); 
       }
@@ -125,7 +178,7 @@ const App: React.FC = () => {
 
 
   // ============================================================================
-  // --- BUSINESS LOGIC & HANDLERS ---
+  // --- BUSINESS LOGIC ---
   // ============================================================================
 
   const handleAdminLogin = (e: React.FormEvent) => {
@@ -133,7 +186,7 @@ const App: React.FC = () => {
     const validUser = users.find(u => u.username === adminEmail && u.password === adminPass);
     if (validUser) {
       setCurrentUser(validUser);
-      saveSession(validUser, rememberMe); // <--- SAVE SESSION (PERSISTENT OR TEMP)
+      saveSession(validUser, rememberMe);
       setCurrentView(AppView.ADMIN_DASHBOARD);
       setLoginError('');
       setAdminEmail('');
@@ -149,7 +202,6 @@ const App: React.FC = () => {
   };
 
   const handleVoteSubmit = (pollId: string, unit: string, optionId: string, isDelinquent: boolean) => {
-    // Functional Update to prevent race conditions
     setVotes(prevVotes => {
       if (prevVotes.some(v => v.unit === unit && v.pollId === pollId)) {
         return prevVotes;
@@ -176,7 +228,6 @@ const App: React.FC = () => {
 
   const hasVoted = (pollId: string, unit: string) => votes.some(v => v.unit === unit && v.pollId === pollId);
 
-  // --- ACTIONS: POLLS ---
   const handleEndPoll = (id: string) => {
     setPolls(prev => prev.map(p => 
       p.id === id ? { ...p, isActive: false, isEnded: true } : p
@@ -191,16 +242,13 @@ const App: React.FC = () => {
 
   const handleDeletePoll = (id: string) => {
     setPolls(prev => prev.filter(p => p.id !== id));
-    setVotes(prev => prev.filter(v => v.pollId !== id)); // Remove associated votes
+    setVotes(prev => prev.filter(v => v.pollId !== id)); 
   };
 
-  // --- ACTIONS: USERS ---
   const handleDeleteUser = (id: string) => {
-    console.log(`[App] Deleting user ${id}`);
     setUsers(prevUsers => prevUsers.filter(u => u.id !== id));
   };
 
-  // --- ACTIONS: ASSEMBLIES ---
   const handleEndAssembly = () => {
     if (condoName && condoName !== 'Modo Administrativo') {
       const assemblySnapshot: AssemblyRecord = {
@@ -213,19 +261,14 @@ const App: React.FC = () => {
       };
       setPastAssemblies(prev => [assemblySnapshot, ...prev]);
     }
-
-    // Reset Memory State
     setPolls([]);
     setVotes([]);
     setResidents([]);
     setCondoName('');
     setIsAssemblyActive(false);
-
-    // Clear Storage Session
     clearAllData();
   };
 
-  // NEW: Delete Historical Assembly (TI Only)
   const handleDeleteAssembly = (id: string) => {
     setPastAssemblies(prev => prev.filter(a => a.id !== id));
   };
@@ -256,16 +299,16 @@ const App: React.FC = () => {
           </div>
           
           <div className="w-full bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div className="px-8 py-10">
-              <div className="mb-8 text-center">
-                 <h2 className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-2">Acesso ao Sistema</h2>
-                 <h1 className="text-gray-900 font-bold text-2xl">Portal de Votação</h1>
+            <div className="px-8 pt-10 pb-8">
+              <div className="mb-6 text-center">
+                 <h2 className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-2">Portal de Votação</h2>
+                 <h1 className="text-gray-900 font-bold text-2xl">Identificação</h1>
                  <div className="h-1 w-12 bg-red-600 mx-auto mt-4 rounded-full"></div>
               </div>
 
-              <form onSubmit={handleAdminLogin} className="space-y-5">
+              <form onSubmit={handleAdminLogin} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5 ml-1">Usuário</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1 ml-1">Usuário Administrativo</label>
                   <Input 
                     type="text" 
                     placeholder="Digite seu usuário" 
@@ -275,7 +318,7 @@ const App: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5 ml-1">Senha</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1 ml-1">Senha</label>
                   <div className="relative">
                     <Input 
                       type={showPassword ? "text" : "password"} 
@@ -316,33 +359,44 @@ const App: React.FC = () => {
                 )}
                 
                 <Button type="submit" className="w-full bg-[#E60000] hover:bg-red-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-red-200 transition-all transform active:scale-[0.99]">
-                  ENTRAR
+                  ENTRAR COMO ADMIN
                 </Button>
               </form>
-            </div>
-            
-            <div className="px-8 py-4 bg-gray-50 border-t border-gray-100 text-center">
-              <button 
-                onClick={() => setCurrentView(AppView.VOTE_IDENTIFY)}
-                className="text-gray-600 hover:text-[#E60000] text-sm font-medium transition-colors flex items-center justify-center gap-2 mx-auto"
-              >
-                <div className="p-1 bg-white border rounded-md shadow-sm">
-                   <UserCheck className="w-4 h-4" />
-                </div>
-                Acesso Morador / Votar (Modo Local)
-              </button>
+
+              {/* DIVIDER */}
+              <div className="mt-8 relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-200"></div>
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-2 bg-white text-gray-500 font-medium text-[10px] tracking-widest">ÁREA DO CONDÔMINO</span>
+                  </div>
+              </div>
+
+              {/* RESIDENT BIG BUTTON */}
+              <div className="mt-6">
+                <Button 
+                  onClick={() => setCurrentView(AppView.VOTE_IDENTIFY)}
+                  variant="outline"
+                  className="w-full py-4 border-2 border-blue-600 text-blue-700 hover:bg-blue-50 hover:border-blue-700 font-bold flex items-center justify-center gap-3 text-base rounded-xl transition-all"
+                >
+                  <UserCheck className="w-6 h-6" />
+                  SOU MORADOR / QUERO VOTAR
+                </Button>
+              </div>
             </div>
           </div>
-
-          <div className="mt-12 text-white/90 text-center space-y-3 font-medium">
-            <div className="flex items-center justify-center gap-3 text-lg hover:text-white transition-colors">
-              <Phone className="fill-white/20" size={20} />
-              <span>(71) 4141-6903</span>
-            </div>
-            <div className="flex items-center justify-center gap-3 text-lg hover:text-white transition-colors">
-              <Instagram size={20} />
-              <span>zipconsultoria.oficial</span>
-            </div>
+          
+          <div className="mt-8 text-center">
+               {!isConnected ? (
+                   <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-white/70 text-xs backdrop-blur-sm border border-white/10">
+                       <WifiOff size={12} /> Modo Offline (Dados Locais)
+                   </span>
+               ) : (
+                   <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/20 text-white text-xs backdrop-blur-sm border border-green-400/30">
+                       <Wifi size={12} /> Sistema Online
+                   </span>
+               )}
           </div>
         </div>
       </div>
@@ -365,7 +419,7 @@ const App: React.FC = () => {
         setCondoName={setCondoName}
         pastAssemblies={pastAssemblies}
         onLogout={() => {
-          clearSession(); // <--- CLEAR SESSION ON LOGOUT
+          clearSession(); 
           setCurrentUser(null);
           setCurrentView(AppView.ADMIN_LOGIN);
         }}

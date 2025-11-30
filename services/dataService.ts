@@ -1,21 +1,48 @@
 
 import { Resident, Poll, VoteRecord, PollCalculationType, User, AssemblyRecord } from '../types';
+import { db, ref, set, update } from './firebase';
 
 const STORAGE_KEYS = {
   RESIDENTS: 'condovote_residents',
   POLLS: 'condovote_polls',
   VOTES: 'condovote_votes',
   USERS: 'condovote_users',
-  ADMIN_AUTH: 'condovote_admin_auth', // Key used for session persistence
+  ADMIN_AUTH: 'condovote_admin_auth',
   CONDO_NAME: 'condovote_condo_name',
   ASSEMBLIES: 'condovote_assemblies_history',
   IS_ASSEMBLY_ACTIVE: 'condovote_is_active'
 };
 
-// --- SESSION MANAGEMENT (UPDATED) ---
+// --- CLOUD SYNC HELPERS ---
+
+// Função auxiliar para salvar no Firebase (se conectado)
+const syncToCloud = (key: string, data: any) => {
+    if (db) {
+        // Usa o nome do condomínio como "pasta" principal se existir, ou 'default'
+        const condoName = localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
+        // Remove caracteres especiais para usar como chave
+        const safeKey = condoName.replace(/[^a-zA-Z0-9]/g, '_');
+        
+        // Caminho: /condominios/NOME_CONDOMINIO/key
+        // Mapeia as chaves de storage para chaves do banco
+        let dbPath = '';
+        if (key === STORAGE_KEYS.POLLS) dbPath = 'polls';
+        if (key === STORAGE_KEYS.VOTES) dbPath = 'votes';
+        if (key === STORAGE_KEYS.RESIDENTS) dbPath = 'residents';
+        if (key === STORAGE_KEYS.IS_ASSEMBLY_ACTIVE) dbPath = 'isActive';
+        if (key === STORAGE_KEYS.CONDO_NAME) dbPath = 'name';
+
+        if (dbPath) {
+            // Salva em: root/safeKey/dbPath
+            set(ref(db, `${safeKey}/${dbPath}`), data)
+               .catch(err => console.error("Erro ao sincronizar nuvem:", err));
+        }
+    }
+};
+
+// --------------------------------
+
 export const saveSession = (user: User, remember: boolean = true) => {
-  // If remember is true, use localStorage (persists across browser close)
-  // If false, use sessionStorage (persists across refresh F5, but clears on close)
   if (remember) {
     localStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(user));
   } else {
@@ -24,11 +51,9 @@ export const saveSession = (user: User, remember: boolean = true) => {
 };
 
 export const getSession = (): User | null => {
-  // Check localStorage first (Permanent)
   const localData = localStorage.getItem(STORAGE_KEYS.ADMIN_AUTH);
   if (localData) return JSON.parse(localData);
 
-  // Check sessionStorage second (Temporary)
   const sessionData = sessionStorage.getItem(STORAGE_KEYS.ADMIN_AUTH);
   if (sessionData) return JSON.parse(sessionData);
 
@@ -39,10 +64,10 @@ export const clearSession = () => {
   localStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
   sessionStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
 };
-// --------------------------------
 
 export const saveAssemblyStatus = (isActive: boolean) => {
   localStorage.setItem(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE, JSON.stringify(isActive));
+  syncToCloud(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE, isActive);
 };
 
 export const getAssemblyStatus = (): boolean => {
@@ -52,6 +77,7 @@ export const getAssemblyStatus = (): boolean => {
 
 export const saveResidents = (residents: Resident[]) => {
   localStorage.setItem(STORAGE_KEYS.RESIDENTS, JSON.stringify(residents));
+  syncToCloud(STORAGE_KEYS.RESIDENTS, residents);
 };
 
 export const getResidents = (): Resident[] => {
@@ -61,6 +87,7 @@ export const getResidents = (): Resident[] => {
 
 export const savePolls = (polls: Poll[]) => {
   localStorage.setItem(STORAGE_KEYS.POLLS, JSON.stringify(polls));
+  syncToCloud(STORAGE_KEYS.POLLS, polls);
 };
 
 export const getPolls = (): Poll[] => {
@@ -68,7 +95,6 @@ export const getPolls = (): Poll[] => {
   if (data) {
     const parsed = JSON.parse(data);
     if (!Array.isArray(parsed) && parsed.title) {
-       // Legacy migration
        return [{...parsed, id: parsed.id || 'legacy-id', calculationType: PollCalculationType.NORMAL}];
     }
     return parsed;
@@ -78,6 +104,7 @@ export const getPolls = (): Poll[] => {
 
 export const saveVotes = (votes: VoteRecord[]) => {
   localStorage.setItem(STORAGE_KEYS.VOTES, JSON.stringify(votes));
+  syncToCloud(STORAGE_KEYS.VOTES, votes);
 };
 
 export const getVotes = (): VoteRecord[] => {
@@ -87,6 +114,7 @@ export const getVotes = (): VoteRecord[] => {
 
 export const saveUsers = (users: User[]) => {
   localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+  // Usuários não sincronizamos automaticamente por segurança básica neste modelo simples
 };
 
 export const getUsers = (): User[] => {
@@ -94,7 +122,6 @@ export const getUsers = (): User[] => {
   if (data) {
     return JSON.parse(data);
   }
-  // Default seed users if none exist
   const defaultUsers: User[] = [
     { id: '1', name: 'Administrador', username: 'admin', password: 'admin', role: 'ADMIN' },
     { id: '2', name: 'Wagner Silva', username: 'wagner.silva', password: 'wagner21', role: 'TI' },
@@ -107,6 +134,7 @@ export const getUsers = (): User[] => {
 
 export const saveCondoName = (name: string) => {
   localStorage.setItem(STORAGE_KEYS.CONDO_NAME, name);
+  syncToCloud(STORAGE_KEYS.CONDO_NAME, name);
 };
 
 export const getCondoName = (): string => {
@@ -128,10 +156,14 @@ export const clearAllData = () => {
   localStorage.removeItem(STORAGE_KEYS.VOTES);
   localStorage.removeItem(STORAGE_KEYS.CONDO_NAME);
   localStorage.removeItem(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE);
-  // We generally don't clear users or history on a data wipe to prevent lockout/dataloss
+  
+  // Limpa também na nuvem se estiver conectado
+  if (db) {
+     const condoName = localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
+     const safeKey = condoName.replace(/[^a-zA-Z0-9]/g, '_');
+     set(ref(db, safeKey), null);
+  }
 };
-
-// --- BACKUP & RESTORE SYSTEM ---
 
 export const generateFullBackup = () => {
   const backupData = {
@@ -163,12 +195,10 @@ export const restoreFullBackup = (jsonText: string): boolean => {
   try {
     const data = JSON.parse(jsonText);
     
-    // Basic Validation
     if (!data.users || !Array.isArray(data.users)) {
       throw new Error("Formato de backup inválido (Users missing)");
     }
 
-    // Restore Data
     if (data.residents) saveResidents(data.residents);
     if (data.polls) savePolls(data.polls);
     if (data.votes) saveVotes(data.votes);
@@ -184,13 +214,10 @@ export const restoreFullBackup = (jsonText: string): boolean => {
   }
 };
 
-// -------------------------------
-
 export const parseCSV = (csvText: string): Resident[] => {
   const lines = csvText.split('\n');
   const residents: Resident[] = [];
 
-  // Skip header if it exists
   let startIndex = 0;
   if (lines[0] && (lines[0].toLowerCase().includes('cpf') || lines[0].toLowerCase().includes('unidade'))) {
     startIndex = 1;
@@ -203,17 +230,10 @@ export const parseCSV = (csvText: string): Resident[] => {
     const delimiter = line.includes(';') ? ';' : ',';
     const cols = line.split(delimiter).map(c => c.trim().replace(/^"|"$/g, ''));
 
-    // NEW Expected format: CPF, Unit, Name, Delinquent, HabiteSe (opt), Fraction (opt)
     if (cols.length >= 3) {
-      
-      // Col 0: CPF (Strip everything except numbers)
       const cpfRaw = cols[0] || '';
-      const cpf = cpfRaw.replace(/\D/g, ''); // Removes dots, hyphens, spaces
-
-      // Col 1: Unit
+      const cpf = cpfRaw.replace(/\D/g, ''); 
       const unit = cols[1];
-
-      // Col 2: Name
       const name = cols[2];
       
       const isDelinquentStr = cols[3] ? cols[3].toUpperCase() : 'NÃO';
@@ -222,9 +242,7 @@ export const parseCSV = (csvText: string): Resident[] => {
       const hasHabiteSeStr = cols[4] ? cols[4].toUpperCase() : 'NÃO';
       const hasHabiteSe = hasHabiteSeStr === 'SIM' || hasHabiteSeStr === 'YES' || hasHabiteSeStr === 'TRUE';
 
-      // Parse fraction (handle comma as decimal separator)
       let fraction = 1.0;
-      // FIX: Robust check to ensure column exists before accessing methods
       if (cols.length > 5 && cols[5]) {
         const cleanNum = cols[5].replace(',', '.');
         const parsed = parseFloat(cleanNum);
@@ -237,8 +255,8 @@ export const parseCSV = (csvText: string): Resident[] => {
         isDelinquent, 
         hasHabiteSe, 
         fraction,
-        cpf, // Stored as pure numbers
-        attendanceStatus: 'NONE' // Default status
+        cpf, 
+        attendanceStatus: 'NONE' 
       });
     }
   }
@@ -293,8 +311,6 @@ export const exportVotesToCSV = (votes: VoteRecord[], residents: Resident[], pol
 
 export const exportAttendanceCSV = (residents: Resident[], condoName: string) => {
   const headers = ['Unidade', 'Nome do Proprietário', 'CPF', 'Nome no Zoom', 'Horário de Entrada', 'Status'];
-  
-  // Filter only approved residents for the list
   const presentResidents = residents.filter(r => r.attendanceStatus === 'APPROVED');
 
   const rows = presentResidents.map(r => {
