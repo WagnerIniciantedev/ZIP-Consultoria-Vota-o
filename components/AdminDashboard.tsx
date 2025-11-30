@@ -411,12 +411,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <UserCog size={20} /> Gestão de Usuários
             </button>
             
-            <button 
-              onClick={() => { setActiveTab('backup'); setSelectedPollId(null); }}
-              className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${activeTab === 'backup' ? 'bg-red-50 text-red-700 font-medium' : 'text-gray-600 hover:bg-gray-100'}`}
-            >
-              <Database size={20} /> Backup & Dados
-            </button>
+            {isSuperUser && (
+              <button 
+                onClick={() => { setActiveTab('backup'); setSelectedPollId(null); }}
+                className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${activeTab === 'backup' ? 'bg-red-50 text-red-700 font-medium' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                <Database size={20} /> Backup & Dados
+              </button>
+            )}
 
             {isSuperUser && (
               <button 
@@ -549,7 +551,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
             
             {/* 8. BACKUP & DATA */}
-            {activeTab === 'backup' && (
+            {activeTab === 'backup' && isSuperUser && (
                 <Card title="Backup e Restauração de Dados">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-4">
                         <div className="p-6 bg-blue-50 border border-blue-200 rounded-xl">
