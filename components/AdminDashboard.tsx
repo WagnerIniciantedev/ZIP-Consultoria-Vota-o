@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileSpreadsheet, 
   Plus, 
@@ -18,11 +18,14 @@ import {
   FileText,
   Download,
   Trash2,
-  HelpCircle
+  HelpCircle,
+  HardDrive,
+  Database,
+  Upload
 } from 'lucide-react';
 import { Button, Card, Input } from './ui';
 import { Resident, Poll, VoteRecord, User, AssemblyRecord } from '../types';
-import { exportVotesToCSV } from '../services/dataService';
+import { exportVotesToCSV, generateFullBackup, restoreFullBackup } from '../services/dataService';
 
 // Imported Sub-Panels
 import { SetupPanel } from './dashboard/SetupPanel';
@@ -79,7 +82,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onEndAssembly,
   onDeleteAssembly
 }) => {
-  const [activeTab, setActiveTab] = useState<'setup_excel' | 'create_poll' | 'manage_polls' | 'users' | 'attendance' | 'history' | 'past_assemblies' | 'end_assembly'>('setup_excel');
+  const [activeTab, setActiveTab] = useState<'setup_excel' | 'create_poll' | 'manage_polls' | 'users' | 'attendance' | 'history' | 'past_assemblies' | 'end_assembly' | 'backup'>('setup_excel');
   const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
   
   // Start Assembly State
@@ -87,6 +90,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   
   // Delete Assembly Confirm State
   const [confirmDeleteAssemblyId, setConfirmDeleteAssemblyId] = useState<string | null>(null);
+
+  // Backup Import State
+  const backupInputRef = useRef<HTMLInputElement>(null);
 
   // TOUR STATE
   const [isTourOpen, setIsTourOpen] = useState(false);
@@ -187,6 +193,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleExportHistorical = (poll: Poll, historicalVotes: VoteRecord[], historicalResidents: Resident[]) => {
       exportVotesToCSV(historicalVotes, historicalResidents, poll);
+  };
+
+  const handleBackupUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            const content = evt.target?.result as string;
+            if (content) {
+                const success = restoreFullBackup(content);
+                if (success) {
+                    alert("Dados restaurados com sucesso! A página será recarregada.");
+                    window.location.reload();
+                } else {
+                    alert("Erro ao restaurar backup. Verifique se o arquivo é válido.");
+                }
+            }
+        };
+        reader.readAsText(file);
+    }
   };
 
 
@@ -385,6 +411,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <UserCog size={20} /> Gestão de Usuários
             </button>
             
+            <button 
+              onClick={() => { setActiveTab('backup'); setSelectedPollId(null); }}
+              className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${activeTab === 'backup' ? 'bg-red-50 text-red-700 font-medium' : 'text-gray-600 hover:bg-gray-100'}`}
+            >
+              <Database size={20} /> Backup & Dados
+            </button>
+
             {isSuperUser && (
               <button 
                 onClick={() => { setActiveTab('history'); setSelectedPollId(null); }}
@@ -514,8 +547,61 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </div>
                 </Card>
             )}
+            
+            {/* 8. BACKUP & DATA */}
+            {activeTab === 'backup' && (
+                <Card title="Backup e Restauração de Dados">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-4">
+                        <div className="p-6 bg-blue-50 border border-blue-200 rounded-xl">
+                            <div className="bg-blue-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                                <Download className="text-blue-600" size={24} />
+                            </div>
+                            <h3 className="text-lg font-bold text-blue-900 mb-2">Salvar Backup Completo</h3>
+                            <p className="text-sm text-blue-700 mb-6">
+                                Baixe um arquivo contendo TODAS as assembleias, votações, moradores e histórico.
+                                Use isso para transferir dados de um computador para outro.
+                            </p>
+                            <Button onClick={generateFullBackup} className="w-full bg-blue-600 hover:bg-blue-700">
+                                <Download size={18} className="mr-2" /> Baixar Dados (.JSON)
+                            </Button>
+                        </div>
 
-            {/* 8. PAST ASSEMBLIES */}
+                        <div className="p-6 bg-green-50 border border-green-200 rounded-xl">
+                            <div className="bg-green-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                                <Upload className="text-green-600" size={24} />
+                            </div>
+                            <h3 className="text-lg font-bold text-green-900 mb-2">Restaurar Backup</h3>
+                            <p className="text-sm text-green-700 mb-6">
+                                Carregue um arquivo de backup (.JSON) para restaurar todo o sistema neste computador.
+                                <br/><span className="font-bold text-red-600">Atenção: Isso substituirá os dados atuais.</span>
+                            </p>
+                            <input 
+                                type="file" 
+                                accept=".json" 
+                                ref={backupInputRef}
+                                className="hidden"
+                                onChange={handleBackupUpload}
+                            />
+                            <Button onClick={() => backupInputRef.current?.click()} className="w-full bg-green-600 hover:bg-green-700">
+                                <Upload size={18} className="mr-2" /> Carregar Arquivo
+                            </Button>
+                        </div>
+                    </div>
+                    
+                    <div className="mt-8 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        <h4 className="font-bold text-gray-800 flex items-center gap-2 mb-2">
+                            <HelpCircle size={16} /> Como usar o Backup na Vercel?
+                        </h4>
+                        <ul className="text-sm text-gray-600 space-y-2 list-disc list-inside">
+                            <li>O sistema salva os dados no navegador do seu computador (Local Storage).</li>
+                            <li>Para usar em outro computador, faça o <strong>Download</strong> aqui, envie o arquivo para a outra máquina e faça o <strong>Upload</strong> lá.</li>
+                            <li>Isso garante que você tenha total portabilidade dos seus dados sem precisar de servidores externos.</li>
+                        </ul>
+                    </div>
+                </Card>
+            )}
+
+            {/* 9. PAST ASSEMBLIES */}
             {activeTab === 'past_assemblies' && (
               <div className="space-y-6">
                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord } from './types';
 import { 
@@ -8,6 +9,7 @@ import {
   getCondoName, saveCondoName,
   getAssemblies, saveAssemblies,
   getAssemblyStatus, saveAssemblyStatus,
+  saveSession, getSession, clearSession, // Imported Session Helpers
   clearAllData
 } from './services/dataService';
 
@@ -15,7 +17,7 @@ import {
 import { AdminDashboard } from './components/AdminDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
 import { Button, Input } from './components/ui';
-import { Building2, Phone, Instagram, UserCheck, Eye, EyeOff } from 'lucide-react';
+import { Building2, Phone, Instagram, UserCheck, Eye, EyeOff, AlertTriangle, MonitorPlay } from 'lucide-react';
 
 const App: React.FC = () => {
   
@@ -45,19 +47,57 @@ const App: React.FC = () => {
   // Initial Load
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('access') === 'resident') {
-      setCurrentView(AppView.VOTE_IDENTIFY);
-    }
+    const isResidentAccess = params.get('access') === 'resident';
+
+    // Load Data
+    const loadedUsers = getUsers();
     setResidents(getResidents());
     setPolls(getPolls());
     setVotes(getVotes());
-    setUsers(getUsers());
+    setUsers(loadedUsers);
     setCondoName(getCondoName());
     setPastAssemblies(getAssemblies());
     setIsAssemblyActive(getAssemblyStatus());
+
+    // --- CHECK FOR PERSISTED SESSION ---
+    const savedUser = getSession();
+    
+    // Priority: Resident Link > Saved Admin Session
+    if (isResidentAccess) {
+      setCurrentView(AppView.VOTE_IDENTIFY);
+    } else if (savedUser) {
+      // Validate if the saved user still exists in the database
+      // (Safety check in case user was deleted while logged in on another tab)
+      const validSavedUser = loadedUsers.find(u => u.id === savedUser.id);
+      
+      if (validSavedUser) {
+        setCurrentUser(validSavedUser);
+        setCurrentView(AppView.ADMIN_DASHBOARD);
+      } else {
+        clearSession(); // Invalid user, clear session
+      }
+    }
   }, []);
 
-  // Persistence Listeners
+  // --- TAB SYNCHRONIZATION (NEW) ---
+  // Allows multiple tabs on the SAME browser to stay in sync (Admin Tab + Projector Tab)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      // If another tab updates these keys, update state immediately
+      if (e.key === 'condovote_polls') setPolls(getPolls());
+      if (e.key === 'condovote_votes') setVotes(getVotes());
+      if (e.key === 'condovote_residents') setResidents(getResidents());
+      if (e.key === 'condovote_is_active') setIsAssemblyActive(getAssemblyStatus());
+      if (e.key === 'condovote_condo_name') setCondoName(getCondoName());
+      // Note: We don't sync 'users' automatically to prevent session weirdness
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+
+  // Persistence Listeners (Save state to localStorage whenever it changes)
   useEffect(() => saveResidents(residents), [residents]);
   useEffect(() => savePolls(polls), [polls]);
   useEffect(() => saveVotes(votes), [votes]);
@@ -72,6 +112,7 @@ const App: React.FC = () => {
       const updatedSelf = users.find(u => u.id === currentUser.id);
       if (updatedSelf && JSON.stringify(updatedSelf) !== JSON.stringify(currentUser)) {
         setCurrentUser(updatedSelf);
+        saveSession(updatedSelf); // Update storage if user details change
       }
     }
   }, [users, currentUser]);
@@ -86,6 +127,7 @@ const App: React.FC = () => {
     const validUser = users.find(u => u.username === adminEmail && u.password === adminPass);
     if (validUser) {
       setCurrentUser(validUser);
+      saveSession(validUser); // <--- SAVE SESSION ON LOGIN
       setCurrentView(AppView.ADMIN_DASHBOARD);
       setLoginError('');
       setAdminEmail('');
@@ -268,7 +310,7 @@ const App: React.FC = () => {
                 <div className="p-1 bg-white border rounded-md shadow-sm">
                    <UserCheck className="w-4 h-4" />
                 </div>
-                Acesso Morador / Votar
+                Acesso Morador / Votar (Modo Local)
               </button>
             </div>
           </div>
@@ -304,6 +346,7 @@ const App: React.FC = () => {
         setCondoName={setCondoName}
         pastAssemblies={pastAssemblies}
         onLogout={() => {
+          clearSession(); // <--- CLEAR SESSION ON LOGOUT
           setCurrentUser(null);
           setCurrentView(AppView.ADMIN_LOGIN);
         }}

@@ -6,11 +6,26 @@ const STORAGE_KEYS = {
   POLLS: 'condovote_polls',
   VOTES: 'condovote_votes',
   USERS: 'condovote_users',
-  ADMIN_AUTH: 'condovote_admin_auth',
+  ADMIN_AUTH: 'condovote_admin_auth', // Key used for session persistence
   CONDO_NAME: 'condovote_condo_name',
   ASSEMBLIES: 'condovote_assemblies_history',
-  IS_ASSEMBLY_ACTIVE: 'condovote_is_active' // New Key
+  IS_ASSEMBLY_ACTIVE: 'condovote_is_active'
 };
+
+// --- SESSION MANAGEMENT (NEW) ---
+export const saveSession = (user: User) => {
+  localStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(user));
+};
+
+export const getSession = (): User | null => {
+  const data = localStorage.getItem(STORAGE_KEYS.ADMIN_AUTH);
+  return data ? JSON.parse(data) : null;
+};
+
+export const clearSession = () => {
+  localStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
+};
+// --------------------------------
 
 export const saveAssemblyStatus = (isActive: boolean) => {
   localStorage.setItem(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE, JSON.stringify(isActive));
@@ -101,6 +116,61 @@ export const clearAllData = () => {
   localStorage.removeItem(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE);
   // We generally don't clear users or history on a data wipe to prevent lockout/dataloss
 };
+
+// --- BACKUP & RESTORE SYSTEM ---
+
+export const generateFullBackup = () => {
+  const backupData = {
+    version: '1.0',
+    timestamp: Date.now(),
+    condoName: getCondoName(),
+    residents: getResidents(),
+    polls: getPolls(),
+    votes: getVotes(),
+    users: getUsers(),
+    pastAssemblies: getAssemblies(),
+    isActive: getAssemblyStatus()
+  };
+
+  const jsonString = JSON.stringify(backupData, null, 2);
+  const blob = new Blob([jsonString], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  
+  const link = document.createElement('a');
+  link.href = url;
+  const safeName = (backupData.condoName || 'sistema').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  link.download = `backup_zip_consultoria_${safeName}_${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+export const restoreFullBackup = (jsonText: string): boolean => {
+  try {
+    const data = JSON.parse(jsonText);
+    
+    // Basic Validation
+    if (!data.users || !Array.isArray(data.users)) {
+      throw new Error("Formato de backup inválido (Users missing)");
+    }
+
+    // Restore Data
+    if (data.residents) saveResidents(data.residents);
+    if (data.polls) savePolls(data.polls);
+    if (data.votes) saveVotes(data.votes);
+    if (data.users) saveUsers(data.users);
+    if (data.condoName) saveCondoName(data.condoName);
+    if (data.pastAssemblies) saveAssemblies(data.pastAssemblies);
+    if (data.isActive !== undefined) saveAssemblyStatus(data.isActive);
+
+    return true;
+  } catch (error) {
+    console.error("Backup restore failed:", error);
+    return false;
+  }
+};
+
+// -------------------------------
 
 export const parseCSV = (csvText: string): Resident[] => {
   const lines = csvText.split('\n');
