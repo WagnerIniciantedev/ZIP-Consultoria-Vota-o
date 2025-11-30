@@ -11,13 +11,14 @@ import { getDatabase, ref, set, onValue, update } from "firebase/database";
 // ============================================================================
 
 const firebaseConfig = {
-  apiKey: "COLE_SUA_API_KEY_AQUI",             
-  authDomain: "COLE_SEU_AUTH_DOMAIN_AQUI",     
-  databaseURL: "COLE_SUA_DATABASE_URL_AQUI",   
-  projectId: "COLE_SEU_PROJECT_ID_AQUI",       
-  storageBucket: "COLE_SEU_STORAGE_BUCKET_AQUI",
-  messagingSenderId: "COLE_SEU_SENDER_ID_AQUI",
-  appId: "COLE_SEU_APP_ID_AQUI"
+  apiKey:"AIzaSyDuzgGUGY2Q4050ML_0wbsNAXTWXgGdGeo",
+  authDomain:"zip-consultoria-votacao.firebaseapp.com",
+  databaseURL: "https://zip-consultoria-votacao-default-rtdb.firebaseio.com",
+  projectId: "zip-consultoria-votacao",
+  storageBucket: "zip-consultoria-votacao.firebasestorage.app",
+  messagingSenderId: "922958275726",
+  appId: "1:922958275726:web:94a52493bbe015a9b855df",
+  measurementId: "G-6J3600FX44"
 };
 
 // ============================================================================
