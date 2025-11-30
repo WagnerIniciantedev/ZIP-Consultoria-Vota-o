@@ -106,6 +106,10 @@ const App: React.FC = () => {
         if (data) {
             setPolls(data);
             localStorage.setItem('condovote_polls', JSON.stringify(data));
+        } else {
+            // FIX: Explicitly clear local state if cloud data is null (wiped)
+            setPolls([]);
+            localStorage.removeItem('condovote_polls');
         }
     });
 
@@ -114,6 +118,10 @@ const App: React.FC = () => {
         if (data) {
             setVotes(data);
             localStorage.setItem('condovote_votes', JSON.stringify(data));
+        } else {
+            // FIX: Explicitly clear local state if cloud data is null
+            setVotes([]);
+            localStorage.removeItem('condovote_votes');
         }
     });
 
@@ -122,6 +130,10 @@ const App: React.FC = () => {
         if (data) {
             setResidents(data);
             localStorage.setItem('condovote_residents', JSON.stringify(data));
+        } else {
+            // FIX: Explicitly clear local state if cloud data is null
+            setResidents([]);
+            localStorage.removeItem('condovote_residents');
         }
     });
 
@@ -197,6 +209,11 @@ const App: React.FC = () => {
   };
 
   const handleStartAssembly = (name: string) => {
+    // FIX: Ensure data is clean when starting a new assembly
+    setResidents([]);
+    setPolls([]);
+    setVotes([]);
+    
     setCondoName(name);
     setIsAssemblyActive(true);
   };
