@@ -12,18 +12,32 @@ const STORAGE_KEYS = {
   IS_ASSEMBLY_ACTIVE: 'condovote_is_active'
 };
 
-// --- SESSION MANAGEMENT (NEW) ---
-export const saveSession = (user: User) => {
-  localStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(user));
+// --- SESSION MANAGEMENT (UPDATED) ---
+export const saveSession = (user: User, remember: boolean = true) => {
+  // If remember is true, use localStorage (persists across browser close)
+  // If false, use sessionStorage (persists across refresh F5, but clears on close)
+  if (remember) {
+    localStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(user));
+  } else {
+    sessionStorage.setItem(STORAGE_KEYS.ADMIN_AUTH, JSON.stringify(user));
+  }
 };
 
 export const getSession = (): User | null => {
-  const data = localStorage.getItem(STORAGE_KEYS.ADMIN_AUTH);
-  return data ? JSON.parse(data) : null;
+  // Check localStorage first (Permanent)
+  const localData = localStorage.getItem(STORAGE_KEYS.ADMIN_AUTH);
+  if (localData) return JSON.parse(localData);
+
+  // Check sessionStorage second (Temporary)
+  const sessionData = sessionStorage.getItem(STORAGE_KEYS.ADMIN_AUTH);
+  if (sessionData) return JSON.parse(sessionData);
+
+  return null;
 };
 
 export const clearSession = () => {
   localStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
+  sessionStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
 };
 // --------------------------------
 

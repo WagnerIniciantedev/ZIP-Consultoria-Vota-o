@@ -38,6 +38,7 @@ const App: React.FC = () => {
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPass, setAdminPass] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false); // New Remember Me State
   const [loginError, setLoginError] = useState('');
 
   // ============================================================================
@@ -112,7 +113,12 @@ const App: React.FC = () => {
       const updatedSelf = users.find(u => u.id === currentUser.id);
       if (updatedSelf && JSON.stringify(updatedSelf) !== JSON.stringify(currentUser)) {
         setCurrentUser(updatedSelf);
-        saveSession(updatedSelf); // Update storage if user details change
+        // We only update the storage type that was already in use (implicitly handled by getSession logic usually,
+        // but here we just default to saveSession which might upgrade them to localStorage if we aren't tracking where they came from.
+        // For simplicity, we just save to the active session type if we could track it, but saveSession(..., true) is safe enough or we skip auto-sync for session type
+        // Let's just update based on where it is.
+        const isInLocal = localStorage.getItem('condovote_admin_auth');
+        saveSession(updatedSelf, !!isInLocal); 
       }
     }
   }, [users, currentUser]);
@@ -127,7 +133,7 @@ const App: React.FC = () => {
     const validUser = users.find(u => u.username === adminEmail && u.password === adminPass);
     if (validUser) {
       setCurrentUser(validUser);
-      saveSession(validUser); // <--- SAVE SESSION ON LOGIN
+      saveSession(validUser, rememberMe); // <--- SAVE SESSION (PERSISTENT OR TEMP)
       setCurrentView(AppView.ADMIN_DASHBOARD);
       setLoginError('');
       setAdminEmail('');
@@ -287,6 +293,19 @@ const App: React.FC = () => {
                       {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
                   </div>
+                </div>
+
+                <div className="flex items-center pl-1">
+                  <input 
+                    id="remember-me" 
+                    type="checkbox" 
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 text-red-600 bg-gray-100 border-gray-300 rounded focus:ring-red-500 cursor-pointer"
+                  />
+                  <label htmlFor="remember-me" className="ml-2 text-sm font-medium text-gray-700 cursor-pointer select-none">
+                    Permanecer conectado
+                  </label>
                 </div>
                 
                 {loginError && (
