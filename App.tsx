@@ -100,6 +100,23 @@ const App: React.FC = () => {
     const residentsRef = ref(db, `${safeKey}/residents`);
     const activeRef = ref(db, `${safeKey}/isActive`);
 
+    // --- GLOBAL LISTENER FOR ACTIVE CONDO (Multi-device Sync) ---
+    // This allows residents to automatically find the correct session
+    const globalRef = ref(db, '_system/active_condo');
+    const unsubGlobal = onValue(globalRef, (snapshot) => {
+        const val = snapshot.val();
+        // If there is an active condo in the cloud, and it's different from what we have, update locally
+        // But only if we are NOT in admin mode or if we are a fresh session
+        if (val && val !== condoName && val !== 'null') {
+             // Only auto-switch if we are not actively managing another named session
+             // or if we are a resident client
+             if (currentView !== AppView.ADMIN_DASHBOARD || !condoName) {
+                 console.log("Syncing with Global Active Condo:", val);
+                 setCondoName(val);
+             }
+        }
+    });
+
     // Listeners
     const unsubPolls = onValue(pollsRef, (snapshot) => {
         const data = snapshot.val();
@@ -150,8 +167,9 @@ const App: React.FC = () => {
         unsubVotes();
         unsubResidents();
         unsubActive();
+        unsubGlobal();
     };
-  }, [condoName]); // Re-subscribe if Condo Name changes (e.g. starting new assembly)
+  }, [condoName, currentView]); // Re-subscribe if Condo Name changes
 
 
   // --- TAB SYNCHRONIZATION (LOCAL) ---
@@ -278,12 +296,16 @@ const App: React.FC = () => {
       };
       setPastAssemblies(prev => [assemblySnapshot, ...prev]);
     }
+    
+    // IMPORTANT: Clear ALL data (Cloud and Local) BEFORE resetting state.
+    // We pass the current 'condoName' to ensure the correct firebase node is wiped.
+    clearAllData(condoName);
+
     setPolls([]);
     setVotes([]);
     setResidents([]);
     setCondoName('');
     setIsAssemblyActive(false);
-    clearAllData();
   };
 
   const handleDeleteAssembly = (id: string) => {

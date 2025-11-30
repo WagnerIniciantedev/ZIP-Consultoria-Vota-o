@@ -13,6 +13,8 @@ const STORAGE_KEYS = {
   IS_ASSEMBLY_ACTIVE: 'condovote_is_active'
 };
 
+const GLOBAL_ACTIVE_CONDO_PATH = '_system/active_condo';
+
 // --- CLOUD SYNC HELPERS ---
 
 // Função auxiliar para salvar no Firebase (se conectado)
@@ -135,6 +137,12 @@ export const getUsers = (): User[] => {
 export const saveCondoName = (name: string) => {
   localStorage.setItem(STORAGE_KEYS.CONDO_NAME, name);
   syncToCloud(STORAGE_KEYS.CONDO_NAME, name);
+  
+  // Atualiza o "ponteiro global" se estiver conectado
+  // Isso avisa a todos os dispositivos qual é a assembleia ativa no momento
+  if (db && name && name !== 'Modo Administrativo') {
+      set(ref(db, GLOBAL_ACTIVE_CONDO_PATH), name).catch(e => console.error(e));
+  }
 };
 
 export const getCondoName = (): string => {
@@ -150,7 +158,7 @@ export const getAssemblies = (): AssemblyRecord[] => {
   return data ? JSON.parse(data) : [];
 };
 
-export const clearAllData = () => {
+export const clearAllData = (specificName?: string) => {
   localStorage.removeItem(STORAGE_KEYS.RESIDENTS);
   localStorage.removeItem(STORAGE_KEYS.POLLS);
   localStorage.removeItem(STORAGE_KEYS.VOTES);
@@ -159,9 +167,15 @@ export const clearAllData = () => {
   
   // Limpa também na nuvem se estiver conectado
   if (db) {
-     const condoName = localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
-     const safeKey = condoName.replace(/[^a-zA-Z0-9]/g, '_');
+     const nameToClear = specificName || localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
+     const safeKey = nameToClear.replace(/[^a-zA-Z0-9]/g, '_');
+     
+     // 1. Limpa os dados específicos do condomínio
      set(ref(db, safeKey), null);
+     
+     // 2. Limpa o ponteiro global se ele estiver apontando para este condomínio
+     // (Isso impede que novos usuários entrem numa sessão morta)
+     set(ref(db, GLOBAL_ACTIVE_CONDO_PATH), null);
   }
 };
 
