@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord } from './types';
 import { 
@@ -324,11 +325,11 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex flex-col items-center w-full max-w-md z-10">
-          <div className="mb-8 text-center bg-white/10 backdrop-blur-sm p-4 rounded-xl border border-white/20 shadow-xl">
+          <div className="mb-8 text-center">
              <img 
-               src="https://drive.google.com/uc?export=view&id=1KMygLD3zZGTCuvbOTNSMB5blFBrOAFZR" 
+               src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
                alt="Zip Consultoria" 
-               className="h-28 w-auto mx-auto object-contain drop-shadow-md"
+               className="h-64 w-auto mx-auto object-contain drop-shadow-xl"
              />
           </div>
           

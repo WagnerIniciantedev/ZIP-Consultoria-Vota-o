@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileSpreadsheet, 
@@ -220,12 +221,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return (
         <div className="min-h-screen bg-gray-50 flex flex-col">
             <header className="bg-white shadow-sm border-b border-gray-200">
-                <div className="max-w-7xl mx-auto px-4 h-16 flex justify-between items-center">
+                <div className="max-w-7xl mx-auto px-4 h-24 flex justify-between items-center">
                     <div className="flex items-center gap-2">
                         <img 
-                            src="https://drive.google.com/uc?export=view&id=1KMygLD3zZGTCuvbOTNSMB5blFBrOAFZR" 
+                            src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
                             alt="Zip Consultoria" 
-                            className="h-10 w-auto object-contain"
+                            className="h-20 w-auto object-contain"
                         />
                     </div>
                     <div className="flex items-center gap-4">
@@ -303,12 +304,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Top Navbar */}
       <header className="bg-white shadow-sm sticky top-0 z-20 border-b border-red-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
+          <div className="flex justify-between h-24 items-center">
             <div className="flex items-center gap-2">
                <img 
-                    src="https://drive.google.com/uc?export=view&id=1KMygLD3zZGTCuvbOTNSMB5blFBrOAFZR" 
+                    src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
                     alt="Zip Consultoria" 
-                    className="h-10 w-auto object-contain"
+                    className="h-20 w-auto object-contain"
                />
             </div>
 
