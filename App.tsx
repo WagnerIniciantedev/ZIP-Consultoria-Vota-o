@@ -13,8 +13,8 @@ import {
   clearAllData,
   saveAssemblyStartTime, getAssemblyStartTime
 } from './services/dataService';
-// Import Firebase Firestore
-import { db, doc, onSnapshot, setDoc } from './services/firebase';
+// Import Firebase Firestore & Auth
+import { db, doc, onSnapshot, setDoc, auth, signInAnonymously } from './services/firebase';
 
 // UI Components
 import { AdminDashboard } from './components/AdminDashboard';
@@ -86,6 +86,13 @@ const App: React.FC = () => {
       return;
     }
 
+    // AUTHENTICATE ANONYMOUSLY TO SATISFY RULES
+    if (auth) {
+        signInAnonymously(auth)
+            .then(() => console.log("🔐 Autenticado no Firebase (Anônimo) para acesso ao Banco de Dados"))
+            .catch((err) => console.warn("⚠️ Autenticação Anônima falhou. Se você ativou o Auth no console, ative o provedor 'Anônimo' ou ajuste as Regras.", err));
+    }
+
     // Determine the safe key based on condo name or localstorage default
     const currentName = condoName || localStorage.getItem('condovote_condo_name') || 'setup';
     const safeKey = currentName.replace(/[^a-zA-Z0-9]/g, '_');
@@ -117,6 +124,14 @@ const App: React.FC = () => {
             if (data && Array.isArray(data.list)) {
                 setUsers(data.list);
                 localStorage.setItem('condovote_users', JSON.stringify(data.list));
+                
+                // If we are logged in, ensure our user data is up to date with DB
+                if (currentUser) {
+                    const meInDb = data.list.find((u: User) => u.id === currentUser.id);
+                    if (meInDb && JSON.stringify(meInDb) !== JSON.stringify(currentUser)) {
+                        setCurrentUser(meInDb);
+                    }
+                }
             }
         } else {
             // Self-Healing: If DB is empty, upload current defaults so admin doesn't get locked out
@@ -204,7 +219,7 @@ const App: React.FC = () => {
         unsubAssembly();
         unsubUsers();
     };
-  }, [condoName, currentView]); // Re-subscribe if Condo Name changes
+  }, [condoName, currentView, currentUser]); // Re-subscribe if Condo Name changes
 
 
   // --- TAB SYNCHRONIZATION (LOCAL) ---

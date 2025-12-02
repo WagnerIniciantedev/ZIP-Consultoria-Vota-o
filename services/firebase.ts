@@ -1,9 +1,10 @@
 
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, getDoc } from "firebase/firestore";
+import { getAuth, signInAnonymously } from "firebase/auth";
 
 // ============================================================================
-// CONFIGURAÇÃO DO FIREBASE (FIRESTORE)
+// CONFIGURAÇÃO DO FIREBASE (FIRESTORE + AUTH)
 // ============================================================================
 
 const firebaseConfig = {
@@ -22,15 +23,19 @@ const firebaseConfig = {
 // ============================================================================
 
 let db: any = null;
+let auth: any = null;
 
 try {
     const app = initializeApp(firebaseConfig);
-    // Inicializa o Firestore em vez do Realtime DB
+    // Inicializa o Firestore
     db = getFirestore(app);
-    console.log("✅ Firestore conectado com sucesso!");
+    // Inicializa a Autenticação
+    auth = getAuth(app);
+    
+    console.log("✅ Firebase Firestore e Auth inicializados!");
 } catch (error) {
     console.error("Erro ao inicializar Firebase:", error);
 }
 
-export { db };
+export { db, auth, signInAnonymously };
 export { doc, setDoc, deleteDoc, onSnapshot, getDoc };
