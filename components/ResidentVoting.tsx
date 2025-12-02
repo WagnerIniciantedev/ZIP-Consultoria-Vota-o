@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Input, Card, Badge } from './ui';
 import { Resident, Poll } from '../types';
-import { Vote, CheckCircle, UserCheck, Lock, ArrowLeft, ChevronRight, Video, Clock, Building, Users, LayoutDashboard, AlertCircle } from 'lucide-react';
+import { Vote, CheckCircle, UserCheck, Lock, ArrowLeft, ChevronRight, Video, Clock, Building, Users, LayoutDashboard, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface ResidentVotingProps {
   residents: Resident[];
@@ -89,6 +89,11 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   }, [residents, step]);
 
   const handleIdentify = () => {
+    if (residents.length === 0) {
+        alert("A lista de moradores ainda não foi carregada pelo administrador. Aguarde um momento e tente novamente.");
+        return;
+    }
+
     const targetUnit = unitInput.toLowerCase().trim();
     const targetCpfClean = cpfInput.replace(/\D/g, '');
 
@@ -237,6 +242,14 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
           <Card title="Acesso ao Sistema">
             <div className="space-y-4">
               <p className="text-gray-600 text-sm">Identifique-se para entrar na assembleia.</p>
+              
+              {residents.length === 0 && (
+                  <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg text-xs text-yellow-800 flex items-center gap-2 animate-pulse">
+                      <RefreshCw className="animate-spin" size={14} />
+                      Aguardando sincronização da lista de moradores...
+                  </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Unidade / Apartamento</label>
                 <Input 
@@ -259,8 +272,8 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                 <Button variant="outline" onClick={onBack} className="flex-1">
                   Voltar
                 </Button>
-                <Button onClick={handleIdentify} className="flex-[2]">
-                  Continuar
+                <Button onClick={handleIdentify} className="flex-[2]" disabled={residents.length === 0}>
+                  {residents.length === 0 ? "Carregando..." : "Continuar"}
                 </Button>
               </div>
             </div>

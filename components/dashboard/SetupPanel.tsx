@@ -1,8 +1,8 @@
 
 import React, { useState, useRef } from 'react';
 import { Resident, PollCalculationType } from '../../types';
-import { parseCSV } from '../../services/dataService';
-import { FileSpreadsheet, HelpCircle, Download, AlertCircle, FileText, CheckCircle2 } from 'lucide-react';
+import { parseCSV, saveResidents } from '../../services/dataService'; // Import saveResidents directly
+import { FileSpreadsheet, HelpCircle, Download, AlertCircle, FileText, CheckCircle2, UploadCloud } from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
 
 interface SetupPanelProps {
@@ -13,20 +13,33 @@ interface SetupPanelProps {
 export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents }) => {
   const [importType, setImportType] = useState<PollCalculationType>(PollCalculationType.NORMAL);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setIsSaving(true);
       const reader = new FileReader();
       reader.onload = (evt) => {
         const text = evt.target?.result as string;
         const parsed = parseCSV(text);
         if (parsed.length > 0) {
+          // 1. Update Local State (Visual)
           setResidents(parsed);
-          alert(`${parsed.length} moradores importados com sucesso!`);
+          
+          // 2. Force Cloud Sync Immediately (Real-time)
+          try {
+             saveResidents(parsed);
+             console.log("Residents forced sync to cloud.");
+             alert(`${parsed.length} moradores importados e sincronizados com a nuvem!`);
+          } catch (err) {
+             console.error("Error syncing residents:", err);
+             alert("Erro ao sincronizar com o banco de dados. Verifique sua conexão.");
+          }
         } else {
           alert("Não foi possível ler os dados. Verifique se o arquivo segue o modelo abaixo.");
         }
+        setIsSaving(false);
       };
       reader.readAsText(file);
     }
@@ -167,15 +180,19 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents 
                     ref={fileInputRef}
                     onChange={handleFileUpload}
                     />
-                    <Button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 py-3 px-6 shadow-md shadow-red-100 w-full sm:w-auto justify-center">
+                    <Button 
+                        onClick={() => fileInputRef.current?.click()} 
+                        disabled={isSaving}
+                        className={`flex items-center gap-2 py-3 px-6 shadow-md shadow-red-100 w-full sm:w-auto justify-center ${isSaving ? 'opacity-70 cursor-wait' : ''}`}
+                    >
                     <span className="bg-white/20 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">3</span>
-                    Carregar Arquivo CSV
+                    {isSaving ? "Enviando para Nuvem..." : "Carregar Arquivo CSV"}
                     </Button>
                 </div>
                 
                 {residents.length > 0 && (
                      <div className="flex items-center gap-2 bg-green-50 px-4 py-2 rounded-lg border border-green-200 text-green-700 animate-in fade-in">
-                        <CheckCircle2 size={20} />
+                        {isSaving ? <UploadCloud className="animate-bounce" size={20} /> : <CheckCircle2 size={20} />}
                         <span className="font-bold">{residents.length}</span> unidades carregadas.
                      </div>
                 )}
