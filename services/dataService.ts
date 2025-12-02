@@ -1,6 +1,6 @@
 
 import { Resident, Poll, VoteRecord, PollCalculationType, User, AssemblyRecord } from '../types';
-import { db, ref, set, update } from './firebase';
+import { db, doc, setDoc, deleteDoc } from './firebase';
 
 const STORAGE_KEYS = {
   RESIDENTS: 'condovote_residents',
@@ -10,34 +10,38 @@ const STORAGE_KEYS = {
   ADMIN_AUTH: 'condovote_admin_auth',
   CONDO_NAME: 'condovote_condo_name',
   ASSEMBLIES: 'condovote_assemblies_history',
-  IS_ASSEMBLY_ACTIVE: 'condovote_is_active'
+  IS_ASSEMBLY_ACTIVE: 'condovote_is_active',
+  ASSEMBLY_START_TIME: 'condovote_assembly_start_time'
 };
 
-const GLOBAL_ACTIVE_CONDO_PATH = '_system/active_condo';
+// Firestore Collections
+const ASSEMBLIES_COLLECTION = 'assemblies';
+const SYSTEM_COLLECTION = 'system';
+const GLOBAL_DOC_ID = 'global';
+const USERS_DOC_ID = 'users';
 
-// --- CLOUD SYNC HELPERS ---
+// --- CLOUD SYNC HELPERS (FIRESTORE VERSION) ---
 
-// Função auxiliar para salvar no Firebase (se conectado)
 const syncToCloud = (key: string, data: any) => {
     if (db) {
-        // Usa o nome do condomínio como "pasta" principal se existir, ou 'default'
         const condoName = localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
-        // Remove caracteres especiais para usar como chave
         const safeKey = condoName.replace(/[^a-zA-Z0-9]/g, '_');
         
-        // Caminho: /condominios/NOME_CONDOMINIO/key
-        // Mapeia as chaves de storage para chaves do banco
-        let dbPath = '';
-        if (key === STORAGE_KEYS.POLLS) dbPath = 'polls';
-        if (key === STORAGE_KEYS.VOTES) dbPath = 'votes';
-        if (key === STORAGE_KEYS.RESIDENTS) dbPath = 'residents';
-        if (key === STORAGE_KEYS.IS_ASSEMBLY_ACTIVE) dbPath = 'isActive';
-        if (key === STORAGE_KEYS.CONDO_NAME) dbPath = 'name';
+        // Mapeia a chave de storage para o campo dentro do documento do condomínio
+        let fieldName = '';
+        if (key === STORAGE_KEYS.POLLS) fieldName = 'polls';
+        if (key === STORAGE_KEYS.VOTES) fieldName = 'votes';
+        if (key === STORAGE_KEYS.RESIDENTS) fieldName = 'residents';
+        if (key === STORAGE_KEYS.IS_ASSEMBLY_ACTIVE) fieldName = 'isActive';
+        if (key === STORAGE_KEYS.ASSEMBLY_START_TIME) fieldName = 'startTime';
+        if (key === STORAGE_KEYS.CONDO_NAME) fieldName = 'name';
 
-        if (dbPath) {
-            // Salva em: root/safeKey/dbPath
-            set(ref(db, `${safeKey}/${dbPath}`), data)
-               .catch(err => console.error("Erro ao sincronizar nuvem:", err));
+        if (fieldName) {
+            // Firestore: Update specific field in the document 'assemblies/{safeKey}'
+            const docRef = doc(db, ASSEMBLIES_COLLECTION, safeKey);
+            // merge: true garante que não sobrescrevemos outros campos (ex: salvar votos não apaga enquetes)
+            setDoc(docRef, { [fieldName]: data }, { merge: true })
+               .catch(err => console.error("Erro ao sincronizar Firestore:", err));
         }
     }
 };
@@ -75,6 +79,16 @@ export const saveAssemblyStatus = (isActive: boolean) => {
 export const getAssemblyStatus = (): boolean => {
   const data = localStorage.getItem(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE);
   return data ? JSON.parse(data) : false;
+};
+
+export const saveAssemblyStartTime = (timestamp: number) => {
+  localStorage.setItem(STORAGE_KEYS.ASSEMBLY_START_TIME, timestamp.toString());
+  syncToCloud(STORAGE_KEYS.ASSEMBLY_START_TIME, timestamp);
+};
+
+export const getAssemblyStartTime = (): number => {
+  const data = localStorage.getItem(STORAGE_KEYS.ASSEMBLY_START_TIME);
+  return data ? parseInt(data) : 0;
 };
 
 export const saveResidents = (residents: Resident[]) => {
@@ -116,7 +130,12 @@ export const getVotes = (): VoteRecord[] => {
 
 export const saveUsers = (users: User[]) => {
   localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-  // Usuários não sincronizamos automaticamente por segurança básica neste modelo simples
+  // Users Sync to Firestore (Global System Collection)
+  if (db) {
+    const usersRef = doc(db, SYSTEM_COLLECTION, USERS_DOC_ID);
+    setDoc(usersRef, { list: users }, { merge: true })
+      .catch(err => console.error("Erro ao salvar usuários no Firestore:", err));
+  }
 };
 
 export const getUsers = (): User[] => {
@@ -138,10 +157,11 @@ export const saveCondoName = (name: string) => {
   localStorage.setItem(STORAGE_KEYS.CONDO_NAME, name);
   syncToCloud(STORAGE_KEYS.CONDO_NAME, name);
   
-  // Atualiza o "ponteiro global" se estiver conectado
-  // Isso avisa a todos os dispositivos qual é a assembleia ativa no momento
+  // Atualiza o "ponteiro global" no Firestore
   if (db && name && name !== 'Modo Administrativo') {
-      set(ref(db, GLOBAL_ACTIVE_CONDO_PATH), name).catch(e => console.error(e));
+      const globalRef = doc(db, SYSTEM_COLLECTION, GLOBAL_DOC_ID);
+      setDoc(globalRef, { active_condo: name }, { merge: true })
+        .catch(e => console.error(e));
   }
 };
 
@@ -158,24 +178,27 @@ export const getAssemblies = (): AssemblyRecord[] => {
   return data ? JSON.parse(data) : [];
 };
 
-export const clearAllData = (specificName?: string) => {
+export const clearAllData = async (specificName?: string) => {
   localStorage.removeItem(STORAGE_KEYS.RESIDENTS);
   localStorage.removeItem(STORAGE_KEYS.POLLS);
   localStorage.removeItem(STORAGE_KEYS.VOTES);
   localStorage.removeItem(STORAGE_KEYS.CONDO_NAME);
   localStorage.removeItem(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE);
+  localStorage.removeItem(STORAGE_KEYS.ASSEMBLY_START_TIME);
   
-  // Limpa também na nuvem se estiver conectado
   if (db) {
      const nameToClear = specificName || localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
      const safeKey = nameToClear.replace(/[^a-zA-Z0-9]/g, '_');
      
-     // 1. Limpa os dados específicos do condomínio
-     set(ref(db, safeKey), null);
-     
-     // 2. Limpa o ponteiro global se ele estiver apontando para este condomínio
-     // (Isso impede que novos usuários entrem numa sessão morta)
-     set(ref(db, GLOBAL_ACTIVE_CONDO_PATH), null);
+     try {
+         // 1. Delete the specific assembly document
+         await deleteDoc(doc(db, ASSEMBLIES_COLLECTION, safeKey));
+         
+         // 2. Clear global pointer if needed
+         await setDoc(doc(db, SYSTEM_COLLECTION, GLOBAL_DOC_ID), { active_condo: null }, { merge: true });
+     } catch (e) {
+         console.error("Error clearing Firestore:", e);
+     }
   }
 };
 

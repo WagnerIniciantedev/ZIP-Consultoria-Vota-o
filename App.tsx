@@ -10,10 +10,11 @@ import {
   getAssemblies, saveAssemblies,
   getAssemblyStatus, saveAssemblyStatus,
   saveSession, getSession, clearSession,
-  clearAllData
+  clearAllData,
+  saveAssemblyStartTime, getAssemblyStartTime
 } from './services/dataService';
-// Import Firebase Hookup
-import { db, ref, onValue } from './services/firebase';
+// Import Firebase Firestore
+import { db, doc, onSnapshot, setDoc } from './services/firebase';
 
 // UI Components
 import { AdminDashboard } from './components/AdminDashboard';
@@ -34,6 +35,7 @@ const App: React.FC = () => {
   const [condoName, setCondoName] = useState<string>('');
   const [pastAssemblies, setPastAssemblies] = useState<AssemblyRecord[]>([]);
   const [isAssemblyActive, setIsAssemblyActive] = useState<boolean>(false);
+  const [assemblyStartTime, setAssemblyStartTime] = useState<number>(0);
 
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -58,29 +60,26 @@ const App: React.FC = () => {
     setResidents(getResidents());
     setPolls(getPolls());
     setVotes(getVotes());
+    // getUsers initial load (fallback until Firestore connects)
     setUsers(getUsers());
     setCondoName(getCondoName());
     setPastAssemblies(getAssemblies());
     setIsAssemblyActive(getAssemblyStatus());
+    setAssemblyStartTime(getAssemblyStartTime());
 
     const savedUser = getSession();
     
     if (isResidentAccess) {
       setCurrentView(AppView.VOTE_IDENTIFY);
     } else if (savedUser) {
-      const validSavedUser = getUsers().find(u => u.id === savedUser.id);
-      if (validSavedUser) {
-        setCurrentUser(validSavedUser);
-        setCurrentView(AppView.ADMIN_DASHBOARD);
-      } else {
-        clearSession();
-      }
+      // Check if saved session user still exists in the (potentially updated) users list
+      // Note: We might re-check this after Firestore updates the users list
+      setCurrentUser(savedUser);
+      setCurrentView(AppView.ADMIN_DASHBOARD);
     }
   }, []);
 
-  // --- FIREBASE REALTIME LISTENER ---
-  // This connects the app to the cloud db. When data changes in the cloud,
-  // it updates the local state automatically.
+  // --- FIRESTORE REALTIME LISTENER ---
   useEffect(() => {
     if (!db) {
       setIsConnected(false);
@@ -88,28 +87,21 @@ const App: React.FC = () => {
     }
 
     // Determine the safe key based on condo name or localstorage default
-    // NOTE: This creates a dependency. If condoName changes, listeners re-bind.
     const currentName = condoName || localStorage.getItem('condovote_condo_name') || 'setup';
     const safeKey = currentName.replace(/[^a-zA-Z0-9]/g, '_');
     
-    console.log(`[Firebase] Listening to nodes at /${safeKey}`);
+    console.log(`[Firestore] Listening to document assemblies/${safeKey}`);
     setIsConnected(true);
 
-    const pollsRef = ref(db, `${safeKey}/polls`);
-    const votesRef = ref(db, `${safeKey}/votes`);
-    const residentsRef = ref(db, `${safeKey}/residents`);
-    const activeRef = ref(db, `${safeKey}/isActive`);
-
-    // --- GLOBAL LISTENER FOR ACTIVE CONDO (Multi-device Sync) ---
-    // This allows residents to automatically find the correct session
-    const globalRef = ref(db, '_system/active_condo');
-    const unsubGlobal = onValue(globalRef, (snapshot) => {
-        const val = snapshot.val();
-        // If there is an active condo in the cloud, and it's different from what we have, update locally
-        // But only if we are NOT in admin mode or if we are a fresh session
+    // --- 1. GLOBAL LISTENER FOR ACTIVE CONDO (Multi-device Sync) ---
+    // Listens to 'system/global' to find out which condo is active
+    const globalRef = doc(db, 'system', 'global');
+    const unsubGlobal = onSnapshot(globalRef, (docSnapshot) => {
+        const data = docSnapshot.data();
+        const val = data?.active_condo;
+        
+        // Auto-switch condo context if needed
         if (val && val !== condoName && val !== 'null') {
-             // Only auto-switch if we are not actively managing another named session
-             // or if we are a resident client
              if (currentView !== AppView.ADMIN_DASHBOARD || !condoName) {
                  console.log("Syncing with Global Active Condo:", val);
                  setCondoName(val);
@@ -117,57 +109,100 @@ const App: React.FC = () => {
         }
     });
 
-    // Listeners
-    const unsubPolls = onValue(pollsRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-            setPolls(data);
-            localStorage.setItem('condovote_polls', JSON.stringify(data));
+    // --- 2. GLOBAL USERS LISTENER (Sync Logins) ---
+    const usersRef = doc(db, 'system', 'users');
+    const unsubUsers = onSnapshot(usersRef, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+            const data = docSnapshot.data();
+            if (data && Array.isArray(data.list)) {
+                setUsers(data.list);
+                localStorage.setItem('condovote_users', JSON.stringify(data.list));
+            }
         } else {
-            // FIX: Explicitly clear local state if cloud data is null (wiped)
+            // Self-Healing: If DB is empty, upload current defaults so admin doesn't get locked out
+            console.log("Database users empty. Initializing defaults.");
+            const defaultUsers = getUsers();
+            setUsers(defaultUsers);
+            setDoc(usersRef, { list: defaultUsers }, { merge: true });
+        }
+    });
+
+    // --- 3. MAIN DATA LISTENER (One Doc for efficiency) ---
+    // Listens to 'assemblies/[safeKey]'
+    const assemblyRef = doc(db, 'assemblies', safeKey);
+    const unsubAssembly = onSnapshot(assemblyRef, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+            const data = docSnapshot.data();
+            
+            // Update Polls
+            if (data.polls) {
+                setPolls(data.polls);
+                localStorage.setItem('condovote_polls', JSON.stringify(data.polls));
+            } else {
+                setPolls([]);
+            }
+
+            // Update Votes
+            if (data.votes) {
+                setVotes(data.votes);
+                localStorage.setItem('condovote_votes', JSON.stringify(data.votes));
+            } else {
+                setVotes([]);
+            }
+
+            // Update Residents
+            if (data.residents) {
+                setResidents(data.residents);
+                localStorage.setItem('condovote_residents', JSON.stringify(data.residents));
+            } else {
+                setResidents([]);
+            }
+
+            // Update Active Status
+            if (data.isActive !== undefined) {
+                setIsAssemblyActive(data.isActive);
+                localStorage.setItem('condovote_is_active', JSON.stringify(data.isActive));
+            }
+
+            // Update Time & Check Expiry
+            if (data.startTime) {
+                setAssemblyStartTime(data.startTime);
+                localStorage.setItem('condovote_assembly_start_time', data.startTime.toString());
+                
+                // --- 24 HOUR AUTO-CLOSE CHECK ---
+                const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+                const now = Date.now();
+                if (now - data.startTime > ONE_DAY_MS) {
+                   console.log("⚠️ Sessão expirada (mais de 24h).");
+                   // If admin, we clear. If resident, we just disconnect visuals.
+                   if (currentView === AppView.ADMIN_DASHBOARD) {
+                       clearAllData(currentName);
+                       alert("A sessão expirou (24h) e foi encerrada automaticamente.");
+                       setCurrentView(AppView.ADMIN_LOGIN);
+                       setCurrentUser(null);
+                       clearSession();
+                   }
+                }
+            }
+        } else {
+            // Document does not exist (was deleted/cleared)
+            console.log("Document deleted or empty. Clearing local state.");
             setPolls([]);
-            localStorage.removeItem('condovote_polls');
-        }
-    });
-
-    const unsubVotes = onValue(votesRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-            setVotes(data);
-            localStorage.setItem('condovote_votes', JSON.stringify(data));
-        } else {
-            // FIX: Explicitly clear local state if cloud data is null
             setVotes([]);
-            localStorage.removeItem('condovote_votes');
-        }
-    });
-
-    const unsubResidents = onValue(residentsRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-            setResidents(data);
-            localStorage.setItem('condovote_residents', JSON.stringify(data));
-        } else {
-            // FIX: Explicitly clear local state if cloud data is null
             setResidents([]);
+            setIsAssemblyActive(false);
+            setAssemblyStartTime(0);
+            
+            localStorage.removeItem('condovote_polls');
+            localStorage.removeItem('condovote_votes');
             localStorage.removeItem('condovote_residents');
         }
     });
 
-    const unsubActive = onValue(activeRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data !== null) {
-            setIsAssemblyActive(data);
-            localStorage.setItem('condovote_is_active', JSON.stringify(data));
-        }
-    });
-
     return () => {
-        unsubPolls();
-        unsubVotes();
-        unsubResidents();
-        unsubActive();
         unsubGlobal();
+        unsubAssembly();
+        unsubUsers();
     };
   }, [condoName, currentView]); // Re-subscribe if Condo Name changes
 
@@ -194,6 +229,7 @@ const App: React.FC = () => {
   useEffect(() => saveCondoName(condoName), [condoName]);
   useEffect(() => saveAssemblies(pastAssemblies), [pastAssemblies]);
   useEffect(() => saveAssemblyStatus(isAssemblyActive), [isAssemblyActive]);
+  useEffect(() => saveAssemblyStartTime(assemblyStartTime), [assemblyStartTime]);
 
   useEffect(() => {
     if (currentUser) {
@@ -234,6 +270,7 @@ const App: React.FC = () => {
     
     setCondoName(name);
     setIsAssemblyActive(true);
+    setAssemblyStartTime(Date.now()); // Record start time for 24h limit
   };
 
   const handleVoteSubmit = (pollId: string, unit: string, optionId: string, isDelinquent: boolean) => {
@@ -306,6 +343,7 @@ const App: React.FC = () => {
     setResidents([]);
     setCondoName('');
     setIsAssemblyActive(false);
+    setAssemblyStartTime(0);
   };
 
   const handleDeleteAssembly = (id: string) => {
@@ -429,7 +467,7 @@ const App: React.FC = () => {
                    </span>
                ) : (
                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/20 text-white text-xs backdrop-blur-sm border border-green-400/30">
-                       <Wifi size={12} /> Sistema Online
+                       <Wifi size={12} /> Sistema Online (Firestore)
                    </span>
                )}
           </div>
