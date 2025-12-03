@@ -1,7 +1,7 @@
-
 import React, { useState } from 'react';
 import { User } from '../types';
 import { Button, Input, Card, Badge } from './ui';
+import { saveUsers } from '../services/dataService'; // IMPORT SAVE FUNCTION
 import { 
   Trash2, 
   Pencil, 
@@ -79,7 +79,9 @@ export const UsersManagement: React.FC<UsersProps> = ({
       jobTitle: newUserJobTitle
     };
 
-    setUsers(prev => [...prev, newUser]);
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
+    saveUsers(updatedUsers); // EXPLICIT SAVE
     
     // Reset form
     setNewUserName('');
@@ -126,7 +128,7 @@ export const UsersManagement: React.FC<UsersProps> = ({
       }
     }
 
-    setUsers(prev => prev.map(u => {
+    const updatedUsers = users.map(u => {
       if (u.id === editingUser.id) {
         return {
           ...u,
@@ -137,7 +139,10 @@ export const UsersManagement: React.FC<UsersProps> = ({
         };
       }
       return u;
-    }));
+    });
+
+    setUsers(updatedUsers);
+    saveUsers(updatedUsers); // EXPLICIT SAVE
 
     handleCancelEdit();
   };

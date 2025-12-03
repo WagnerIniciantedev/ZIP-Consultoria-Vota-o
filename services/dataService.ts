@@ -1,4 +1,3 @@
-
 import { Resident, Poll, VoteRecord, PollCalculationType, User, AssemblyRecord } from '../types';
 import { db, doc, setDoc, deleteDoc } from './firebase';
 
@@ -183,6 +182,9 @@ export const getAssemblies = (): AssemblyRecord[] => {
 };
 
 export const clearAllData = async (specificName?: string) => {
+  // IMPORTANT: We explicitly DO NOT clear STORAGE_KEYS.USERS or STORAGE_KEYS.ADMIN_AUTH
+  // This ensures the admin system remains intact when closing an assembly.
+
   localStorage.removeItem(STORAGE_KEYS.RESIDENTS);
   localStorage.removeItem(STORAGE_KEYS.POLLS);
   localStorage.removeItem(STORAGE_KEYS.VOTES);

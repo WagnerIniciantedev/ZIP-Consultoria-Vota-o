@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord } from './types';
 import { 
@@ -240,7 +239,9 @@ const App: React.FC = () => {
   // FIX: REMOVED AUTO-SAVE useEffects to prevent overwriting cloud data with empty local state on load.
   // Saving is now handled explicitly in the action handlers (createPoll, confirmUpload, etc.)
   
-  useEffect(() => saveUsers(users), [users]);
+  // NOTE: We removed the useEffect for saving users automatically to prevent empty state overwrites.
+  // saveUsers is now called manually in Users.tsx and handleDeleteUser.
+  
   useEffect(() => saveCondoName(condoName), [condoName]);
   useEffect(() => saveAssemblies(pastAssemblies), [pastAssemblies]);
   useEffect(() => saveAssemblyStatus(isAssemblyActive), [isAssemblyActive]);
@@ -370,7 +371,11 @@ const App: React.FC = () => {
   };
 
   const handleDeleteUser = (id: string) => {
-    setUsers(prevUsers => prevUsers.filter(u => u.id !== id));
+    setUsers(prevUsers => {
+        const updated = prevUsers.filter(u => u.id !== id);
+        saveUsers(updated); // Explicit Save
+        return updated;
+    });
   };
 
   const handleEndAssembly = () => {
