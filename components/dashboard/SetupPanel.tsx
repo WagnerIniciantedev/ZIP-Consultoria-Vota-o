@@ -2,7 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { Resident, PollCalculationType } from '../../types';
 import { parseCSV, saveResidents } from '../../services/dataService'; // Import saveResidents directly
-import { FileSpreadsheet, HelpCircle, Download, AlertCircle, FileText, CheckCircle2, UploadCloud } from 'lucide-react';
+import { FileSpreadsheet, Download, AlertCircle, FileText, CheckCircle2, UploadCloud, Database, X, AlertTriangle } from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
 
 interface SetupPanelProps {
@@ -15,34 +15,64 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSaving, setIsSaving] = useState(false);
 
+  // New State for Confirmation Modal
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingResidents, setPendingResidents] = useState<Resident[]>([]);
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setIsSaving(true);
       const reader = new FileReader();
       reader.onload = (evt) => {
         const text = evt.target?.result as string;
         const parsed = parseCSV(text);
+        
         if (parsed.length > 0) {
-          // 1. Update Local State (Visual)
-          setResidents(parsed);
+          // Instead of saving immediately, store in pending and show modal
+          setPendingResidents(parsed);
+          setShowConfirmModal(true);
           
-          // 2. Force Cloud Sync Immediately (Real-time)
-          try {
-             saveResidents(parsed);
-             console.log("Residents forced sync to cloud.");
-             alert(`${parsed.length} moradores importados e sincronizados com a nuvem!`);
-          } catch (err) {
-             console.error("Error syncing residents:", err);
-             alert("Erro ao sincronizar com o banco de dados. Verifique sua conexão.");
+          // Clear input so same file can be selected again if cancelled
+          if (fileInputRef.current) {
+            fileInputRef.current.value = '';
           }
         } else {
           alert("Não foi possível ler os dados. Verifique se o arquivo segue o modelo abaixo.");
         }
-        setIsSaving(false);
       };
       reader.readAsText(file);
     }
+  };
+
+  const confirmUploadToCloud = () => {
+      if (pendingResidents.length === 0) return;
+
+      setIsSaving(true);
+      
+      // 1. Update Local State (Visual)
+      setResidents(pendingResidents);
+      
+      // 2. Force Cloud Sync Immediately (Real-time)
+      try {
+          saveResidents(pendingResidents);
+          console.log("Residents forced sync to cloud.");
+          // Short delay to show loading state
+          setTimeout(() => {
+            alert(`${pendingResidents.length} moradores importados e sincronizados com a nuvem com SUCESSO!`);
+            setIsSaving(false);
+            setShowConfirmModal(false);
+            setPendingResidents([]);
+          }, 500);
+      } catch (err) {
+          console.error("Error syncing residents:", err);
+          alert("Erro ao sincronizar com o banco de dados. Verifique sua conexão.");
+          setIsSaving(false);
+      }
+  };
+
+  const cancelUpload = () => {
+      setShowConfirmModal(false);
+      setPendingResidents([]);
   };
 
   const handleDownloadTemplate = () => {
@@ -64,7 +94,57 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents 
   };
 
   return (
-    <Card title="Configuração Inicial - Importar Moradores" className="min-h-[500px]">
+    <Card title="Configuração Inicial - Importar Moradores" className="min-h-[500px] relative">
+      
+      {/* CONFIRMATION MODAL */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden scale-100 animate-in zoom-in-95 duration-200">
+              <div className="bg-blue-600 p-6 text-white text-center">
+                  <div className="mx-auto bg-white/20 w-16 h-16 rounded-full flex items-center justify-center mb-4 backdrop-blur-md">
+                      <Database size={32} className="text-white" />
+                  </div>
+                  <h3 className="text-xl font-bold">Sincronizar Banco de Dados?</h3>
+                  <p className="text-blue-100 text-sm mt-2">
+                    Você está prestes a atualizar a lista oficial de moradores.
+                  </p>
+              </div>
+              
+              <div className="p-6 space-y-4">
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex items-center justify-between">
+                      <span className="text-gray-600 font-medium">Registros Encontrados:</span>
+                      <span className="text-2xl font-bold text-gray-900">{pendingResidents.length}</span>
+                  </div>
+
+                  <div className="flex items-start gap-3 bg-yellow-50 p-3 rounded-lg border border-yellow-100">
+                      <AlertTriangle className="text-yellow-600 shrink-0 mt-0.5" size={18} />
+                      <p className="text-xs text-yellow-800 text-justify leading-relaxed">
+                        Ao confirmar, estes dados serão enviados para o <strong>Firestore (Nuvem)</strong> e substituirão a lista atual. Os condôminos poderão acessar o sistema imediatamente usando estes dados.
+                      </p>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                      <Button 
+                        onClick={cancelUpload} 
+                        variant="outline" 
+                        className="flex-1 py-3 border-gray-300 hover:bg-gray-50"
+                        disabled={isSaving}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button 
+                        onClick={confirmUploadToCloud} 
+                        className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 font-bold shadow-lg shadow-blue-200"
+                        disabled={isSaving}
+                      >
+                        {isSaving ? "Enviando..." : "SIM, ATUALIZAR"}
+                      </Button>
+                  </div>
+              </div>
+           </div>
+        </div>
+      )}
+
       <div className="space-y-8">
         
         {/* STEP 1: SELECT TYPE */}
@@ -186,7 +266,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents 
                         className={`flex items-center gap-2 py-3 px-6 shadow-md shadow-red-100 w-full sm:w-auto justify-center ${isSaving ? 'opacity-70 cursor-wait' : ''}`}
                     >
                     <span className="bg-white/20 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">3</span>
-                    {isSaving ? "Enviando para Nuvem..." : "Carregar Arquivo CSV"}
+                    {isSaving ? "Processando..." : "Carregar Arquivo CSV"}
                     </Button>
                 </div>
                 
