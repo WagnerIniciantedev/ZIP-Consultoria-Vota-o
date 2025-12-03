@@ -14,13 +14,13 @@ import {
   saveAssemblyStartTime, getAssemblyStartTime
 } from './services/dataService';
 // Import Firebase Firestore & Auth
-import { db, doc, onSnapshot, setDoc, auth, signInAnonymously, onAuthStateChanged } from './services/firebase';
+import { db, doc, onSnapshot, setDoc, auth, signInAnonymously } from './services/firebase';
 
 // UI Components
 import { AdminDashboard } from './components/AdminDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
-import { Button, Input, Card } from './components/ui';
-import { Building2, Phone, Instagram, UserCheck, Eye, EyeOff, AlertTriangle, MonitorPlay, Wifi, WifiOff, ShieldAlert, Lock, ExternalLink } from 'lucide-react';
+import { Button, Input } from './components/ui';
+import { Building2, Phone, Instagram, UserCheck, Eye, EyeOff, AlertTriangle, MonitorPlay, Wifi, WifiOff } from 'lucide-react';
 
 const App: React.FC = () => {
   
@@ -47,10 +47,6 @@ const App: React.FC = () => {
 
   // Firebase Connection Status
   const [isConnected, setIsConnected] = useState(false);
-  // NEW: Wait for Auth to be ready before listening to DB
-  const [isFirebaseReady, setIsFirebaseReady] = useState(false);
-  // NEW: Track Auth Configuration Errors
-  const [authConfigError, setAuthConfigError] = useState<string | null>(null);
 
   // ============================================================================
   // --- EFFECTS & PERSISTENCE ---
@@ -83,39 +79,18 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // --- FIREBASE AUTH HANDLER ---
-  useEffect(() => {
-    if (!auth) return;
-
-    // Monitor Auth State
-    const unsubscribe = onAuthStateChanged(auth, (user: any) => {
-        if (user) {
-            console.log("🔐 Autenticado no Firebase (UID):", user.uid);
-            setIsFirebaseReady(true);
-            setAuthConfigError(null);
-        } else {
-            console.log("⚠️ Usuário desconectado. Tentando login anônimo...");
-            signInAnonymously(auth).catch((err: any) => {
-                console.error("Erro no login anônimo:", err);
-                // Check for specific configuration errors
-                if (err.code === 'auth/admin-restricted-operation' || err.code === 'auth/operation-not-allowed') {
-                    setAuthConfigError('admin-restricted');
-                } else {
-                    setAuthConfigError('generic');
-                }
-            });
-        }
-    });
-
-    return () => unsubscribe();
-  }, []);
-
   // --- FIRESTORE REALTIME LISTENER ---
   useEffect(() => {
-    // Only connect listeners if DB exists AND Auth is ready
-    if (!db || !isFirebaseReady) {
+    if (!db) {
       setIsConnected(false);
       return;
+    }
+
+    // AUTHENTICATE ANONYMOUSLY TO SATISFY RULES
+    if (auth) {
+        signInAnonymously(auth)
+            .then(() => console.log("🔐 Autenticado no Firebase (Anônimo) para acesso ao Banco de Dados"))
+            .catch((err) => console.warn("⚠️ Autenticação Anônima falhou. Se você ativou o Auth no console, ative o provedor 'Anônimo' ou ajuste as Regras.", err));
     }
 
     // Determine the safe key based on condo name or localstorage default
@@ -139,8 +114,6 @@ const App: React.FC = () => {
                  setCondoName(val);
              }
         }
-    }, (error) => {
-        console.error("Erro listener Global:", error);
     });
 
     // --- 2. GLOBAL USERS LISTENER (Sync Logins) ---
@@ -165,10 +138,8 @@ const App: React.FC = () => {
             console.log("Database users empty. Initializing defaults.");
             const defaultUsers = getUsers();
             setUsers(defaultUsers);
-            setDoc(usersRef, { list: defaultUsers }, { merge: true }).catch(err => console.error(err));
+            setDoc(usersRef, { list: defaultUsers }, { merge: true });
         }
-    }, (error) => {
-        console.error("Erro listener Users:", error);
     });
 
     // --- 3. MAIN DATA LISTENER (One Doc for efficiency) ---
@@ -241,8 +212,6 @@ const App: React.FC = () => {
             localStorage.removeItem('condovote_votes');
             localStorage.removeItem('condovote_residents');
         }
-    }, (error) => {
-        console.error("Erro listener Assembly:", error);
     });
 
     return () => {
@@ -250,7 +219,7 @@ const App: React.FC = () => {
         unsubAssembly();
         unsubUsers();
     };
-  }, [condoName, currentView, currentUser, isFirebaseReady]); // Added isFirebaseReady dependency
+  }, [condoName, currentView, currentUser]); // Re-subscribe if Condo Name changes
 
 
   // --- TAB SYNCHRONIZATION (LOCAL) ---
@@ -406,44 +375,6 @@ const App: React.FC = () => {
   const handleDeleteAssembly = (id: string) => {
     setPastAssemblies(prev => prev.filter(a => a.id !== id));
   };
-
-  // ============================================================================
-  // --- CONFIGURATION ERROR MODAL ---
-  // ============================================================================
-  if (authConfigError === 'admin-restricted') {
-     return (
-        <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl max-w-lg w-full p-8 shadow-2xl border-l-8 border-red-600">
-                <div className="flex items-center gap-3 mb-4 text-red-600">
-                    <ShieldAlert size={48} />
-                    <h1 className="text-2xl font-bold">Configuração Necessária</h1>
-                </div>
-                <p className="text-gray-700 font-medium mb-4">
-                    O Login Anônimo está <span className="text-red-600 font-bold uppercase">desativado</span> no seu painel do Firebase.
-                </p>
-                <p className="text-gray-600 text-sm mb-6">
-                    Por segurança, o Google bloqueia o acesso ao banco de dados até que você autorize. 
-                    Isso não é um erro do sistema, é uma trava de configuração.
-                </p>
-
-                <div className="bg-gray-100 p-4 rounded-lg text-sm space-y-3 mb-6 border border-gray-200">
-                    <p className="font-bold text-gray-800">Como Resolver (Leva 30 segundos):</p>
-                    <ol className="list-decimal list-inside space-y-2 text-gray-700">
-                        <li>Acesse o painel: <a href="https://console.firebase.google.com" target="_blank" className="text-blue-600 underline">console.firebase.google.com</a></li>
-                        <li>Entre no menu <strong>Authentication</strong> (Criação).</li>
-                        <li>Vá na aba <strong>Sign-in method</strong>.</li>
-                        <li>Clique em <strong>Anônimo</strong> (Anonymous).</li>
-                        <li>Mude a chave para <strong>Ativado</strong> e clique em Salvar.</li>
-                    </ol>
-                </div>
-
-                <Button onClick={() => window.location.reload()} className="w-full py-3 bg-red-600 hover:bg-red-700">
-                    Já ativei! Recarregar página
-                </Button>
-            </div>
-        </div>
-     )
-  }
 
   // ============================================================================
   // --- RENDER ---

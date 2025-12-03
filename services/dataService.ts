@@ -1,6 +1,6 @@
 
 import { Resident, Poll, VoteRecord, PollCalculationType, User, AssemblyRecord } from '../types';
-import { db, doc, setDoc, deleteDoc, auth } from './firebase';
+import { db, doc, setDoc, deleteDoc } from './firebase';
 
 const STORAGE_KEYS = {
   RESIDENTS: 'condovote_residents',
@@ -23,8 +23,7 @@ const USERS_DOC_ID = 'users';
 // --- CLOUD SYNC HELPERS (FIRESTORE VERSION) ---
 
 const syncToCloud = (key: string, data: any) => {
-    // Only sync if DB is initialized AND we have a user (anonymous or real)
-    if (db && auth && auth.currentUser) {
+    if (db) {
         const condoName = localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
         const safeKey = condoName.replace(/[^a-zA-Z0-9]/g, '_');
         
@@ -44,8 +43,6 @@ const syncToCloud = (key: string, data: any) => {
             setDoc(docRef, { [fieldName]: data }, { merge: true })
                .catch(err => console.error("Erro ao sincronizar Firestore:", err));
         }
-    } else {
-        // Log removed to reduce console noise during startup
     }
 };
 
@@ -134,7 +131,7 @@ export const getVotes = (): VoteRecord[] => {
 export const saveUsers = (users: User[]) => {
   localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
   // Users Sync to Firestore (Global System Collection)
-  if (db && auth && auth.currentUser) {
+  if (db) {
     const usersRef = doc(db, SYSTEM_COLLECTION, USERS_DOC_ID);
     setDoc(usersRef, { list: users }, { merge: true })
       .catch(err => console.error("Erro ao salvar usuários no Firestore:", err));
@@ -161,7 +158,7 @@ export const saveCondoName = (name: string) => {
   syncToCloud(STORAGE_KEYS.CONDO_NAME, name);
   
   // Atualiza o "ponteiro global" no Firestore
-  if (db && auth && auth.currentUser && name && name !== 'Modo Administrativo') {
+  if (db && name && name !== 'Modo Administrativo') {
       const globalRef = doc(db, SYSTEM_COLLECTION, GLOBAL_DOC_ID);
       setDoc(globalRef, { active_condo: name }, { merge: true })
         .catch(e => console.error(e));
@@ -189,7 +186,7 @@ export const clearAllData = async (specificName?: string) => {
   localStorage.removeItem(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE);
   localStorage.removeItem(STORAGE_KEYS.ASSEMBLY_START_TIME);
   
-  if (db && auth && auth.currentUser) {
+  if (db) {
      const nameToClear = specificName || localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
      const safeKey = nameToClear.replace(/[^a-zA-Z0-9]/g, '_');
      

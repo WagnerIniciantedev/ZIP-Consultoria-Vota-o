@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Input, Card, Badge } from './ui';
 import { Resident, Poll } from '../types';
-import { Vote, CheckCircle, UserCheck, Lock, ArrowLeft, ChevronRight, Video, Clock, Building, Users, LayoutDashboard, AlertCircle, RefreshCw } from 'lucide-react';
+import { Vote, CheckCircle, UserCheck, ArrowLeft, ChevronRight, Clock, Building, Users, LayoutDashboard, AlertCircle, RefreshCw, Search, WifiOff, Wifi } from 'lucide-react';
 
 interface ResidentVotingProps {
   residents: Resident[];
@@ -19,12 +19,15 @@ enum VoteStep {
   IDENTIFY = 'IDENTIFY',
   MULTI_UNIT_SELECT = 'MULTI_UNIT_SELECT',
   DASHBOARD = 'DASHBOARD',
-  ZOOM_CHECKIN = 'ZOOM_CHECKIN',
+  ZOOM_CHECKIN = 'ZOOM_CHECKIN', // Now acts as "Verify & Confirm"
   WAITING_ROOM = 'WAITING_ROOM',
   LIST = 'LIST',
   BOOTH = 'BOOTH',
   SUCCESS = 'SUCCESS'
 }
+
+const STORAGE_IDENTITY_KEY = 'condovote_my_identity';
+const STORAGE_ZOOM_NAME_KEY = 'condovote_my_zoom_name';
 
 export const ResidentVoting: React.FC<ResidentVotingProps> = ({ 
   residents, 
@@ -51,6 +54,10 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   const [selectedPoll, setSelectedPoll] = useState<Poll | null>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
 
+  // Loading State
+  const [isRestoringSession, setIsRestoringSession] = useState(true);
+  const [cachedUnitDisplay, setCachedUnitDisplay] = useState<string>('');
+
   // Filter Active Polls
   const activePolls = polls.filter(p => p.isActive);
 
@@ -58,18 +65,81 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   const allApproved = selectedUnits.length > 0 && selectedUnits.every(u => u.attendanceStatus === 'APPROVED');
   const allPending = selectedUnits.length > 0 && selectedUnits.every(u => u.attendanceStatus === 'PENDING');
   
-  // --- Effects ---
+  // --- EFFECTS ---
 
-  // Refreshes data if admin approves in background
+  // 1. SESSION RESTORATION (Persistence)
+  useEffect(() => {
+    // Check for saved identity immediately on mount
+    const savedIdentity = localStorage.getItem(STORAGE_IDENTITY_KEY);
+    const savedZoomName = localStorage.getItem(STORAGE_ZOOM_NAME_KEY);
+
+    if (savedIdentity) {
+        try {
+            const myUnitNumbers: string[] = JSON.parse(savedIdentity);
+            setCachedUnitDisplay(myUnitNumbers.join(', '));
+            
+            // Restore zoom name if available
+            if (savedZoomName) {
+                setZoomNameInput(savedZoomName);
+            }
+
+            // Only attempt full restore logic if residents list is populated
+            if (residents.length > 0) {
+                // Find these units in the fresh residents list
+                const foundUnits = residents.filter(r => myUnitNumbers.includes(r.unit));
+                
+                if (foundUnits.length > 0) {
+                    // Update selection with fresh data
+                    setSelectedUnits(foundUnits);
+
+                    // Determine where to send them based on status
+                    const isApproved = foundUnits.every(u => u.attendanceStatus === 'APPROVED');
+                    const isPending = foundUnits.every(u => u.attendanceStatus === 'PENDING');
+
+                    if (isApproved) {
+                        setStep(VoteStep.DASHBOARD);
+                    } else if (isPending) {
+                        setStep(VoteStep.WAITING_ROOM);
+                    } else {
+                        // Identity saved, but not approved or pending yet. 
+                        // Likely dropped before clicking "Confirm" or was reset.
+                        // Send back to confirmation screen.
+                         setStep(VoteStep.ZOOM_CHECKIN);
+                    }
+                    setIsRestoringSession(false);
+                } else {
+                    // Identity exists in cache, but units not found in current list (maybe list changed)
+                    // Keep loading until list syncs or fails
+                    // Don't disable restore yet if we think list is just loading
+                    if (residents.length > 0) setIsRestoringSession(false); 
+                }
+            } else {
+                // We have an identity, but no residents list yet (Offline or loading).
+                // Keep showing "Restoring..." loader.
+                // Do NOT set isRestoringSession(false) immediately.
+            }
+        } catch (e) {
+            console.error("Failed to parse saved identity", e);
+            localStorage.removeItem(STORAGE_IDENTITY_KEY);
+            setIsRestoringSession(false);
+        }
+    } else {
+        // No saved identity, go to Identify screen
+        setIsRestoringSession(false);
+    }
+  }, [residents]); // Re-run when residents list updates (e.g. initial sync)
+
+
+  // 2. REAL-TIME STATUS UPDATES
   useEffect(() => {
     if (selectedUnits.length > 0) {
-      // Re-fetch the latest data for these units
+      // Re-fetch the latest data for these units from the props
       const updatedUnits = selectedUnits.map(selected => {
           const found = residents.find(r => r.unit === selected.unit);
           return found || selected;
       });
       
-      // Check if we need to update state
+      // Check if we need to update state (avoid loops)
       const hasChanged = JSON.stringify(updatedUnits) !== JSON.stringify(selectedUnits);
       if (hasChanged) {
           setSelectedUnits(updatedUnits);
@@ -79,17 +149,19 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
       const anyBlocked = updatedUnits.some(u => u.attendanceStatus === 'BLOCKED');
       
       if (anyBlocked) {
-         alert("O acesso de uma ou mais unidades foi bloqueado.");
-         setStep(VoteStep.IDENTIFY);
-         setSelectedUnits([]);
+         alert("O acesso de uma ou mais unidades foi bloqueado pelo administrador.");
+         handleLogout();
          return;
       }
     }
-  }, [residents, step]);
+  }, [residents, step]); // We don't include selectedUnits in dependency to avoid deep loop, logic handles it
+
+  
+  // --- HANDLERS ---
 
   const handleIdentify = () => {
     if (residents.length === 0) {
-        alert("A lista de moradores ainda não foi carregada pelo administrador. Aguarde um momento e tente novamente.");
+        alert("A lista de moradores ainda não foi carregada pelo administrador ou seu dispositivo está sem conexão. Aguarde um momento.");
         return;
     }
 
@@ -117,17 +189,9 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
              alert("Digite pelo menos os 5 primeiros dígitos do CPF.");
              return;
          }
-      } else {
-         // Fallback if Excel has no CPF: Warning or allow just Unit?
-         // Assuming we strictly need CPF if configured, but for flexibility:
-         if (cpfInput.length > 0 && cpfInput.length < 3) {
-             alert("Por favor, confirme os dados.");
-             return;
-         }
       }
 
       // 3. Check for Multi-Unit Ownership (same CPF)
-      // Only do this if we have a valid CPF to search by from the record found
       if (resident.cpf) {
           const cleanRecordCpf = resident.cpf.replace(/\D/g, '');
           const siblings = residents.filter(r => r.cpf && r.cpf.replace(/\D/g, '') === cleanRecordCpf);
@@ -154,8 +218,11 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   const proceedWithUnits = (units: Resident[]) => {
       setSelectedUnits(units);
       
-      // Direct flow: Identify -> Zoom Checkin -> Waiting Room
-      // Check if already approved or pending to route correctly
+      // SAVE IDENTITY LOCALLY (Cache for offline/reload) - CRITICAL STEP
+      const unitNumbers = units.map(u => u.unit);
+      localStorage.setItem(STORAGE_IDENTITY_KEY, JSON.stringify(unitNumbers));
+
+      // Direct flow
       const isApproved = units.every(u => u.attendanceStatus === 'APPROVED');
       const isPending = units.every(u => u.attendanceStatus === 'PENDING');
 
@@ -168,20 +235,19 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
       }
   };
 
-  // --- Dashboard Logic ---
-
-  const handleGoToAttendance = () => {
-      if (allApproved) {
-          alert("Você já está aprovado e presente na assembleia.");
-          return;
-      }
-      if (allPending) {
-          setStep(VoteStep.WAITING_ROOM);
-          return;
-      }
-      // If not registered or mixed status
-      setStep(VoteStep.ZOOM_CHECKIN);
+  const handleLogout = () => {
+      localStorage.removeItem(STORAGE_IDENTITY_KEY);
+      localStorage.removeItem(STORAGE_ZOOM_NAME_KEY);
+      setSelectedUnits([]);
+      setStep(VoteStep.IDENTIFY);
+      setUnitInput('');
+      setCpfInput('');
+      setZoomNameInput('');
+      setCachedUnitDisplay('');
+      if(onBack) onBack();
   };
+
+  // --- Dashboard Logic ---
 
   const handleGoToVoting = () => {
       // 1. Check Approval
@@ -202,9 +268,12 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
   const handleZoomSubmit = () => {
       if(!zoomNameInput.trim()) {
-          alert("Por favor, informe seu nome no Zoom/Reunião para que o Admin te identifique.");
+          alert("Por favor, informe seu nome.");
           return;
       }
+
+      // SAVE ZOOM NAME TO CACHE (CRITICAL)
+      localStorage.setItem(STORAGE_ZOOM_NAME_KEY, zoomNameInput);
       
       // Register for ALL selected units
       selectedUnits.forEach(u => {
@@ -215,24 +284,19 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   };
 
   const handleSelectPoll = (poll: Poll) => {
-    // Check if ALL selected units have voted
     const allVoted = selectedUnits.every(u => hasVoted(poll.id, u.unit));
-    
     if (allVoted) {
       alert("Todas as suas unidades já votaram nesta enquete.");
       return;
     }
-    
     setSelectedPoll(poll);
     setStep(VoteStep.BOOTH);
   };
 
   const submitVote = () => {
     if (selectedOption && selectedUnits.length > 0 && selectedPoll) {
-      
       let voteCount = 0;
       selectedUnits.forEach(u => {
-          // Only cast vote if this specific unit hasn't voted yet
           if (!hasVoted(selectedPoll.id, u.unit)) {
              onVoteSubmit(selectedPoll.id, u.unit, selectedOption, u.isDelinquent);
              voteCount++;
@@ -254,50 +318,116 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
     setSelectedOption(null);
   };
 
-  // --- Render Steps ---
+  // --- RENDER ---
+
+  // Loading Screen for Restore Session
+  if (isRestoringSession) {
+      return (
+        <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+            <Card className="text-center p-8 max-w-sm w-full">
+                <div className="flex justify-center mb-4">
+                    <div className="relative">
+                        <RefreshCw className="animate-spin h-10 w-10 text-red-600" />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <Wifi size={14} className="text-red-600" />
+                        </div>
+                    </div>
+                </div>
+                {cachedUnitDisplay ? (
+                    <>
+                        <h3 className="text-gray-900 font-bold text-lg">Retomando Sessão...</h3>
+                        <p className="text-sm text-gray-500 mt-2">
+                           Reconectando à Unidade <strong>{cachedUnitDisplay}</strong>
+                        </p>
+                        <div className="mt-6">
+                            <button onClick={handleLogout} className="text-xs text-red-500 underline">
+                                Não é você? Clique aqui.
+                            </button>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <h3 className="text-gray-900 font-bold">Carregando Sistema...</h3>
+                        <p className="text-xs text-gray-500 mt-2">Sincronizando votações e moradores</p>
+                    </>
+                )}
+            </Card>
+        </div>
+      );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 relative">
+      
+      {/* Network Status Indicator */}
+      <div className="absolute top-4 right-4 z-10">
+          {residents.length > 0 ? (
+             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-700 rounded-full text-xs font-medium border border-green-200 shadow-sm transition-all duration-500">
+                <Wifi size={14} /> <span>Conectado</span>
+             </div>
+          ) : (
+             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium border border-yellow-200 shadow-sm animate-pulse">
+                <RefreshCw size={14} className="animate-spin" /> <span>Sincronizando...</span>
+             </div>
+          )}
+      </div>
+
       <div className="max-w-md w-full">
         
         {/* Step 1: Identification */}
         {step === VoteStep.IDENTIFY && (
-          <Card title="Acesso ao Sistema">
+          <Card title="Acesso à Assembleia">
             <div className="space-y-4">
-              <p className="text-gray-600 text-sm">Identifique-se com sua Unidade e CPF para entrar.</p>
+              <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                  <p className="text-blue-800 text-xs flex gap-2 leading-relaxed">
+                     <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                     <strong>Entrada de Visitante/Condômino:</strong> Identifique-se abaixo. Após confirmar seus dados, o sistema salvará seu acesso neste dispositivo para reconexão automática em caso de queda.
+                  </p>
+              </div>
               
               {residents.length === 0 && (
-                  <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg text-xs text-yellow-800 flex items-center gap-2 animate-pulse">
-                      <RefreshCw className="animate-spin" size={14} />
-                      Aguardando lista de moradores...
+                  <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg text-sm text-yellow-800 text-center">
+                      <div className="flex justify-center mb-2">
+                          <WifiOff className="text-yellow-600" />
+                      </div>
+                      <p className="font-bold mb-1">Aguardando Lista de Moradores</p>
+                      <p className="text-xs opacity-80 mb-3">
+                          O administrador ainda não carregou a lista ou a conexão está lenta.
+                      </p>
+                      <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="w-full bg-white">
+                          <RefreshCw size={14} className="mr-2" /> Atualizar Página
+                      </Button>
                   </div>
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Unidade / Apartamento</label>
+                <label className="block text-sm font-bold text-gray-800 mb-1">Unidade / Apartamento</label>
                 <Input 
                   placeholder="Ex: 101" 
                   value={unitInput}
                   onChange={(e) => setUnitInput(e.target.value)}
+                  disabled={residents.length === 0}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">CPF (5 primeiros dígitos)</label>
+                <label className="block text-sm font-bold text-gray-800 mb-1">CPF (Início)</label>
                 <Input 
                   placeholder="Ex: 12345" 
                   value={cpfInput}
                   onChange={(e) => setCpfInput(e.target.value)}
                   maxLength={11}
                   type="tel"
+                  disabled={residents.length === 0}
                   onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
                 />
+                <p className="text-xs text-gray-400 mt-1">Digite os 5 primeiros números.</p>
               </div>
               <div className="flex gap-3 pt-2">
                 <Button variant="outline" onClick={onBack} className="flex-1">
                   Voltar
                 </Button>
-                <Button onClick={handleIdentify} className="flex-[2]" disabled={residents.length === 0}>
-                  {residents.length === 0 ? "Carregando..." : "Entrar"}
+                <Button onClick={handleIdentify} className="flex-[2] flex items-center justify-center gap-2" disabled={residents.length === 0}>
+                  <Search size={18} /> Buscar Cadastro
                 </Button>
               </div>
             </div>
@@ -306,7 +436,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
         {/* Step 1.5: Multi-Unit Selection */}
         {step === VoteStep.MULTI_UNIT_SELECT && (
-             <Card title="Múltiplas Unidades">
+             <Card title="Unidades Múltiplas">
                  <div className="space-y-4">
                      <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-start gap-3">
                         <Users className="text-blue-600 mt-1 flex-shrink-0" />
@@ -315,9 +445,9 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                         </p>
                      </div>
 
-                     <div className="space-y-2 max-h-48 overflow-y-auto border rounded p-2">
+                     <div className="space-y-2 max-h-48 overflow-y-auto border rounded p-2 bg-gray-50">
                          {multiUnitCandidates.map(u => (
-                             <div key={u.unit} className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                             <div key={u.unit} className="flex items-center gap-2 p-2 bg-white border border-gray-100 rounded shadow-sm">
                                  <Building size={16} className="text-gray-400" />
                                  <span className="font-bold text-gray-700">{u.unit}</span>
                                  <span className="text-sm text-gray-500">- {u.name}</span>
@@ -332,43 +462,63 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                          <Button variant="outline" onClick={() => handleMultiUnitSelection([multiUnitCandidates.find(u => u.unit.toLowerCase() === unitInput.toLowerCase().trim())!])}>
                             Apenas a unidade {unitInput}
                          </Button>
+                         <Button variant="outline" onClick={() => setStep(VoteStep.IDENTIFY)}>
+                            Voltar
+                         </Button>
                      </div>
                  </div>
              </Card>
         )}
 
-        {/* Step 3: Zoom Check-in */}
+        {/* Step 3: Zoom Check-in (CONFIRM IDENTITY) */}
         {step === VoteStep.ZOOM_CHECKIN && selectedUnits.length > 0 && (
            <Card>
               <Button variant="outline" className="mb-4 text-xs flex items-center gap-1" onClick={() => setStep(VoteStep.IDENTIFY)}>
                   <ArrowLeft size={12} /> Voltar
               </Button>
-              <div className="text-center space-y-4">
-                  <div className="mx-auto bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center">
-                    <Video className="h-8 w-8 text-blue-600" />
+              <div className="space-y-6">
+                  <div className="text-center">
+                    <h2 className="text-xl font-bold text-gray-900 mb-1">Confirmação de Dados</h2>
+                    <p className="text-gray-500 text-sm">Verifique se as informações abaixo estão corretas.</p>
                   </div>
-                  <h2 className="text-lg font-bold text-gray-900">Identificação para Sala</h2>
-                  <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded">
-                      <p>Proprietário Identificado:</p>
-                      <strong>{selectedUnits[0].name}</strong>
-                      <p className="mt-1">Unidade(s): {selectedUnits.map(u => u.unit).join(', ')}</p>
+
+                  {/* IDENTIFIED DATA BOX */}
+                  <div className="bg-green-50 p-4 rounded-xl border border-green-200 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-2 opacity-10">
+                          <CheckCircle className="w-24 h-24 text-green-800" />
+                      </div>
+                      <p className="text-xs text-green-700 font-bold uppercase mb-1 tracking-wider">Cadastro Localizado</p>
+                      
+                      <div className="relative z-10">
+                        <div className="text-xl font-bold text-gray-900 leading-tight mb-2">
+                            {selectedUnits[0].name}
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-gray-700 bg-white/50 p-2 rounded w-fit">
+                            <Building size={14} className="text-gray-500" />
+                            Unidade(s): <strong>{selectedUnits.map(u => u.unit).join(', ')}</strong>
+                        </div>
+                      </div>
                   </div>
                   
-                  <div className="text-left p-4 rounded-lg border border-blue-100 bg-blue-50/50">
-                     <label className="block text-sm font-bold text-gray-800 mb-2">Qual seu nome no Zoom/Reunião?</label>
+                  {/* ZOOM INPUT */}
+                  <div className="space-y-2">
+                     <label className="block text-sm font-bold text-gray-800">
+                        Como você está identificado no Zoom/Reunião?
+                     </label>
                      <Input 
                         placeholder="Ex: João Silva - 101"
                         value={zoomNameInput}
                         onChange={(e) => setZoomNameInput(e.target.value)}
+                        className="bg-gray-50 focus:bg-white text-gray-900"
                         autoFocus
                      />
-                     <p className="text-xs text-gray-500 mt-2">
-                        O admin usará este nome para aprovar sua entrada.
+                     <p className="text-xs text-gray-500">
+                        Isso ajuda o administrador a liberar sua entrada na sala.
                      </p>
                   </div>
 
-                  <Button onClick={handleZoomSubmit} className="w-full">
-                     Confirmar Presença
+                  <Button onClick={handleZoomSubmit} className="w-full py-3 bg-green-600 hover:bg-green-700 font-bold">
+                     Confirmar e Entrar
                   </Button>
               </div>
            </Card>
@@ -383,21 +533,20 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                     </div>
                     <h2 className="text-xl font-bold text-gray-900 mb-2">Aguardando Aprovação</h2>
                     <p className="text-gray-500 mb-6 px-4">
-                        Sua presença para <strong>{selectedUnits.map(u => u.unit).join(', ')}</strong> foi registrada na Sala de Espera.
+                        Olá <strong>{selectedUnits[0].name.split(' ')[0]}</strong>, sua presença foi registrada. Aguarde o administrador liberar seu acesso à votação.
                     </p>
-                    <div className="bg-gray-50 p-3 rounded text-sm text-gray-600 inline-block mb-6">
-                        Status: <span className="font-bold text-yellow-600">PENDENTE</span>
+                    <div className="bg-gray-50 p-3 rounded text-sm text-gray-600 inline-block mb-6 border border-gray-200">
+                        Status: <span className="font-bold text-yellow-600 ml-1">PENDENTE</span>
                     </div>
-                    <p className="text-xs text-gray-400">
-                        Assim que o administrador aprovar, você será liberado para votar automaticamente.
+                    <p className="text-xs text-gray-400 max-w-xs mx-auto">
+                        A tela atualizará automaticamente assim que você for aceito. Se a conexão cair, apenas recarregue a página.
                     </p>
                     <div className="mt-8">
-                        {/* Option to go back to identify if stuck or wrong unit */}
                         <button 
-                            onClick={() => setStep(VoteStep.IDENTIFY)} 
-                            className="text-xs text-red-400 underline"
+                            onClick={handleLogout}
+                            className="text-xs text-red-400 underline hover:text-red-600"
                         >
-                            Entrei com a unidade errada? Sair
+                            Não é você? Sair e tentar novamente.
                         </button>
                     </div>
                 </div>
@@ -413,7 +562,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                    <h2 className="text-lg font-bold text-gray-900">Olá, {selectedUnits[0].name.split(' ')[0]}</h2>
                    <p className="text-sm text-gray-500">Unidades: {selectedUnits.map(u => u.unit).join(', ')}</p>
                  </div>
-                 <Button variant="outline" size="sm" onClick={onBack} className="h-8 text-xs">Sair</Button>
+                 <Button variant="outline" size="sm" onClick={handleLogout} className="h-8 text-xs hover:bg-red-50 hover:text-red-600 hover:border-red-200">Sair</Button>
                </div>
                
                <div className="flex justify-center">
@@ -441,7 +590,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                  <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 flex items-center gap-3">
                     <UserCheck className="text-green-600" size={20} />
                     <div className="text-sm text-gray-600">
-                        Você está registrado como: <strong>{selectedUnits[0].zoomName}</strong>
+                        Identificado como: <strong>{selectedUnits[0].zoomName}</strong>
                     </div>
                  </div>
                </div>

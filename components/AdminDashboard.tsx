@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileSpreadsheet, 
@@ -220,12 +221,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return (
         <div className="min-h-screen bg-gray-50 flex flex-col">
             <header className="bg-white shadow-sm border-b border-gray-200">
-                <div className="max-w-7xl mx-auto px-4 h-32 flex justify-between items-center">
+                <div className="max-w-7xl mx-auto px-4 h-24 flex justify-between items-center">
                     <div className="flex items-center gap-2">
                         <img 
                             src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
                             alt="Zip Consultoria" 
-                            className="h-28 w-auto object-contain rounded-md"
+                            className="h-20 w-auto object-contain"
                         />
                     </div>
                     <div className="flex items-center gap-4">
@@ -301,14 +302,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       />
 
       {/* Top Navbar */}
-      <header className="bg-white shadow-sm sticky top-0 z-20 border-b border-gray-200">
+      <header className="bg-white shadow-sm sticky top-0 z-20 border-b border-red-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-32 items-center">
+          <div className="flex justify-between h-24 items-center">
             <div className="flex items-center gap-2">
                <img 
                     src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
                     alt="Zip Consultoria" 
-                    className="h-28 w-auto object-contain rounded-md"
+                    className="h-20 w-auto object-contain"
                />
             </div>
 
@@ -321,10 +322,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             <div className="flex items-center gap-4">
               <Button 
-                variant="outline" 
+                variant="secondary" 
                 size="sm" 
                 onClick={handleRestartTour}
-                className="hidden md:flex items-center gap-2"
+                className="hidden md:flex items-center gap-2 bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200"
                 title="Como usar o sistema"
               >
                 <HelpCircle size={16} /> <span className="hidden lg:inline">Tour / Ajuda</span>
@@ -332,7 +333,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               {isDemoMode && (
                  <Button 
-                    variant="outline" 
+                    variant="secondary" 
                     size="sm" 
                     onClick={onEndAssembly}
                     className="hidden sm:flex items-center gap-2"
@@ -341,10 +342,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  </Button>
               )}
               <div className="text-right hidden sm:block">
-                 <p className="text-sm font-semibold text-gray-900">{currentUser?.name}</p>
+                 <p className="text-sm font-semibold text-gray-800">{currentUser?.name}</p>
                  <p className="text-xs text-gray-500">{currentUser?.role === 'TI' ? 'T.I. Admin' : (currentUser?.jobTitle || 'Administrador')}</p>
               </div>
-              <Button variant="outline" onClick={onLogout} className="text-sm flex items-center gap-2">
+              <Button variant="outline" onClick={onLogout} className="text-sm flex items-center gap-2 hover:text-red-600 hover:border-red-200">
                 <LogOut size={16} /> <span className="hidden md:inline">Sair</span>
               </Button>
             </div>

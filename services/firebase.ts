@@ -1,7 +1,7 @@
 
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, getDoc } from "firebase/firestore";
-import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+import { getAuth, signInAnonymously } from "firebase/auth";
 
 // ============================================================================
 // CONFIGURAÇÃO DO FIREBASE (FIRESTORE + AUTH)
@@ -37,5 +37,5 @@ try {
     console.error("Erro ao inicializar Firebase:", error);
 }
 
-export { db, auth, signInAnonymously, onAuthStateChanged };
+export { db, auth, signInAnonymously };
 export { doc, setDoc, deleteDoc, onSnapshot, getDoc };
