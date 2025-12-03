@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileSpreadsheet, 
@@ -224,7 +223,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="max-w-7xl mx-auto px-4 h-32 flex justify-between items-center">
                     <div className="flex items-center gap-2">
                         <img 
-                            src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
+                            src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
                             alt="Zip Consultoria" 
                             className="h-28 w-auto object-contain rounded-md"
                         />
@@ -307,7 +306,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="flex justify-between h-32 items-center">
             <div className="flex items-center gap-2">
                <img 
-                    src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
+                    src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
                     alt="Zip Consultoria" 
                     className="h-28 w-auto object-contain rounded-md"
                />
