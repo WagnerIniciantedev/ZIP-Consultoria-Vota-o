@@ -2,15 +2,17 @@
 import React, { useState, useRef } from 'react';
 import { Resident, PollCalculationType } from '../../types';
 import { parseCSV, saveResidents } from '../../services/dataService'; // Import saveResidents directly
+import { db, doc, setDoc } from '../../services/firebase';
 import { FileSpreadsheet, Download, AlertCircle, FileText, CheckCircle2, UploadCloud, Database, X, AlertTriangle } from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
 
 interface SetupPanelProps {
   residents: Resident[];
   setResidents: React.Dispatch<React.SetStateAction<Resident[]>>;
+  condoName?: string; // Add condoName prop for explicit addressing
 }
 
-export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents }) => {
+export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents, condoName }) => {
   const [importType, setImportType] = useState<PollCalculationType>(PollCalculationType.NORMAL);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -44,18 +46,30 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents 
     }
   };
 
-  const confirmUploadToCloud = () => {
+  const confirmUploadToCloud = async () => {
       if (pendingResidents.length === 0) return;
 
       setIsSaving(true);
       
-      // 1. Update Local State (Visual)
-      setResidents(pendingResidents);
-      
-      // 2. Force Cloud Sync Immediately (Real-time)
       try {
+          // Sanitize residents data to remove any undefined fields before sending to Firestore
+          const cleanResidents = JSON.parse(JSON.stringify(pendingResidents));
+
+          // 1. Explicitly write to Firestore (Bypassing race conditions)
+          // Use the condoName passed via props to ensure we write to the active session
+          if (db && condoName) {
+              const safeKey = condoName.replace(/[^a-zA-Z0-9]/g, '_');
+              const docRef = doc(db, 'assemblies', safeKey);
+              await setDoc(docRef, { residents: cleanResidents }, { merge: true });
+              console.log(`[SetupPanel] Explicit write to assemblies/${safeKey} successful.`);
+          }
+          
+          // 2. Also call the service (which updates LocalStorage)
           saveResidents(pendingResidents);
-          console.log("Residents forced sync to cloud.");
+
+          // 3. Update Local State (Visual)
+          setResidents(pendingResidents);
+
           // Short delay to show loading state
           setTimeout(() => {
             alert(`${pendingResidents.length} moradores importados e sincronizados com a nuvem com SUCESSO!`);

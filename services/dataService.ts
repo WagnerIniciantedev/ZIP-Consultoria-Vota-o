@@ -37,10 +37,14 @@ const syncToCloud = (key: string, data: any) => {
         if (key === STORAGE_KEYS.CONDO_NAME) fieldName = 'name';
 
         if (fieldName) {
+            // Firestore doesn't accept 'undefined', so we must strip undefined fields.
+            // JSON.stringify/parse is a simple way to do this for plain objects/arrays.
+            const cleanData = JSON.parse(JSON.stringify(data));
+
             // Firestore: Update specific field in the document 'assemblies/{safeKey}'
             const docRef = doc(db, ASSEMBLIES_COLLECTION, safeKey);
             // merge: true garante que não sobrescrevemos outros campos (ex: salvar votos não apaga enquetes)
-            setDoc(docRef, { [fieldName]: data }, { merge: true })
+            setDoc(docRef, { [fieldName]: cleanData }, { merge: true })
                .catch(err => console.error("Erro ao sincronizar Firestore:", err));
         }
     }

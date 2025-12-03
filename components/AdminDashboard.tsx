@@ -466,6 +466,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <SetupPanel 
                 residents={residents}
                 setResidents={setResidents}
+                condoName={condoName} // PASSED HERE
               />
             )}
 

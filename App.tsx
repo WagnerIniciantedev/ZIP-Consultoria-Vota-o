@@ -237,9 +237,9 @@ const App: React.FC = () => {
 
 
   // Persistence Listeners (Triggers Save -> which triggers Cloud Sync in dataService)
-  useEffect(() => saveResidents(residents), [residents]);
-  useEffect(() => savePolls(polls), [polls]);
-  useEffect(() => saveVotes(votes), [votes]);
+  // FIX: REMOVED AUTO-SAVE useEffects to prevent overwriting cloud data with empty local state on load.
+  // Saving is now handled explicitly in the action handlers (createPoll, confirmUpload, etc.)
+  
   useEffect(() => saveUsers(users), [users]);
   useEffect(() => saveCondoName(condoName), [condoName]);
   useEffect(() => saveAssemblies(pastAssemblies), [pastAssemblies]);
@@ -279,13 +279,22 @@ const App: React.FC = () => {
 
   const handleStartAssembly = (name: string) => {
     // FIX: Ensure data is clean when starting a new assembly
-    setResidents([]);
-    setPolls([]);
-    setVotes([]);
+    const emptyResidents: Resident[] = [];
+    const emptyPolls: Poll[] = [];
+    const emptyVotes: VoteRecord[] = [];
+
+    setResidents(emptyResidents);
+    setPolls(emptyPolls);
+    setVotes(emptyVotes);
     
     setCondoName(name);
     setIsAssemblyActive(true);
     setAssemblyStartTime(Date.now()); // Record start time for 24h limit
+
+    // FORCE SAVE INITIAL STATE
+    saveResidents(emptyResidents);
+    savePolls(emptyPolls);
+    saveVotes(emptyVotes);
   };
 
   const handleVoteSubmit = (pollId: string, unit: string, optionId: string, isDelinquent: boolean) => {
@@ -300,7 +309,10 @@ const App: React.FC = () => {
         timestamp: Date.now(),
         isDelinquentVote: isDelinquent
       };
-      return [...prevVotes, newVote];
+      
+      const updatedVotes = [...prevVotes, newVote];
+      saveVotes(updatedVotes); // Explicit Save
+      return updatedVotes;
     });
   };
 
@@ -312,12 +324,14 @@ const App: React.FC = () => {
        
        if (existingResident) {
          // Update existing resident status
-         return prev.map(r => {
+         const updatedResidents = prev.map(r => {
            if (r.unit.toLowerCase() === unit.toLowerCase()) {
              return { ...r, zoomName, attendanceStatus: 'PENDING' as const };
            }
            return r;
          });
+         saveResidents(updatedResidents); // Explicit Save
+         return updatedResidents;
        }
        // If not in list, do nothing (validation is handled in UI now)
        return prev;
@@ -327,20 +341,32 @@ const App: React.FC = () => {
   const hasVoted = (pollId: string, unit: string) => votes.some(v => v.unit === unit && v.pollId === pollId);
 
   const handleEndPoll = (id: string) => {
-    setPolls(prev => prev.map(p => 
-      p.id === id ? { ...p, isActive: false, isEnded: true } : p
-    ));
+    setPolls(prev => {
+        const updated = prev.map(p => p.id === id ? { ...p, isActive: false, isEnded: true } : p);
+        savePolls(updated); // Explicit Save
+        return updated;
+    });
   };
 
   const handleTogglePoll = (id: string) => {
-    setPolls(prev => prev.map(p => 
-      p.id === id ? { ...p, isActive: !p.isActive } : p
-    ));
+    setPolls(prev => {
+        const updated = prev.map(p => p.id === id ? { ...p, isActive: !p.isActive } : p);
+        savePolls(updated); // Explicit Save
+        return updated;
+    });
   };
 
   const handleDeletePoll = (id: string) => {
-    setPolls(prev => prev.filter(p => p.id !== id));
-    setVotes(prev => prev.filter(v => v.pollId !== id)); 
+    setPolls(prev => {
+        const updated = prev.filter(p => p.id !== id);
+        savePolls(updated); // Explicit Save
+        return updated;
+    });
+    setVotes(prev => {
+        const updated = prev.filter(v => v.pollId !== id);
+        saveVotes(updated); // Explicit Save
+        return updated;
+    }); 
   };
 
   const handleDeleteUser = (id: string) => {
@@ -458,7 +484,7 @@ const App: React.FC = () => {
                 )}
                 
                 <Button type="submit" className="w-full bg-[#E60000] hover:bg-red-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-red-200 transition-all transform active:scale-[0.99]">
-                  ENTRAR COMO ADMIN
+                  ENTRAR
                 </Button>
               </form>
 

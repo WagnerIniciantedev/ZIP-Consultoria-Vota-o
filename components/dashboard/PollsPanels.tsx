@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Poll, PollCalculationType } from '../../types';
 import { Button, Input, Card, Badge } from '../ui';
 import { Trash2, Plus, PlayCircle, PauseCircle, StopCircle, BarChart3, Link as LinkIcon, Copy, Check, X } from 'lucide-react';
+import { savePolls } from '../../services/dataService'; // Import added
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -55,7 +56,12 @@ export const PollCreator: React.FC<PollCreatorProps> = ({ setPolls, onSuccess })
       calculationType: pollType
     };
     
-    setPolls(prev => [...prev, newPoll]);
+    // UPDATE AND SAVE EXPLICITLY
+    setPolls(prev => {
+        const updated = [...prev, newPoll];
+        savePolls(updated); // Explicit Save
+        return updated;
+    });
     
     // Reset
     setPollTitle('');

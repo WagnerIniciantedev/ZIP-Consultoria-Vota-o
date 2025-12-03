@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Resident } from '../../types';
 import { Button, Input, Card } from '../ui';
-import { exportAttendanceCSV } from '../../services/dataService';
+import { exportAttendanceCSV, saveResidents } from '../../services/dataService';
 import { FileSpreadsheet, Clock, CheckCircle2, Ban, LogOut, Pencil, Edit3, UserCheck } from 'lucide-react';
 
 interface AttendancePanelProps {
@@ -23,6 +23,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({ residents, set
       r.unit === unit ? { ...r, attendanceStatus: 'APPROVED' as const, checkInTimestamp: Date.now() } : r
     );
     setResidents(updated);
+    saveResidents(updated); // Explicit Save
   };
 
   const handleBlockResident = (unit: string) => {
@@ -30,13 +31,21 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({ residents, set
         r.unit === unit ? { ...r, attendanceStatus: 'BLOCKED' as const } : r
       );
       setResidents(updated);
+      saveResidents(updated); // Explicit Save
   };
 
   const handleResetResident = (unit: string) => {
-      const updated = residents.map(r => 
-        r.unit === unit ? { ...r, attendanceStatus: 'NONE' as const, zoomName: undefined, checkInTimestamp: undefined } : r
-      );
+      const updated = residents.map(r => {
+        if (r.unit === unit) {
+           // Create new object extracting ONLY the base properties
+           // This effectively removes 'zoomName' and 'checkInTimestamp' keys instead of setting them to undefined
+           const { zoomName, checkInTimestamp, ...rest } = r;
+           return { ...rest, attendanceStatus: 'NONE' as const };
+        }
+        return r;
+      });
       setResidents(updated);
+      saveResidents(updated); // Explicit Save
   };
 
   const handleExportAttendance = () => {
@@ -60,6 +69,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({ residents, set
         : r
     );
     setResidents(updated);
+    saveResidents(updated); // Explicit Save
     setEditingResident(null);
   };
 
