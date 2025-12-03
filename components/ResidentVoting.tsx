@@ -18,7 +18,7 @@ interface ResidentVotingProps {
 enum VoteStep {
   IDENTIFY = 'IDENTIFY',
   MULTI_UNIT_SELECT = 'MULTI_UNIT_SELECT',
-  DASHBOARD = 'DASHBOARD', // New Dashboard Step
+  DASHBOARD = 'DASHBOARD',
   ZOOM_CHECKIN = 'ZOOM_CHECKIN',
   WAITING_ROOM = 'WAITING_ROOM',
   LIST = 'LIST',
@@ -57,8 +57,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   // Helper status checks
   const allApproved = selectedUnits.length > 0 && selectedUnits.every(u => u.attendanceStatus === 'APPROVED');
   const allPending = selectedUnits.length > 0 && selectedUnits.every(u => u.attendanceStatus === 'PENDING');
-  const notCheckedIn = selectedUnits.length > 0 && selectedUnits.some(u => !u.attendanceStatus || u.attendanceStatus === 'NONE');
-
+  
   // --- Effects ---
 
   // Refreshes data if admin approves in background
@@ -97,25 +96,38 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
     const targetUnit = unitInput.toLowerCase().trim();
     const targetCpfClean = cpfInput.replace(/\D/g, '');
 
+    if (!targetUnit) {
+        alert("Por favor, digite o número da Unidade.");
+        return;
+    }
+
     // 1. Find the specific unit requested
     const resident = residents.find(r => r.unit.toLowerCase() === targetUnit);
 
     if (resident) {
-      // 2. Validate CPF
+      // 2. Validate CPF (Only if CPF exists in Excel)
       if (resident.cpf) {
          const recordCpfClean = resident.cpf.replace(/\D/g, '');
+         // Check matches start
          if (!targetCpfClean || !recordCpfClean.startsWith(targetCpfClean)) {
-             alert("Os 5 primeiros dígitos do CPF não conferem.");
+             alert("Os dados de CPF não conferem com a unidade informada.");
              return;
          }
          if (targetCpfClean.length < 5) {
              alert("Digite pelo menos os 5 primeiros dígitos do CPF.");
              return;
          }
+      } else {
+         // Fallback if Excel has no CPF: Warning or allow just Unit?
+         // Assuming we strictly need CPF if configured, but for flexibility:
+         if (cpfInput.length > 0 && cpfInput.length < 3) {
+             alert("Por favor, confirme os dados.");
+             return;
+         }
       }
 
       // 3. Check for Multi-Unit Ownership (same CPF)
-      // Only do this if we have a valid CPF to search by
+      // Only do this if we have a valid CPF to search by from the record found
       if (resident.cpf) {
           const cleanRecordCpf = resident.cpf.replace(/\D/g, '');
           const siblings = residents.filter(r => r.cpf && r.cpf.replace(/\D/g, '') === cleanRecordCpf);
@@ -131,7 +143,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
       proceedWithUnits([resident]);
 
     } else {
-      alert("Unidade não encontrada.");
+      alert("Unidade não encontrada na lista de votação.\n\nVerifique se digitou corretamente ou contate o administrador.");
     }
   };
 
@@ -141,8 +153,19 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
   const proceedWithUnits = (units: Resident[]) => {
       setSelectedUnits(units);
-      // Always go to Dashboard first so user can choose
-      setStep(VoteStep.DASHBOARD);
+      
+      // Direct flow: Identify -> Zoom Checkin -> Waiting Room
+      // Check if already approved or pending to route correctly
+      const isApproved = units.every(u => u.attendanceStatus === 'APPROVED');
+      const isPending = units.every(u => u.attendanceStatus === 'PENDING');
+
+      if (isApproved) {
+          setStep(VoteStep.DASHBOARD);
+      } else if (isPending) {
+          setStep(VoteStep.WAITING_ROOM);
+      } else {
+          setStep(VoteStep.ZOOM_CHECKIN);
+      }
   };
 
   // --- Dashboard Logic ---
@@ -163,7 +186,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   const handleGoToVoting = () => {
       // 1. Check Approval
       if (!allApproved) {
-          alert("Atenção: Você precisa confirmar sua presença na 'Lista de Presença' e aguardar aprovação antes de votar.");
+          alert("Atenção: Você precisa aguardar a aprovação do administrador na Sala de Espera antes de votar.");
           return;
       }
 
@@ -179,7 +202,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
   const handleZoomSubmit = () => {
       if(!zoomNameInput.trim()) {
-          alert("Por favor, informe seu nome no Zoom.");
+          alert("Por favor, informe seu nome no Zoom/Reunião para que o Admin te identifique.");
           return;
       }
       
@@ -241,12 +264,12 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
         {step === VoteStep.IDENTIFY && (
           <Card title="Acesso ao Sistema">
             <div className="space-y-4">
-              <p className="text-gray-600 text-sm">Identifique-se para entrar na assembleia.</p>
+              <p className="text-gray-600 text-sm">Identifique-se com sua Unidade e CPF para entrar.</p>
               
               {residents.length === 0 && (
                   <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg text-xs text-yellow-800 flex items-center gap-2 animate-pulse">
                       <RefreshCw className="animate-spin" size={14} />
-                      Aguardando sincronização da lista de moradores...
+                      Aguardando lista de moradores...
                   </div>
               )}
 
@@ -265,6 +288,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   value={cpfInput}
                   onChange={(e) => setCpfInput(e.target.value)}
                   maxLength={11}
+                  type="tel"
                   onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
                 />
               </div>
@@ -273,7 +297,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   Voltar
                 </Button>
                 <Button onClick={handleIdentify} className="flex-[2]" disabled={residents.length === 0}>
-                  {residents.length === 0 ? "Carregando..." : "Continuar"}
+                  {residents.length === 0 ? "Carregando..." : "Entrar"}
                 </Button>
               </div>
             </div>
@@ -282,13 +306,12 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
         {/* Step 1.5: Multi-Unit Selection */}
         {step === VoteStep.MULTI_UNIT_SELECT && (
-             <Card title="Múltiplas Unidades Encontradas">
+             <Card title="Múltiplas Unidades">
                  <div className="space-y-4">
                      <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-start gap-3">
                         <Users className="text-blue-600 mt-1 flex-shrink-0" />
                         <p className="text-sm text-blue-800">
-                            Identificamos que seu CPF está vinculado a <strong>{multiUnitCandidates.length} unidades</strong>. 
-                            Deseja votar representando todas elas?
+                            Identificamos <strong>{multiUnitCandidates.length} unidades</strong> vinculadas ao seu CPF.
                         </p>
                      </div>
 
@@ -304,121 +327,48 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
                      <div className="flex flex-col gap-3 mt-4">
                          <Button onClick={() => handleMultiUnitSelection(multiUnitCandidates)}>
-                            Sim, entrar com TODAS ({multiUnitCandidates.length})
+                            Entrar com TODAS as unidades
                          </Button>
                          <Button variant="outline" onClick={() => handleMultiUnitSelection([multiUnitCandidates.find(u => u.unit.toLowerCase() === unitInput.toLowerCase().trim())!])}>
-                            Não, apenas a unidade {unitInput}
+                            Apenas a unidade {unitInput}
                          </Button>
                      </div>
                  </div>
              </Card>
         )}
 
-        {/* Step 2: DASHBOARD (The 2 Tabs) */}
-        {step === VoteStep.DASHBOARD && selectedUnits.length > 0 && (
-          <Card>
-            <div className="space-y-6">
-               <div className="flex justify-between items-center border-b pb-4">
-                 <div>
-                   <h2 className="text-lg font-bold text-gray-900">Olá, {selectedUnits[0].name.split(' ')[0]}</h2>
-                   <p className="text-sm text-gray-500">Unidades: {selectedUnits.map(u => u.unit).join(', ')}</p>
-                 </div>
-                 <Button variant="outline" size="sm" onClick={onBack} className="h-8 text-xs">Sair</Button>
-               </div>
-               
-               {/* Status Summary */}
-               <div className="flex justify-center">
-                 {allApproved ? (
-                   <Badge color="green">Presença Confirmada</Badge>
-                 ) : allPending ? (
-                   <Badge color="yellow">Aguardando Aprovação</Badge>
-                 ) : (
-                   <Badge color="red">Não Credenciado</Badge>
-                 )}
-               </div>
-
-               <div className="grid grid-cols-1 gap-4">
-                 {/* Option 1: Attendance */}
-                 <button 
-                   onClick={handleGoToAttendance}
-                   className="flex items-start gap-4 p-4 border rounded-xl hover:bg-gray-50 transition-all text-left group"
-                 >
-                    <div className={`p-3 rounded-full ${allApproved ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
-                      {allApproved ? <CheckCircle size={24} /> : <UserCheck size={24} />}
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-gray-800 group-hover:text-blue-700">Lista de Presença</h3>
-                      <p className="text-sm text-gray-500 mt-1">
-                         {allApproved 
-                            ? "Sua entrada já foi aprovada. Clique para ver detalhes." 
-                            : "Faça seu check-in e informe seu nome no Zoom para ser liberado."}
-                      </p>
-                    </div>
-                 </button>
-
-                 {/* Option 2: Voting */}
-                 <button 
-                   onClick={handleGoToVoting}
-                   className={`flex items-start gap-4 p-4 border rounded-xl text-left transition-all ${
-                     !allApproved 
-                        ? 'bg-gray-50 opacity-60 cursor-not-allowed border-gray-200' 
-                        : 'hover:bg-red-50 hover:border-red-200 border-gray-200 group'
-                   }`}
-                 >
-                    <div className={`p-3 rounded-full ${!allApproved ? 'bg-gray-200 text-gray-400' : 'bg-red-100 text-red-600'}`}>
-                      {allApproved ? <Vote size={24} /> : <Lock size={24} />}
-                    </div>
-                    <div>
-                      <h3 className={`font-bold ${!allApproved ? 'text-gray-500' : 'text-gray-800 group-hover:text-red-700'}`}>Votação / Enquetes</h3>
-                      {allApproved ? (
-                        <p className="text-sm text-gray-500 mt-1">
-                          {activePolls.length > 0 
-                            ? `${activePolls.length} votação(ões) ativa(s). Clique para participar.` 
-                            : "Nenhuma votação iniciada pelo administrador."}
-                        </p>
-                      ) : (
-                         <div className="mt-1 flex items-center gap-1 text-xs text-red-500 font-medium">
-                            <AlertCircle size={12} />
-                            Necessário aprovação na Lista de Presença
-                         </div>
-                      )}
-                    </div>
-                 </button>
-               </div>
-            </div>
-          </Card>
-        )}
-
         {/* Step 3: Zoom Check-in */}
         {step === VoteStep.ZOOM_CHECKIN && selectedUnits.length > 0 && (
            <Card>
-              <Button variant="outline" className="mb-4 text-xs flex items-center gap-1" onClick={() => setStep(VoteStep.DASHBOARD)}>
+              <Button variant="outline" className="mb-4 text-xs flex items-center gap-1" onClick={() => setStep(VoteStep.IDENTIFY)}>
                   <ArrowLeft size={12} /> Voltar
               </Button>
               <div className="text-center space-y-4">
                   <div className="mx-auto bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center">
                     <Video className="h-8 w-8 text-blue-600" />
                   </div>
-                  <h2 className="text-lg font-bold text-gray-900">Confirmação de Presença</h2>
-                  <p className="text-sm text-gray-600">
-                      Você está representando: <br/>
-                      <strong>{selectedUnits.map(u => u.unit).join(', ')}</strong>
-                  </p>
+                  <h2 className="text-lg font-bold text-gray-900">Identificação para Sala</h2>
+                  <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded">
+                      <p>Proprietário Identificado:</p>
+                      <strong>{selectedUnits[0].name}</strong>
+                      <p className="mt-1">Unidade(s): {selectedUnits.map(u => u.unit).join(', ')}</p>
+                  </div>
                   
-                  <div className="text-left bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <div className="text-left p-4 rounded-lg border border-blue-100 bg-blue-50/50">
                      <label className="block text-sm font-bold text-gray-800 mb-2">Qual seu nome no Zoom/Reunião?</label>
                      <Input 
-                        placeholder="Ex: Maria 101/102"
+                        placeholder="Ex: João Silva - 101"
                         value={zoomNameInput}
                         onChange={(e) => setZoomNameInput(e.target.value)}
+                        autoFocus
                      />
                      <p className="text-xs text-gray-500 mt-2">
-                        O administrador usará este nome para aprovar sua entrada.
+                        O admin usará este nome para aprovar sua entrada.
                      </p>
                   </div>
 
                   <Button onClick={handleZoomSubmit} className="w-full">
-                     Solicitar Entrada
+                     Confirmar Presença
                   </Button>
               </div>
            </Card>
@@ -433,21 +383,70 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                     </div>
                     <h2 className="text-xl font-bold text-gray-900 mb-2">Aguardando Aprovação</h2>
                     <p className="text-gray-500 mb-6 px-4">
-                        Sua presença para as unidades <strong>{selectedUnits.map(u => u.unit).join(', ')}</strong> foi registrada.
+                        Sua presença para <strong>{selectedUnits.map(u => u.unit).join(', ')}</strong> foi registrada na Sala de Espera.
                     </p>
                     <div className="bg-gray-50 p-3 rounded text-sm text-gray-600 inline-block mb-6">
                         Status: <span className="font-bold text-yellow-600">PENDENTE</span>
                     </div>
                     <p className="text-xs text-gray-400">
-                        O administrador liberará seu acesso à votação em breve.
+                        Assim que o administrador aprovar, você será liberado para votar automaticamente.
                     </p>
                     <div className="mt-8">
-                        <Button variant="outline" onClick={() => setStep(VoteStep.DASHBOARD)} size="sm">
-                           Voltar ao Menu
-                        </Button>
+                        {/* Option to go back to identify if stuck or wrong unit */}
+                        <button 
+                            onClick={() => setStep(VoteStep.IDENTIFY)} 
+                            className="text-xs text-red-400 underline"
+                        >
+                            Entrei com a unidade errada? Sair
+                        </button>
                     </div>
                 </div>
             </Card>
+        )}
+
+        {/* Step 2: DASHBOARD (Menu) */}
+        {step === VoteStep.DASHBOARD && selectedUnits.length > 0 && (
+          <Card>
+            <div className="space-y-6">
+               <div className="flex justify-between items-center border-b pb-4">
+                 <div>
+                   <h2 className="text-lg font-bold text-gray-900">Olá, {selectedUnits[0].name.split(' ')[0]}</h2>
+                   <p className="text-sm text-gray-500">Unidades: {selectedUnits.map(u => u.unit).join(', ')}</p>
+                 </div>
+                 <Button variant="outline" size="sm" onClick={onBack} className="h-8 text-xs">Sair</Button>
+               </div>
+               
+               <div className="flex justify-center">
+                   <Badge color="green">Presença Confirmada</Badge>
+               </div>
+
+               <div className="grid grid-cols-1 gap-4">
+                 <button 
+                   onClick={handleGoToVoting}
+                   className="flex items-start gap-4 p-4 border rounded-xl text-left transition-all hover:bg-red-50 hover:border-red-200 border-gray-200 group bg-white shadow-sm"
+                 >
+                    <div className="p-3 rounded-full bg-red-100 text-red-600">
+                      <Vote size={24} />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-gray-800 group-hover:text-red-700">Votação / Enquetes</h3>
+                      <p className="text-sm text-gray-500 mt-1">
+                          {activePolls.length > 0 
+                            ? `${activePolls.length} votação(ões) ativa(s). Clique para votar.` 
+                            : "Aguardando início da votação..."}
+                      </p>
+                    </div>
+                 </button>
+                 
+                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 flex items-center gap-3">
+                    <UserCheck className="text-green-600" size={20} />
+                    <div className="text-sm text-gray-600">
+                        Você está registrado como: <strong>{selectedUnits[0].zoomName}</strong>
+                    </div>
+                 </div>
+               </div>
+            </div>
+          </Card>
         )}
 
         {/* Step 5: List Active Polls */}
@@ -458,18 +457,6 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   <ArrowLeft size={12} /> Voltar ao Menu
                 </Button>
                 
-                <div className="bg-green-50 border border-green-100 p-3 rounded-lg flex justify-between items-center mb-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                        <span className="text-xs font-bold text-green-700">VOCÊ ESTÁ APROVADO</span>
-                    </div>
-                    <div className="font-bold text-gray-900 mt-1 text-sm">
-                        Unidades: {selectedUnits.map(u => u.unit).join(', ')}
-                    </div>
-                  </div>
-                </div>
-
                 {activePolls.length === 0 ? (
                   <div className="text-center py-12 text-gray-500 bg-white rounded-lg border border-dashed border-gray-300">
                     <Vote className="mx-auto h-8 w-8 text-gray-300 mb-2" />
@@ -478,7 +465,6 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                 ) : (
                   <div className="space-y-3">
                     {activePolls.map(poll => {
-                      // Check if ALL selected units have voted
                       const allVoted = selectedUnits.every(u => hasVoted(poll.id, u.unit));
                       
                       return (
@@ -525,7 +511,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                 </Button>
                 <h2 className="text-xl font-bold text-gray-900 mb-2">{selectedPoll.title}</h2>
                 <div className="bg-red-50 text-red-800 text-sm p-2 rounded mb-2">
-                    Você está votando por: <strong>{selectedUnits.filter(u => !hasVoted(selectedPoll.id, u.unit)).map(u => u.unit).join(', ')}</strong>
+                    Votando por: <strong>{selectedUnits.filter(u => !hasVoted(selectedPoll.id, u.unit)).map(u => u.unit).join(', ')}</strong>
                 </div>
                 {selectedPoll.description && <p className="text-gray-500 text-sm">{selectedPoll.description}</p>}
               </div>

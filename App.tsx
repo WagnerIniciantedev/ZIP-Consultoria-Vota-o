@@ -304,13 +304,24 @@ const App: React.FC = () => {
     });
   };
 
+  // UPDATED HANDLER: Removed Visitor Mode Logic
+  // Now strictly updates existing residents found in the Excel list
   const handleRegisterAttendance = (unit: string, zoomName: string) => {
-     setResidents(prev => prev.map(r => {
-       if (r.unit === unit) {
-         return { ...r, zoomName, attendanceStatus: 'PENDING' as const };
+     setResidents(prev => {
+       const existingResident = prev.find(r => r.unit.toLowerCase() === unit.toLowerCase());
+       
+       if (existingResident) {
+         // Update existing resident status
+         return prev.map(r => {
+           if (r.unit.toLowerCase() === unit.toLowerCase()) {
+             return { ...r, zoomName, attendanceStatus: 'PENDING' as const };
+           }
+           return r;
+         });
        }
-       return r;
-     }));
+       // If not in list, do nothing (validation is handled in UI now)
+       return prev;
+     });
   };
 
   const hasVoted = (pollId: string, unit: string) => votes.some(v => v.unit === unit && v.pollId === pollId);
@@ -461,17 +472,19 @@ const App: React.FC = () => {
                   </div>
               </div>
 
-              {/* RESIDENT BIG BUTTON */}
-              <div className="mt-6">
-                <Button 
-                  onClick={() => setCurrentView(AppView.VOTE_IDENTIFY)}
-                  variant="outline"
-                  className="w-full py-4 border-2 border-blue-600 text-blue-700 hover:bg-blue-50 hover:border-blue-700 font-bold flex items-center justify-center gap-3 text-base rounded-xl transition-all"
-                >
-                  <UserCheck className="w-6 h-6" />
-                  SOU MORADOR / QUERO VOTAR
-                </Button>
-              </div>
+              {/* RESIDENT BIG BUTTON - VISIBLE ONLY IF ASSEMBLY ACTIVE */}
+              {isAssemblyActive && (
+                <div className="mt-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                  <Button 
+                    onClick={() => setCurrentView(AppView.VOTE_IDENTIFY)}
+                    variant="outline"
+                    className="w-full py-4 border-2 border-blue-600 text-blue-700 hover:bg-blue-50 hover:border-blue-700 font-bold flex items-center justify-center gap-3 text-base rounded-xl transition-all"
+                  >
+                    <UserCheck className="w-6 h-6" />
+                    SOU MORADOR / QUERO VOTAR
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
           
@@ -482,7 +495,7 @@ const App: React.FC = () => {
                    </span>
                ) : (
                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/20 text-white text-xs backdrop-blur-sm border border-green-400/30">
-                       <Wifi size={12} /> Sistema Online (Firestore)
+                       <Wifi size={12} /> Sistema Online
                    </span>
                )}
           </div>
