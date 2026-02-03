@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord } from './types';
 import { 
@@ -10,22 +11,20 @@ import {
   getAssemblyStatus, saveAssemblyStatus,
   saveSession, getSession, clearSession,
   clearAllData,
-  saveAssemblyStartTime, getAssemblyStartTime
+  saveAssemblyStartTime, getAssemblyStartTime,
+  getMasterSecurityUsers
 } from './services/dataService';
-// Import Firebase Firestore & Auth
 import { db, doc, onSnapshot, setDoc, auth, signInAnonymously } from './services/firebase';
 
 // UI Components
 import { AdminDashboard } from './components/AdminDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
 import { Button, Input } from './components/ui';
-import { Building2, Phone, Instagram, UserCheck, Eye, EyeOff, AlertTriangle, MonitorPlay, Wifi, WifiOff } from 'lucide-react';
+import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, UserCheck } from 'lucide-react';
 
 const App: React.FC = () => {
   
-  // ============================================================================
   // --- STATE MANAGEMENT ---
-  // ============================================================================
   const [currentView, setCurrentView] = useState<AppView>(AppView.ADMIN_LOGIN);
   const [residents, setResidents] = useState<Resident[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
@@ -43,24 +42,18 @@ const App: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false); 
   const [loginError, setLoginError] = useState('');
-
-  // Firebase Connection Status
   const [isConnected, setIsConnected] = useState(false);
 
-  // ============================================================================
-  // --- EFFECTS & PERSISTENCE ---
-  // ============================================================================
-  
-  // Initial Load from LocalStorage
+  // --- INITIAL LOAD ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const isResidentAccess = params.get('access') === 'resident';
 
+    const initialUsers = getUsers();
     setResidents(getResidents());
     setPolls(getPolls());
     setVotes(getVotes());
-    // getUsers initial load (fallback until Firestore connects)
-    setUsers(getUsers());
+    setUsers(initialUsers);
     setCondoName(getCondoName());
     setPastAssemblies(getAssemblies());
     setIsAssemblyActive(getAssemblyStatus());
@@ -71,201 +64,115 @@ const App: React.FC = () => {
     if (isResidentAccess) {
       setCurrentView(AppView.VOTE_IDENTIFY);
     } else if (savedUser) {
-      // Check if saved session user still exists in the (potentially updated) users list
-      // Note: We might re-check this after Firestore updates the users list
       setCurrentUser(savedUser);
       setCurrentView(AppView.ADMIN_DASHBOARD);
     }
+
+    // Authenticate Anonymously
+    if (auth) {
+        signInAnonymously(auth).catch(e => console.warn("Firebase Auth Error:", e));
+    }
   }, []);
 
-  // --- FIRESTORE REALTIME LISTENER ---
+  // --- 1. GLOBAL SYSTEM LISTENER (Users & Pointer) ---
   useEffect(() => {
-    if (!db) {
-      setIsConnected(false);
-      return;
-    }
-
-    // AUTHENTICATE ANONYMOUSLY TO SATISFY RULES
-    if (auth) {
-        signInAnonymously(auth)
-            .then(() => console.log("🔐 Autenticado no Firebase (Anônimo) para acesso ao Banco de Dados"))
-            .catch((err) => console.warn("⚠️ Autenticação Anônima falhou. Se você ativou o Auth no console, ative o provedor 'Anônimo' ou ajuste as Regras.", err));
-    }
-
-    // Determine the safe key based on condo name or localstorage default
-    const currentName = condoName || localStorage.getItem('condovote_condo_name') || 'setup';
-    const safeKey = currentName.replace(/[^a-zA-Z0-9]/g, '_');
-    
-    console.log(`[Firestore] Listening to document assemblies/${safeKey}`);
+    if (!db) return;
     setIsConnected(true);
 
-    // --- 1. GLOBAL LISTENER FOR ACTIVE CONDO (Multi-device Sync) ---
-    // Listens to 'system/global' to find out which condo is active
-    const globalRef = doc(db, 'system', 'global');
-    const unsubGlobal = onSnapshot(globalRef, (docSnapshot) => {
-        const data = docSnapshot.data();
-        const val = data?.active_condo;
-        
-        // Auto-switch condo context if needed
-        if (val && val !== condoName && val !== 'null') {
-             if (currentView !== AppView.ADMIN_DASHBOARD || !condoName) {
-                 console.log("Syncing with Global Active Condo:", val);
-                 setCondoName(val);
-             }
-        }
-    });
-
-    // --- 2. GLOBAL USERS LISTENER (Sync Logins) ---
     const usersRef = doc(db, 'system', 'users');
     const unsubUsers = onSnapshot(usersRef, (docSnapshot) => {
         if (docSnapshot.exists()) {
             const data = docSnapshot.data();
-            if (data && Array.isArray(data.list)) {
-                setUsers(data.list);
-                localStorage.setItem('condovote_users', JSON.stringify(data.list));
+            if (data && Array.isArray(data.list) && data.list.length > 0) {
+                // Merge cloud users with default safety users
+                const cloudUsers = data.list;
+                const safetyUsers = getMasterSecurityUsers();
+                const mergedMap = new Map();
                 
-                // If we are logged in, ensure our user data is up to date with DB
-                if (currentUser) {
-                    const meInDb = data.list.find((u: User) => u.id === currentUser.id);
-                    if (meInDb && JSON.stringify(meInDb) !== JSON.stringify(currentUser)) {
-                        setCurrentUser(meInDb);
-                    }
-                }
+                // Add cloud users first
+                cloudUsers.forEach((u: User) => mergedMap.set(u.username.toLowerCase(), u));
+                // Overlay safety users to ensure they exist
+                safetyUsers.forEach((u: User) => mergedMap.set(u.username.toLowerCase(), u));
+                
+                const finalUsersList = Array.from(mergedMap.values());
+                setUsers(finalUsersList);
+                localStorage.setItem('condovote_users', JSON.stringify(finalUsersList));
             }
         } else {
-            // Self-Healing: If DB is empty, upload current defaults so admin doesn't get locked out
-            console.log("Database users empty. Initializing defaults.");
             const defaultUsers = getUsers();
-            setUsers(defaultUsers);
             setDoc(usersRef, { list: defaultUsers }, { merge: true });
         }
     });
 
-    // --- 3. MAIN DATA LISTENER (One Doc for efficiency) ---
-    // Listens to 'assemblies/[safeKey]'
-    const assemblyRef = doc(db, 'assemblies', safeKey);
-    const unsubAssembly = onSnapshot(assemblyRef, (docSnapshot) => {
-        if (docSnapshot.exists()) {
-            const data = docSnapshot.data();
-            
-            // Update Polls
-            if (data.polls) {
-                setPolls(data.polls);
-                localStorage.setItem('condovote_polls', JSON.stringify(data.polls));
-            } else {
-                setPolls([]);
-            }
-
-            // Update Votes
-            if (data.votes) {
-                setVotes(data.votes);
-                localStorage.setItem('condovote_votes', JSON.stringify(data.votes));
-            } else {
-                setVotes([]);
-            }
-
-            // Update Residents
-            if (data.residents) {
-                setResidents(data.residents);
-                localStorage.setItem('condovote_residents', JSON.stringify(data.residents));
-            } else {
-                setResidents([]);
-            }
-
-            // Update Active Status
-            if (data.isActive !== undefined) {
-                setIsAssemblyActive(data.isActive);
-                localStorage.setItem('condovote_is_active', JSON.stringify(data.isActive));
-            }
-
-            // Update Time & Check Expiry
-            if (data.startTime) {
-                setAssemblyStartTime(data.startTime);
-                localStorage.setItem('condovote_assembly_start_time', data.startTime.toString());
-                
-                // --- 24 HOUR AUTO-CLOSE CHECK ---
-                const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-                const now = Date.now();
-                if (now - data.startTime > ONE_DAY_MS) {
-                   console.log("⚠️ Sessão expirada (mais de 24h).");
-                   // If admin, we clear. If resident, we just disconnect visuals.
-                   if (currentView === AppView.ADMIN_DASHBOARD) {
-                       clearAllData(currentName);
-                       alert("A sessão expirou (24h) e foi encerrada automaticamente.");
-                       setCurrentView(AppView.ADMIN_LOGIN);
-                       setCurrentUser(null);
-                       clearSession();
-                   }
-                }
-            }
-        } else {
-            // Document does not exist (was deleted/cleared)
-            console.log("Document deleted or empty. Clearing local state.");
-            setPolls([]);
-            setVotes([]);
-            setResidents([]);
-            setIsAssemblyActive(false);
-            setAssemblyStartTime(0);
-            
-            localStorage.removeItem('condovote_polls');
-            localStorage.removeItem('condovote_votes');
-            localStorage.removeItem('condovote_residents');
+    const globalRef = doc(db, 'system', 'global');
+    const unsubGlobal = onSnapshot(globalRef, (docSnapshot) => {
+        const data = docSnapshot.data();
+        const val = data?.active_condo;
+        if (val && val !== 'null' && currentView === AppView.ADMIN_LOGIN) {
+            setCondoName(val);
         }
     });
 
     return () => {
-        unsubGlobal();
-        unsubAssembly();
         unsubUsers();
+        unsubGlobal();
     };
-  }, [condoName, currentView, currentUser]); // Re-subscribe if Condo Name changes
-
-
-  // --- TAB SYNCHRONIZATION (LOCAL) ---
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'condovote_polls') setPolls(getPolls());
-      if (e.key === 'condovote_votes') setVotes(getVotes());
-      if (e.key === 'condovote_residents') setResidents(getResidents());
-      if (e.key === 'condovote_is_active') setIsAssemblyActive(getAssemblyStatus());
-      if (e.key === 'condovote_condo_name') setCondoName(getCondoName());
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
+  // --- 2. ASSEMBLY SPECIFIC LISTENER ---
+  useEffect(() => {
+    if (!db) return;
 
-  // Persistence Listeners (Triggers Save -> which triggers Cloud Sync in dataService)
-  // FIX: REMOVED AUTO-SAVE useEffects to prevent overwriting cloud data with empty local state on load.
-  // Saving is now handled explicitly in the action handlers (createPoll, confirmUpload, etc.)
-  
-  // NOTE: We removed the useEffect for saving users automatically to prevent empty state overwrites.
-  // saveUsers is now called manually in Users.tsx and handleDeleteUser.
-  
-  useEffect(() => saveCondoName(condoName), [condoName]);
+    const currentName = condoName || localStorage.getItem('condovote_condo_name') || 'setup';
+    const safeKey = currentName.replace(/[^a-zA-Z0-9]/g, '_');
+    const assemblyRef = doc(db, 'assemblies', safeKey);
+
+    const unsubAssembly = onSnapshot(assemblyRef, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+            const data = docSnapshot.data();
+            if (data.polls) setPolls(data.polls);
+            if (data.votes) setVotes(data.votes);
+            if (data.residents) setResidents(data.residents);
+            if (data.isActive !== undefined) setIsAssemblyActive(data.isActive);
+            if (data.startTime) setAssemblyStartTime(data.startTime);
+        } else {
+            if (condoName && condoName !== 'Modo Administrativo') {
+              setPolls([]);
+              setVotes([]);
+              setResidents([]);
+              setIsAssemblyActive(false);
+            }
+        }
+    });
+
+    return () => unsubAssembly();
+  }, [condoName]);
+
+  // Persistence triggers
+  useEffect(() => { if(condoName) saveCondoName(condoName) }, [condoName]);
   useEffect(() => saveAssemblies(pastAssemblies), [pastAssemblies]);
   useEffect(() => saveAssemblyStatus(isAssemblyActive), [isAssemblyActive]);
-  useEffect(() => saveAssemblyStartTime(assemblyStartTime), [assemblyStartTime]);
-
-  useEffect(() => {
-    if (currentUser) {
-      const updatedSelf = users.find(u => u.id === currentUser.id);
-      if (updatedSelf && JSON.stringify(updatedSelf) !== JSON.stringify(currentUser)) {
-        setCurrentUser(updatedSelf);
-        const isInLocal = localStorage.getItem('condovote_admin_auth');
-        saveSession(updatedSelf, !!isInLocal); 
-      }
-    }
-  }, [users, currentUser]);
-
-
-  // ============================================================================
-  // --- BUSINESS LOGIC ---
-  // ============================================================================
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const validUser = users.find(u => u.username === adminEmail && u.password === adminPass);
+    
+    // Normalização dos inputs para evitar erros de digitação (espaços ou maiúsculas)
+    const normalizedEmail = adminEmail.trim().toLowerCase();
+    const cleanPass = adminPass.trim();
+
+    // 1. Busca na lista de usuários carregados (Estado)
+    let validUser = users.find(u => 
+      u.username.toLowerCase() === normalizedEmail && u.password === cleanPass
+    );
+
+    // 2. Fallback de Segurança: Se a lista estiver vazia por erro de sincronia, busca na lista mestra
+    if (!validUser) {
+      const masterUsers = getMasterSecurityUsers();
+      validUser = masterUsers.find(u => 
+        u.username.toLowerCase() === normalizedEmail && u.password === cleanPass
+      );
+    }
+
     if (validUser) {
       setCurrentUser(validUser);
       saveSession(validUser, rememberMe);
@@ -274,108 +181,23 @@ const App: React.FC = () => {
       setAdminEmail('');
       setAdminPass('');
     } else {
-      setLoginError('Credenciais inválidas.');
+      setLoginError('Credenciais inválidas. Verifique usuário e senha.');
     }
   };
 
   const handleStartAssembly = (name: string) => {
-    // FIX: Ensure data is clean when starting a new assembly
-    const emptyResidents: Resident[] = [];
-    const emptyPolls: Poll[] = [];
-    const emptyVotes: VoteRecord[] = [];
-
-    setResidents(emptyResidents);
-    setPolls(emptyPolls);
-    setVotes(emptyVotes);
-    
+    setResidents([]);
+    setPolls([]);
+    setVotes([]);
     setCondoName(name);
     setIsAssemblyActive(true);
-    setAssemblyStartTime(Date.now()); // Record start time for 24h limit
-
-    // FORCE SAVE INITIAL STATE
-    saveResidents(emptyResidents);
-    savePolls(emptyPolls);
-    saveVotes(emptyVotes);
-  };
-
-  const handleVoteSubmit = (pollId: string, unit: string, optionId: string, isDelinquent: boolean) => {
-    setVotes(prevVotes => {
-      if (prevVotes.some(v => v.unit === unit && v.pollId === pollId)) {
-        return prevVotes;
-      }
-      const newVote: VoteRecord = {
-        pollId,
-        unit,
-        optionId,
-        timestamp: Date.now(),
-        isDelinquentVote: isDelinquent
-      };
-      
-      const updatedVotes = [...prevVotes, newVote];
-      saveVotes(updatedVotes); // Explicit Save
-      return updatedVotes;
-    });
-  };
-
-  // UPDATED HANDLER: Removed Visitor Mode Logic
-  // Now strictly updates existing residents found in the Excel list
-  const handleRegisterAttendance = (unit: string, zoomName: string) => {
-     setResidents(prev => {
-       const existingResident = prev.find(r => r.unit.toLowerCase() === unit.toLowerCase());
-       
-       if (existingResident) {
-         // Update existing resident status
-         const updatedResidents = prev.map(r => {
-           if (r.unit.toLowerCase() === unit.toLowerCase()) {
-             return { ...r, zoomName, attendanceStatus: 'PENDING' as const };
-           }
-           return r;
-         });
-         saveResidents(updatedResidents); // Explicit Save
-         return updatedResidents;
-       }
-       // If not in list, do nothing (validation is handled in UI now)
-       return prev;
-     });
-  };
-
-  const hasVoted = (pollId: string, unit: string) => votes.some(v => v.unit === unit && v.pollId === pollId);
-
-  const handleEndPoll = (id: string) => {
-    setPolls(prev => {
-        const updated = prev.map(p => p.id === id ? { ...p, isActive: false, isEnded: true } : p);
-        savePolls(updated); // Explicit Save
-        return updated;
-    });
-  };
-
-  const handleTogglePoll = (id: string) => {
-    setPolls(prev => {
-        const updated = prev.map(p => p.id === id ? { ...p, isActive: !p.isActive } : p);
-        savePolls(updated); // Explicit Save
-        return updated;
-    });
-  };
-
-  const handleDeletePoll = (id: string) => {
-    setPolls(prev => {
-        const updated = prev.filter(p => p.id !== id);
-        savePolls(updated); // Explicit Save
-        return updated;
-    });
-    setVotes(prev => {
-        const updated = prev.filter(v => v.pollId !== id);
-        saveVotes(updated); // Explicit Save
-        return updated;
-    }); 
-  };
-
-  const handleDeleteUser = (id: string) => {
-    setUsers(prevUsers => {
-        const updated = prevUsers.filter(u => u.id !== id);
-        saveUsers(updated); // Explicit Save
-        return updated;
-    });
+    setAssemblyStartTime(Date.now());
+    
+    saveResidents([]);
+    savePolls([]);
+    saveVotes([]);
+    saveCondoName(name);
+    saveAssemblyStatus(true);
   };
 
   const handleEndAssembly = () => {
@@ -391,8 +213,6 @@ const App: React.FC = () => {
       setPastAssemblies(prev => [assemblySnapshot, ...prev]);
     }
     
-    // IMPORTANT: Clear ALL data (Cloud and Local) BEFORE resetting state.
-    // We pass the current 'condoName' to ensure the correct firebase node is wiped.
     clearAllData(condoName);
 
     setPolls([]);
@@ -401,31 +221,35 @@ const App: React.FC = () => {
     setCondoName('');
     setIsAssemblyActive(false);
     setAssemblyStartTime(0);
+    setCurrentView(AppView.ADMIN_DASHBOARD);
   };
 
-  const handleDeleteAssembly = (id: string) => {
-    setPastAssemblies(prev => prev.filter(a => a.id !== id));
+  const handleVoteSubmit = (pollId: string, unit: string, optionId: string, isDelinquent: boolean) => {
+    setVotes(prev => {
+      if (prev.some(v => v.unit === unit && v.pollId === pollId)) return prev;
+      const newVote = { pollId, unit, optionId, timestamp: Date.now(), isDelinquentVote: isDelinquent };
+      const updated = [...prev, newVote];
+      saveVotes(updated);
+      return updated;
+    });
   };
 
-  // ============================================================================
+  const handleRegisterAttendance = (unit: string, zoomName: string) => {
+     setResidents(prev => {
+       const updated = prev.map(r => r.unit.toLowerCase() === unit.toLowerCase() ? { ...r, zoomName, attendanceStatus: 'PENDING' as const } : r);
+       saveResidents(updated);
+       return updated;
+     });
+  };
+
   // --- RENDER ---
-  // ============================================================================
 
   if (currentView === AppView.ADMIN_LOGIN) {
     return (
       <div className="min-h-screen bg-[#E60000] flex flex-col items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-           <div className="absolute top-[-20%] right-[-10%] w-[500px] h-[500px] rounded-full bg-white blur-3xl"></div>
-           <div className="absolute bottom-[-20%] left-[-10%] w-[400px] h-[400px] rounded-full bg-black blur-3xl"></div>
-        </div>
-        
         <div className="flex flex-col items-center w-full max-w-md z-10">
           <div className="mb-8 text-center">
-             <img 
-               src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
-               alt="Zip Consultoria" 
-               className="h-64 w-auto mx-auto object-contain drop-shadow-xl"
-             />
+             <img src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" alt="Zip Consultoria" className="h-64 w-auto mx-auto object-contain drop-shadow-xl" />
           </div>
           
           <div className="w-full bg-white rounded-2xl shadow-2xl overflow-hidden">
@@ -439,152 +263,115 @@ const App: React.FC = () => {
               <form onSubmit={handleAdminLogin} className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1 ml-1">Usuário Administrativo</label>
-                  <Input 
-                    type="text" 
-                    placeholder="Digite seu usuário" 
-                    value={adminEmail} 
-                    onChange={e => setAdminEmail(e.target.value)}
-                    className="bg-gray-50 border-gray-200 py-3 focus:bg-white text-gray-900 placeholder-gray-400"
-                  />
+                  <Input type="text" placeholder="wagner.silva" value={adminEmail} onChange={e => setAdminEmail(e.target.value)} />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1 ml-1">Senha</label>
                   <div className="relative">
-                    <Input 
-                      type={showPassword ? "text" : "password"} 
-                      placeholder="••••••" 
-                      value={adminPass} 
-                      onChange={e => setAdminPass(e.target.value)} 
-                      className="bg-gray-50 border-gray-200 py-3 focus:bg-white text-gray-900 placeholder-gray-400 pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1"
-                      title={showPassword ? "Ocultar senha" : "Mostrar senha"}
-                    >
+                    <Input type={showPassword ? "text" : "password"} placeholder="••••••" value={adminPass} onChange={e => setAdminPass(e.target.value)} />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                       {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
                   </div>
                 </div>
-
                 <div className="flex items-center pl-1">
-                  <input 
-                    id="remember-me" 
-                    type="checkbox" 
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 text-red-600 bg-gray-100 border-gray-300 rounded focus:ring-red-500 cursor-pointer"
-                  />
-                  <label htmlFor="remember-me" className="ml-2 text-sm font-medium text-gray-700 cursor-pointer select-none">
-                    Permanecer conectado
-                  </label>
+                  <input id="remember-me" type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="w-4 h-4 text-red-600 cursor-pointer" />
+                  <label htmlFor="remember-me" className="ml-2 text-sm font-medium text-gray-700 cursor-pointer">Permanecer conectado</label>
                 </div>
-                
-                {loginError && (
-                  <div className="p-3 bg-red-50 border border-red-100 rounded-lg flex items-center gap-2 text-red-600 text-sm font-medium">
-                     <div className="w-1.5 h-1.5 bg-red-600 rounded-full"></div>
-                     {loginError}
-                  </div>
-                )}
-                
-                <Button type="submit" className="w-full bg-[#E60000] hover:bg-red-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-red-200 transition-all transform active:scale-[0.99]">
-                  ENTRAR
-                </Button>
+                {loginError && <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-red-600 text-sm font-medium animate-bounce">{loginError}</div>}
+                <Button type="submit" className="w-full bg-[#E60000] hover:bg-red-700 text-white font-bold py-3.5 shadow-lg active:scale-95 transition-all">ENTRAR</Button>
               </form>
 
-              {/* DIVIDER */}
               <div className="mt-8 relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-200"></div>
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-2 bg-white text-gray-500 font-medium text-[10px] tracking-widest">ÁREA DO CONDÔMINO</span>
-                  </div>
+                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
+                  <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500 font-medium text-[10px] tracking-widest">ÁREA DO CONDÔMINO</span></div>
               </div>
 
-              {/* RESIDENT BIG BUTTON - VISIBLE ONLY IF ASSEMBLY ACTIVE */}
               {isAssemblyActive && (
                 <div className="mt-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                  <Button 
-                    onClick={() => setCurrentView(AppView.VOTE_IDENTIFY)}
-                    variant="outline"
-                    className="w-full py-4 border-2 border-blue-600 text-blue-700 hover:bg-blue-50 hover:border-blue-700 font-bold flex items-center justify-center gap-3 text-base rounded-xl transition-all"
-                  >
-                    <UserCheck className="w-6 h-6" />
-                    SOU MORADOR / QUERO VOTAR
+                  <Button onClick={() => setCurrentView(AppView.VOTE_IDENTIFY)} variant="outline" className="w-full py-4 border-2 border-blue-600 text-blue-700 hover:bg-blue-50 font-bold flex items-center justify-center gap-3">
+                    <UserCheck className="w-6 h-6" /> SOU MORADOR / QUERO VOTAR
                   </Button>
                 </div>
               )}
             </div>
           </div>
-          
-          <div className="mt-8 text-center">
-               {!isConnected ? (
-                   <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-white/70 text-xs backdrop-blur-sm border border-white/10">
-                       <WifiOff size={12} /> Modo Offline (Dados Locais)
-                   </span>
-               ) : (
-                   <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/20 text-white text-xs backdrop-blur-sm border border-green-400/30">
-                       <Wifi size={12} /> Sistema Online
-                   </span>
-               )}
+          <div className="mt-8">
+            <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs backdrop-blur-sm border ${isConnected ? 'bg-green-500/20 text-white border-green-400/30' : 'bg-white/10 text-white/70 border-white/10'}`}>
+                {isConnected ? <Wifi size={12} /> : <WifiOff size={12} />} {isConnected ? 'Sistema Online' : 'Modo Offline'}
+            </span>
           </div>
         </div>
       </div>
     );
   }
 
+  // --- RESIDENT VIEW GUARD ---
+  if (currentView === AppView.VOTE_IDENTIFY && !isAssemblyActive && !currentUser) {
+      return (
+        <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full text-center">
+                <div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <AlertCircle className="text-red-600" size={32} />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Nenhuma Assembleia Ativa</h2>
+                <p className="text-gray-500 mb-8">Aguarde o administrador iniciar a sessão de votação para poder acessar.</p>
+                <Button onClick={() => setCurrentView(AppView.ADMIN_LOGIN)} variant="outline" className="w-full">Voltar ao Início</Button>
+            </div>
+        </div>
+      );
+  }
+
   if (currentView === AppView.ADMIN_DASHBOARD) {
     return (
       <AdminDashboard 
         isAssemblyActive={isAssemblyActive}
-        residents={residents}
-        setResidents={setResidents}
-        polls={polls}
-        setPolls={setPolls}
+        residents={residents} setResidents={setResidents}
+        polls={polls} setPolls={setPolls}
         votes={votes}
-        users={users}
-        setUsers={setUsers}
+        users={users} setUsers={setUsers}
         currentUser={currentUser}
-        condoName={condoName}
-        setCondoName={setCondoName}
+        condoName={condoName} setCondoName={setCondoName}
         pastAssemblies={pastAssemblies}
-        onLogout={() => {
-          clearSession(); 
-          setCurrentUser(null);
-          setCurrentView(AppView.ADMIN_LOGIN);
-        }}
+        onLogout={() => { clearSession(); setCurrentUser(null); setCurrentView(AppView.ADMIN_LOGIN); }}
         onGoToVoting={() => setCurrentView(AppView.VOTE_IDENTIFY)}
-        onTogglePoll={handleTogglePoll}
-        onEndPoll={handleEndPoll}
-        onDeletePoll={handleDeletePoll}
-        onDeleteUser={handleDeleteUser}
+        onTogglePoll={(id) => {
+            const updated = polls.map(p => p.id === id ? {...p, isActive: !p.isActive} : p);
+            setPolls(updated);
+            savePolls(updated);
+        }}
+        onEndPoll={(id) => {
+            const updated = polls.map(p => p.id === id ? {...p, isActive: false, isEnded: true} : p);
+            setPolls(updated);
+            savePolls(updated);
+        }}
+        onDeletePoll={(id) => {
+            const updated = polls.filter(p => p.id !== id);
+            setPolls(updated);
+            savePolls(updated);
+        }}
+        onDeleteUser={(id) => {
+            const updated = users.filter(u => u.id !== id);
+            setUsers(updated);
+            saveUsers(updated);
+        }}
         onStartAssembly={handleStartAssembly}
         onEndAssembly={handleEndAssembly}
-        onDeleteAssembly={handleDeleteAssembly}
+        onDeleteAssembly={(id) => setPastAssemblies(prev => prev.filter(a => a.id !== id))}
       />
     );
   }
 
   return (
-    <div>
-      <ResidentVoting 
-        residents={residents}
-        polls={polls}
-        onVoteSubmit={handleVoteSubmit}
-        onRegisterAttendance={handleRegisterAttendance}
-        hasVoted={hasVoted}
-        isAdmin={!!currentUser}
-        onBack={() => {
-          if (currentUser) {
-            setCurrentView(AppView.ADMIN_DASHBOARD);
-          } else {
-            setCurrentView(AppView.ADMIN_LOGIN);
-          }
-        }}
-      />
-    </div>
+    <ResidentVoting 
+      residents={residents}
+      polls={polls}
+      onVoteSubmit={handleVoteSubmit}
+      onRegisterAttendance={handleRegisterAttendance}
+      hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
+      isAdmin={!!currentUser}
+      onBack={() => setCurrentView(currentUser ? AppView.ADMIN_DASHBOARD : AppView.ADMIN_LOGIN)}
+    />
   );
 };
 
