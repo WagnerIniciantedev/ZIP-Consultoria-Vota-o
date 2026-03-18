@@ -1,11 +1,20 @@
 
 export enum AppView {
   ADMIN_LOGIN = 'ADMIN_LOGIN',
+  COMPANY_DASHBOARD = 'COMPANY_DASHBOARD',
   ADMIN_DASHBOARD = 'ADMIN_DASHBOARD',
   VOTE_IDENTIFY = 'VOTE_IDENTIFY',
   VOTE_CONFIRM = 'VOTE_CONFIRM',
   VOTE_BOOTH = 'VOTE_BOOTH',
   VOTE_SUCCESS = 'VOTE_SUCCESS',
+}
+
+export interface ActiveAssembly {
+  id: string;
+  condoName: string;
+  createdAt: number;
+  isActive: boolean;
+  status?: 'active' | 'completed';
 }
 
 export enum PollCalculationType {
@@ -65,6 +74,16 @@ export interface AdminState {
   isAuthenticated: boolean;
 }
 
+export interface SystemLog {
+  id: string;
+  timestamp: number;
+  userId: string;
+  userName: string;
+  action: string;
+  details?: string;
+  assemblyId?: string;
+}
+
 export interface AssemblyRecord {
   id: string;
   condoName: string;
@@ -72,4 +91,5 @@ export interface AssemblyRecord {
   polls: Poll[];
   votes: VoteRecord[];
   residentsSnapshot: Resident[]; // Snapshot of residents/attendance at that time
+  logs?: SystemLog[];
 }

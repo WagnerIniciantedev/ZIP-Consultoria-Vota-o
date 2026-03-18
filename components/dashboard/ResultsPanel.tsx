@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
-import { Poll, VoteRecord, Resident, PollCalculationType } from '../../types';
+import { Poll, VoteRecord, Resident, PollCalculationType, User } from '../../types';
 import { Button, Card, Badge } from '../ui';
-import { exportVotesToCSV } from '../../services/dataService';
+import { exportVotesToCSV, addLog } from '../../services/dataService';
 import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { ArrowLeft, PlayCircle, PauseCircle, StopCircle, Download, Eye, EyeOff } from 'lucide-react';
 
@@ -13,6 +13,7 @@ interface ResultsPanelProps {
   onBack: () => void;
   onTogglePoll: (id: string) => void;
   onEndPoll: (id: string) => void;
+  currentUser: User | null;
 }
 
 export const ResultsPanel: React.FC<ResultsPanelProps> = ({ 
@@ -21,7 +22,8 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
   residents, 
   onBack, 
   onTogglePoll, 
-  onEndPoll 
+  onEndPoll,
+  currentUser
 }) => {
   const [showDelinquentVotes, setShowDelinquentVotes] = useState(false);
   const [isConfirmingEnd, setIsConfirmingEnd] = useState(false);
@@ -79,6 +81,9 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
   const handleClickToggle = (e: React.MouseEvent) => {
     e.preventDefault();
     onTogglePoll(poll.id);
+    if (currentUser) {
+      addLog(currentUser, poll.isActive ? 'PAUSAR_ENQUETE' : 'ATIVAR_ENQUETE', `Alterou status da enquete: ${poll.title}`);
+    }
   };
 
   const handleClickEnd = (e: React.MouseEvent) => {
@@ -90,6 +95,9 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
       e.preventDefault();
       onEndPoll(poll.id);
       setIsConfirmingEnd(false);
+      if (currentUser) {
+        addLog(currentUser, 'ENCERRAR_ENQUETE', `Encerrou a enquete: ${poll.title}`);
+      }
   }
 
   return (
@@ -168,7 +176,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                      dataKey="votos"
                      nameKey="name"
                    >
-                     {chartData.map((entry, index) => (
+                     {chartData.map((_entry, index) => (
                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                      ))}
                    </Pie>

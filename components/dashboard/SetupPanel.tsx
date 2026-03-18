@@ -1,18 +1,19 @@
 
 import React, { useState, useRef } from 'react';
-import { Resident, PollCalculationType } from '../../types';
-import { parseCSV, saveResidents } from '../../services/dataService'; // Import saveResidents directly
+import { Resident, PollCalculationType, User } from '../../types';
+import { parseCSV, saveResidents, addLog } from '../../services/dataService'; // Import saveResidents directly
 import { db, doc, setDoc } from '../../services/firebase';
-import { FileSpreadsheet, Download, AlertCircle, FileText, CheckCircle2, UploadCloud, Database, X, AlertTriangle } from 'lucide-react';
+import { FileSpreadsheet, Download, AlertCircle, FileText, CheckCircle2, UploadCloud, Database, AlertTriangle } from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
 
 interface SetupPanelProps {
   residents: Resident[];
   setResidents: React.Dispatch<React.SetStateAction<Resident[]>>;
   condoName?: string; // Add condoName prop for explicit addressing
+  currentUser: User | null;
 }
 
-export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents, condoName }) => {
+export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents, condoName, currentUser }) => {
   const [importType, setImportType] = useState<PollCalculationType>(PollCalculationType.NORMAL);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -69,6 +70,10 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents,
 
           // 3. Update Local State (Visual)
           setResidents(pendingResidents);
+
+          if (currentUser) {
+            addLog(currentUser, 'IMPORTAR_MORADORES', `Importou ${pendingResidents.length} moradores para ${condoName}`);
+          }
 
           // Short delay to show loading state
           setTimeout(() => {

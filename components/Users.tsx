@@ -56,7 +56,8 @@ export const UsersManagement: React.FC<UsersProps> = ({
   // Deletion Confirmation State
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const amISuperUser = currentUser?.role === 'TI';
+  const isPrivileged = currentUser?.role === 'TI' || currentUser?.role === 'ADMIN';
+  const isTI = currentUser?.role === 'TI';
 
   // --- Handlers ---
 
@@ -133,8 +134,8 @@ export const UsersManagement: React.FC<UsersProps> = ({
         return {
           ...u,
           name: editForm.name,
-          username: amISuperUser ? editForm.username : u.username, // Only TI changes username
-          jobTitle: amISuperUser ? editForm.jobTitle : u.jobTitle,
+          username: isPrivileged ? editForm.username : u.username, // Only privileged changes username
+          jobTitle: isPrivileged ? editForm.jobTitle : u.jobTitle,
           password: editForm.password ? editForm.password : u.password 
         };
       }
@@ -206,9 +207,9 @@ export const UsersManagement: React.FC<UsersProps> = ({
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">Usuário (Login)</label>
                     <Input 
                       value={editForm.username}
-                      disabled={!amISuperUser} 
+                      disabled={!isPrivileged} 
                       onChange={(e) => setEditForm({...editForm, username: e.target.value})}
-                      className={!amISuperUser ? "bg-gray-200 text-gray-500 cursor-not-allowed opacity-70" : "bg-white text-gray-900"}
+                      className={!isPrivileged ? "bg-gray-200 text-gray-500 cursor-not-allowed opacity-70" : "bg-white text-gray-900"}
                     />
                   </div>
                   <div>
@@ -224,7 +225,7 @@ export const UsersManagement: React.FC<UsersProps> = ({
                     />
                   </div>
                   
-                  {amISuperUser && (
+                  {isPrivileged && (
                     <div>
                         <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cargo (Visível)</label>
                         <Input 
@@ -277,7 +278,7 @@ export const UsersManagement: React.FC<UsersProps> = ({
                     />
                   </div>
                   
-                  {amISuperUser && (
+                  {isPrivileged && (
                     <div>
                         <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cargo (Opcional)</label>
                         <Input 
@@ -317,15 +318,15 @@ export const UsersManagement: React.FC<UsersProps> = ({
                   if (isMe) {
                     canDelete = false;
                     message = "Você não pode se auto-excluir.";
-                  } else if (amISuperUser) {
-                    canDelete = true; 
-                    message = "Excluir Usuário";
-                  } else if (isTargetTI) {
+                  } else if (isTargetTI && !isTI) {
                     canDelete = false;
                     message = "Apenas T.I. pode excluir outro T.I.";
-                  } else {
-                    canDelete = true;
+                  } else if (isPrivileged) {
+                    canDelete = true; 
                     message = "Excluir Usuário";
+                  } else {
+                    canDelete = false;
+                    message = "Sem permissão para excluir.";
                   }
 
                   return (
@@ -372,7 +373,7 @@ export const UsersManagement: React.FC<UsersProps> = ({
                       <div className="flex items-center gap-2 relative z-50 shrink-0 ml-2">
                           
                           {/* EDIT Button */}
-                          {(amISuperUser || isMe) && !isConfirmingDelete && (
+                          {(isPrivileged || isMe) && !isConfirmingDelete && (
                             <button
                               type="button"
                               onClick={(e) => handleStartEdit(user, e)}

@@ -1,9 +1,9 @@
 
 import React, { useState } from 'react';
-import { Poll, PollCalculationType } from '../../types';
+import { Poll, PollCalculationType, User } from '../../types';
 import { Button, Input, Card, Badge } from '../ui';
-import { Trash2, Plus, PlayCircle, PauseCircle, StopCircle, BarChart3, Link as LinkIcon, Copy, Check, X } from 'lucide-react';
-import { savePolls } from '../../services/dataService'; // Import added
+import { Trash2, Plus, PlayCircle, PauseCircle, StopCircle, BarChart3, Link as LinkIcon, Copy } from 'lucide-react';
+import { savePolls, addLog } from '../../services/dataService'; // Import added
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -17,9 +17,10 @@ const generateId = () => {
 interface PollCreatorProps {
   setPolls: React.Dispatch<React.SetStateAction<Poll[]>>;
   onSuccess: () => void;
+  currentUser: User | null;
 }
 
-export const PollCreator: React.FC<PollCreatorProps> = ({ setPolls, onSuccess }) => {
+export const PollCreator: React.FC<PollCreatorProps> = ({ setPolls, onSuccess, currentUser }) => {
   const [pollTitle, setPollTitle] = useState('');
   const [pollDesc, setPollDesc] = useState('');
   const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
@@ -60,6 +61,9 @@ export const PollCreator: React.FC<PollCreatorProps> = ({ setPolls, onSuccess })
     setPolls(prev => {
         const updated = [...prev, newPoll];
         savePolls(updated); // Explicit Save
+        if (currentUser) {
+          addLog(currentUser, 'CRIAR_ENQUETE', `Criou a enquete: ${newPoll.title}`);
+        }
         return updated;
     });
     
@@ -175,6 +179,7 @@ interface PollListProps {
   onEndPoll: (id: string) => void;
   onDeletePoll: (id: string) => void;
   onSelectPoll: (id: string) => void;
+  currentUser: User | null;
 }
 
 export const PollList: React.FC<PollListProps> = ({ 
@@ -182,7 +187,8 @@ export const PollList: React.FC<PollListProps> = ({
   onTogglePoll, 
   onEndPoll, 
   onDeletePoll, 
-  onSelectPoll 
+  onSelectPoll,
+  currentUser
 }) => {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmEndId, setConfirmEndId] = useState<string | null>(null);
@@ -195,6 +201,9 @@ export const PollList: React.FC<PollListProps> = ({
     const link = `${window.location.origin}?access=resident`;
     navigator.clipboard.writeText(link).then(() => {
         alert("Link copiado! Envie este link para os moradores.\n\n" + link);
+        if (currentUser) {
+          addLog(currentUser, 'COPIAR_LINK', 'Copiou o link de acesso geral para moradores');
+        }
     });
   };
 
@@ -202,6 +211,12 @@ export const PollList: React.FC<PollListProps> = ({
     e.preventDefault();
     e.stopPropagation();
     onTogglePoll(id);
+    if (currentUser) {
+      const poll = polls.find(p => p.id === id);
+      if (poll) {
+        addLog(currentUser, poll.isActive ? 'PAUSAR_ENQUETE' : 'ATIVAR_ENQUETE', `Alterou status da enquete: ${poll.title}`);
+      }
+    }
   };
 
   return (

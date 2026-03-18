@@ -1,5 +1,5 @@
 
-import { Resident, Poll, VoteRecord, PollCalculationType, User, AssemblyRecord } from '../types';
+import { Resident, Poll, VoteRecord, User, AssemblyRecord } from '../types';
 import { db, doc, setDoc, deleteDoc } from './firebase';
 
 const STORAGE_KEYS = {
@@ -11,7 +11,9 @@ const STORAGE_KEYS = {
   CONDO_NAME: 'condovote_condo_name',
   ASSEMBLIES: 'condovote_assemblies_history',
   IS_ASSEMBLY_ACTIVE: 'condovote_is_active',
-  ASSEMBLY_START_TIME: 'condovote_assembly_start_time'
+  ASSEMBLY_START_TIME: 'condovote_assembly_start_time',
+  ACTIVE_ASSEMBLIES: 'condovote_active_assemblies',
+  LOGS: 'condovote_logs'
 };
 
 // Firestore Collections
@@ -19,19 +21,20 @@ const ASSEMBLIES_COLLECTION = 'assemblies';
 const SYSTEM_COLLECTION = 'system';
 const GLOBAL_DOC_ID = 'global';
 const USERS_DOC_ID = 'users';
+const ACTIVE_ASSEMBLIES_DOC_ID = 'active_assemblies';
 
 const DEFAULT_USERS: User[] = [
   { id: '1', name: 'Administrador', username: 'admin', password: 'admin', role: 'ADMIN' },
-  { id: '2', name: 'Wagner Silva', username: 'wagner.silva', password: 'wagner21', role: 'TI' },
+  { id: '2', name: 'Wagner Silva', username: 'wagner.silva', password: 'wagner21', role: 'ADMIN' },
   { id: '3', name: 'Fillype Sampaio', username: 'fillype.sampaio', password: 'fellypi123', role: 'ADMIN', jobTitle: 'Administrador' },
   { id: '4', name: 'Zeferino Batista', username: 'zeferino.batista', password: 'zeferino123', role: 'ADMIN', jobTitle: 'Administrador' },
   { id: '5', name: 'Wagner Lima', username: 'wagner.lima', password: 'wagner21', role: 'TI' }
 ];
 
-const syncToCloud = (key: string, data: any) => {
+const syncToCloud = (key: string, data: any, specificAssemblyId?: string) => {
     if (db) {
-        const condoName = localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
-        const safeKey = condoName.replace(/[^a-zA-Z0-9]/g, '_');
+        const assemblyId = specificAssemblyId || localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
+        const safeKey = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
         
         let fieldName = '';
         if (key === STORAGE_KEYS.POLLS) fieldName = 'polls';
@@ -40,6 +43,7 @@ const syncToCloud = (key: string, data: any) => {
         if (key === STORAGE_KEYS.IS_ASSEMBLY_ACTIVE) fieldName = 'isActive';
         if (key === STORAGE_KEYS.ASSEMBLY_START_TIME) fieldName = 'startTime';
         if (key === STORAGE_KEYS.CONDO_NAME) fieldName = 'name';
+        if (key === STORAGE_KEYS.LOGS) fieldName = 'logs';
 
         if (fieldName) {
             const cleanData = JSON.parse(JSON.stringify(data));
@@ -118,6 +122,31 @@ export const getVotes = (): VoteRecord[] => {
   return data ? JSON.parse(data) : [];
 };
 
+export const saveLogs = (logs: any[]) => {
+  localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
+  syncToCloud(STORAGE_KEYS.LOGS, logs);
+};
+
+export const getLogs = (): any[] => {
+  const data = localStorage.getItem(STORAGE_KEYS.LOGS);
+  return data ? JSON.parse(data) : [];
+};
+
+export const addLog = (user: User, action: string, details?: string) => {
+  const logs = getLogs();
+  const newLog = {
+    id: Math.random().toString(36).substr(2, 9),
+    timestamp: Date.now(),
+    userId: user.id,
+    userName: user.name,
+    action,
+    details,
+    assemblyId: localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup'
+  };
+  const updatedLogs = [...logs, newLog];
+  saveLogs(updatedLogs);
+};
+
 export const saveUsers = (users: User[]) => {
   localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
   if (db) {
@@ -155,6 +184,20 @@ export const saveCondoName = (name: string) => {
 
 export const getCondoName = (): string => {
   return localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || '';
+};
+
+export const saveActiveAssemblies = (assemblies: any[]) => {
+  localStorage.setItem(STORAGE_KEYS.ACTIVE_ASSEMBLIES, JSON.stringify(assemblies));
+  if (db) {
+    const ref = doc(db, SYSTEM_COLLECTION, ACTIVE_ASSEMBLIES_DOC_ID);
+    setDoc(ref, { list: assemblies }, { merge: true })
+      .catch(err => console.error("Erro salvar assembleias ativas:", err));
+  }
+};
+
+export const getActiveAssemblies = (): any[] => {
+  const data = localStorage.getItem(STORAGE_KEYS.ACTIVE_ASSEMBLIES);
+  return data ? JSON.parse(data) : [];
 };
 
 export const saveAssemblies = (assemblies: AssemblyRecord[]) => {
@@ -196,6 +239,7 @@ export const generateFullBackup = () => {
     polls: getPolls(),
     votes: getVotes(),
     users: getUsers(),
+    logs: getLogs(),
     pastAssemblies: getAssemblies(),
     isActive: getAssemblyStatus()
   };
@@ -214,6 +258,7 @@ export const restoreFullBackup = (jsonText: string): boolean => {
     if (data.polls) savePolls(data.polls);
     if (data.votes) saveVotes(data.votes);
     if (data.users) saveUsers(data.users);
+    if (data.logs) saveLogs(data.logs);
     if (data.condoName) saveCondoName(data.condoName);
     if (data.pastAssemblies) saveAssemblies(data.pastAssemblies);
     if (data.isActive !== undefined) saveAssemblyStatus(data.isActive);
@@ -221,6 +266,10 @@ export const restoreFullBackup = (jsonText: string): boolean => {
   } catch (error) {
     return false;
   }
+};
+
+const normalizeName = (name: string) => {
+  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 };
 
 export const parseCSV = (csvText: string): Resident[] => {
@@ -236,7 +285,8 @@ export const parseCSV = (csvText: string): Resident[] => {
     const cols = line.split(delimiter).map(c => c.trim().replace(/^"|"$/g, ''));
     if (cols.length >= 3) {
       residents.push({ 
-        unit: cols[1], name: cols[2], 
+        unit: cols[1], 
+        name: normalizeName(cols[2]), 
         isDelinquent: (cols[3] || '').toUpperCase() === 'SIM', 
         hasHabiteSe: (cols[4] || '').toUpperCase() === 'SIM', 
         fraction: parseFloat((cols[5] || '1').replace(',', '.')) || 1.0,

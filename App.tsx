@@ -1,23 +1,26 @@
 
 import React, { useState, useEffect } from 'react';
-import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord } from './types';
+import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord, SystemLog } from './types';
 import { 
   getResidents, saveResidents, 
   getPolls, savePolls, 
   getVotes, saveVotes,
-  getUsers, saveUsers,
+  getUsers,
   getCondoName, saveCondoName,
   getAssemblies, saveAssemblies,
   getAssemblyStatus, saveAssemblyStatus,
   saveSession, getSession, clearSession,
-  clearAllData,
-  saveAssemblyStartTime, getAssemblyStartTime,
-  getMasterSecurityUsers
+  getMasterSecurityUsers,
+  getActiveAssemblies, saveActiveAssemblies,
+  addLog,
+  getLogs, saveLogs
 } from './services/dataService';
+import { ActiveAssembly } from './types';
 import { db, doc, onSnapshot, setDoc, auth, signInAnonymously } from './services/firebase';
 
 // UI Components
 import { AdminDashboard } from './components/AdminDashboard';
+import { CompanyDashboard } from './components/CompanyDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
 import { Button, Input } from './components/ui';
 import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, UserCheck } from 'lucide-react';
@@ -31,9 +34,10 @@ const App: React.FC = () => {
   const [votes, setVotes] = useState<VoteRecord[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [condoName, setCondoName] = useState<string>('');
+  const [selectedAssemblyId, setSelectedAssemblyId] = useState<string>('');
   const [pastAssemblies, setPastAssemblies] = useState<AssemblyRecord[]>([]);
+  const [logs, setLogs] = useState<SystemLog[]>([]);
   const [isAssemblyActive, setIsAssemblyActive] = useState<boolean>(false);
-  const [assemblyStartTime, setAssemblyStartTime] = useState<number>(0);
 
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -48,6 +52,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const isResidentAccess = params.get('access') === 'resident';
+    const urlAssemblyId = params.get('assemblyId');
 
     const initialUsers = getUsers();
     setResidents(getResidents());
@@ -56,16 +61,20 @@ const App: React.FC = () => {
     setUsers(initialUsers);
     setCondoName(getCondoName());
     setPastAssemblies(getAssemblies());
+    setLogs(getLogs());
     setIsAssemblyActive(getAssemblyStatus());
-    setAssemblyStartTime(getAssemblyStartTime());
 
     const savedUser = getSession();
     
     if (isResidentAccess) {
+      if (urlAssemblyId) {
+        setSelectedAssemblyId(urlAssemblyId);
+        // We'll need to fetch the condo name for this assembly ID to show it in the UI
+      }
       setCurrentView(AppView.VOTE_IDENTIFY);
     } else if (savedUser) {
       setCurrentUser(savedUser);
-      setCurrentView(AppView.ADMIN_DASHBOARD);
+      setCurrentView(AppView.COMPANY_DASHBOARD);
     }
 
     // Authenticate Anonymously
@@ -81,26 +90,32 @@ const App: React.FC = () => {
 
     const usersRef = doc(db, 'system', 'users');
     const unsubUsers = onSnapshot(usersRef, (docSnapshot) => {
+        let cloudUsers: User[] = [];
         if (docSnapshot.exists()) {
             const data = docSnapshot.data();
-            if (data && Array.isArray(data.list) && data.list.length > 0) {
-                // Merge cloud users with default safety users
-                const cloudUsers = data.list;
-                const safetyUsers = getMasterSecurityUsers();
-                const mergedMap = new Map();
-                
-                // Add cloud users first
-                cloudUsers.forEach((u: User) => mergedMap.set(u.username.toLowerCase(), u));
-                // Overlay safety users to ensure they exist
-                safetyUsers.forEach((u: User) => mergedMap.set(u.username.toLowerCase(), u));
-                
-                const finalUsersList = Array.from(mergedMap.values());
-                setUsers(finalUsersList);
-                localStorage.setItem('condovote_users', JSON.stringify(finalUsersList));
+            if (data && Array.isArray(data.list)) {
+                cloudUsers = data.list;
             }
-        } else {
-            const defaultUsers = getUsers();
-            setDoc(usersRef, { list: defaultUsers }, { merge: true });
+        }
+
+        const safetyUsers = getMasterSecurityUsers();
+        const mergedMap = new Map();
+        
+        // Add safety users first (as baseline)
+        safetyUsers.forEach((u: User) => mergedMap.set(u.username.toLowerCase(), u));
+        // Overlay cloud users (database changes will win)
+        cloudUsers.forEach((u: User) => mergedMap.set(u.username.toLowerCase(), u));
+        
+        const finalUsersList = Array.from(mergedMap.values());
+        setUsers(finalUsersList);
+        localStorage.setItem('condovote_users', JSON.stringify(finalUsersList));
+
+        // Check if we need to sync back to cloud (if cloud is empty or missing safety users)
+        const missingInCloud = safetyUsers.some(su => !cloudUsers.some(cu => cu.username.toLowerCase() === su.username.toLowerCase()));
+
+        if (!docSnapshot.exists() || cloudUsers.length === 0 || missingInCloud) {
+            setDoc(usersRef, { list: finalUsersList }, { merge: true })
+                .catch(e => console.error("Erro sincronizando usuários no Firestore:", e));
         }
     });
 
@@ -117,26 +132,42 @@ const App: React.FC = () => {
         unsubUsers();
         unsubGlobal();
     };
+  }, [currentView]);
+
+  // --- 2. LOGS LISTENER (Global) ---
+  useEffect(() => {
+    if (!db) return;
+    const logsRef = doc(db, 'system', 'logs');
+    const unsubLogs = onSnapshot(logsRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && Array.isArray(data.list)) {
+          setLogs(data.list);
+          saveLogs(data.list);
+        }
+      }
+    });
+    return () => unsubLogs();
   }, []);
 
-  // --- 2. ASSEMBLY SPECIFIC LISTENER ---
+  // --- 3. ASSEMBLY SPECIFIC LISTENER ---
   useEffect(() => {
     if (!db) return;
 
-    const currentName = condoName || localStorage.getItem('condovote_condo_name') || 'setup';
+    const currentName = selectedAssemblyId || condoName || localStorage.getItem('condovote_condo_name') || 'setup';
     const safeKey = currentName.replace(/[^a-zA-Z0-9]/g, '_');
     const assemblyRef = doc(db, 'assemblies', safeKey);
 
     const unsubAssembly = onSnapshot(assemblyRef, (docSnapshot) => {
         if (docSnapshot.exists()) {
             const data = docSnapshot.data();
+            if (data.name) setCondoName(data.name);
             if (data.polls) setPolls(data.polls);
             if (data.votes) setVotes(data.votes);
             if (data.residents) setResidents(data.residents);
             if (data.isActive !== undefined) setIsAssemblyActive(data.isActive);
-            if (data.startTime) setAssemblyStartTime(data.startTime);
         } else {
-            if (condoName && condoName !== 'Modo Administrativo') {
+            if (selectedAssemblyId || (condoName && condoName !== 'Modo Administrativo')) {
               setPolls([]);
               setVotes([]);
               setResidents([]);
@@ -146,7 +177,7 @@ const App: React.FC = () => {
     });
 
     return () => unsubAssembly();
-  }, [condoName]);
+  }, [selectedAssemblyId, condoName]);
 
   // Persistence triggers
   useEffect(() => { if(condoName) saveCondoName(condoName) }, [condoName]);
@@ -176,7 +207,8 @@ const App: React.FC = () => {
     if (validUser) {
       setCurrentUser(validUser);
       saveSession(validUser, rememberMe);
-      setCurrentView(AppView.ADMIN_DASHBOARD);
+      setCurrentView(AppView.COMPANY_DASHBOARD);
+      addLog(validUser, 'LOGIN', 'Acesso ao sistema realizado com sucesso');
       setLoginError('');
       setAdminEmail('');
       setAdminPass('');
@@ -185,43 +217,66 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStartAssembly = (name: string) => {
-    setResidents([]);
+  const handleStartAssembly = (name: string, initialResidents: Resident[] = []) => {
+    setResidents(initialResidents);
     setPolls([]);
     setVotes([]);
     setCondoName(name);
     setIsAssemblyActive(true);
-    setAssemblyStartTime(Date.now());
     
-    saveResidents([]);
+    saveResidents(initialResidents);
     savePolls([]);
     saveVotes([]);
     saveCondoName(name);
     saveAssemblyStatus(true);
+    if (currentUser) {
+      addLog(currentUser, 'INÍCIO_ASSEMBLEIA', `Iniciou a assembleia: ${name}`);
+    }
   };
 
   const handleEndAssembly = () => {
     if (condoName && condoName !== 'Modo Administrativo') {
+      // Filter logs for this specific assembly
+      const currentLogs = logs.filter((l: SystemLog) => l.assemblyId === condoName);
+
       const assemblySnapshot: AssemblyRecord = {
-        id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+        id: selectedAssemblyId || (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString()),
         condoName: condoName,
         date: Date.now(),
         polls: [...polls], 
         votes: [...votes], 
-        residentsSnapshot: [...residents]
+        residentsSnapshot: [...residents],
+        logs: currentLogs
       };
-      setPastAssemblies(prev => [assemblySnapshot, ...prev]);
+      
+      const newPastAssemblies = [assemblySnapshot, ...pastAssemblies];
+      setPastAssemblies(newPastAssemblies);
+      saveAssemblies(newPastAssemblies);
+
+      // Update ActiveAssembly status in the list
+      const activeAssembliesList = getActiveAssemblies();
+      const updatedActive = activeAssembliesList.map((a: ActiveAssembly) => 
+        (a.id === selectedAssemblyId || a.condoName === condoName) 
+        ? { ...a, isActive: false, status: 'completed' as const } 
+        : a
+      );
+      saveActiveAssemblies(updatedActive);
+      if (currentUser) {
+        addLog(currentUser, 'FIM_ASSEMBLEIA', `Finalizou a assembleia: ${condoName}`);
+      }
     }
     
-    clearAllData(condoName);
-
+    // Clear current working state but don't delete cloud data yet if we want to keep it for reports
+    // Actually, clearAllData deletes the cloud doc. We should probably keep it or rely on pastAssemblies.
+    // The user wants "Concluídas" to have the report.
+    
     setPolls([]);
     setVotes([]);
     setResidents([]);
     setCondoName('');
     setIsAssemblyActive(false);
-    setAssemblyStartTime(0);
-    setCurrentView(AppView.ADMIN_DASHBOARD);
+    setSelectedAssemblyId('');
+    setCurrentView(AppView.COMPANY_DASHBOARD);
   };
 
   const handleVoteSubmit = (pollId: string, unit: string, optionId: string, isDelinquent: boolean) => {
@@ -307,19 +362,52 @@ const App: React.FC = () => {
   }
 
   // --- RESIDENT VIEW GUARD ---
-  if (currentView === AppView.VOTE_IDENTIFY && !isAssemblyActive && !currentUser) {
+  if (currentView === AppView.VOTE_IDENTIFY && (!isAssemblyActive || !condoName) && !currentUser) {
       return (
         <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full text-center">
                 <div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
                     <AlertCircle className="text-red-600" size={32} />
                 </div>
-                <h2 className="text-xl font-bold text-gray-900 mb-2">Nenhuma Assembleia Ativa</h2>
-                <p className="text-gray-500 mb-8">Aguarde o administrador iniciar a sessão de votação para poder acessar.</p>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Assembleia Encerrada</h2>
+                <p className="text-gray-500 mb-8">Esta assembleia já foi finalizada ou ainda não foi iniciada. Não é mais possível registrar votos.</p>
                 <Button onClick={() => setCurrentView(AppView.ADMIN_LOGIN)} variant="outline" className="w-full">Voltar ao Início</Button>
             </div>
         </div>
       );
+  }
+
+  if (currentView === AppView.COMPANY_DASHBOARD) {
+    return (
+      <CompanyDashboard 
+        currentUser={currentUser}
+        onLogout={() => { 
+          if (currentUser) addLog(currentUser, 'LOGOUT', 'Saiu do sistema');
+          clearSession(); 
+          setCurrentUser(null); 
+          setCurrentView(AppView.ADMIN_LOGIN); 
+        }}
+        onSelectAssembly={(id, name) => {
+          if (currentUser) addLog(currentUser, 'SELEÇÃO_ASSEMBLEIA', `Selecionou a assembleia: ${name}`);
+          setSelectedAssemblyId(id);
+          setCondoName(name);
+          setIsAssemblyActive(true);
+          setCurrentView(AppView.ADMIN_DASHBOARD);
+        }}
+        onStartAssembly={handleStartAssembly}
+        users={users}
+        setUsers={setUsers}
+        pastAssemblies={pastAssemblies}
+        logs={logs}
+        onDeleteAssembly={(id) => {
+          const assembly = pastAssemblies.find(a => a.id === id);
+          if (currentUser && assembly) addLog(currentUser, 'EXCLUSÃO_RELATÓRIO', `Excluiu o relatório da assembleia: ${assembly.condoName}`);
+          const updated = pastAssemblies.filter(a => a.id !== id);
+          setPastAssemblies(updated);
+          saveAssemblies(updated);
+        }}
+      />
+    );
   }
 
   if (currentView === AppView.ADMIN_DASHBOARD) {
@@ -329,35 +417,27 @@ const App: React.FC = () => {
         residents={residents} setResidents={setResidents}
         polls={polls} setPolls={setPolls}
         votes={votes}
-        users={users} setUsers={setUsers}
-        currentUser={currentUser}
         condoName={condoName} setCondoName={setCondoName}
-        pastAssemblies={pastAssemblies}
         onLogout={() => { clearSession(); setCurrentUser(null); setCurrentView(AppView.ADMIN_LOGIN); }}
         onGoToVoting={() => setCurrentView(AppView.VOTE_IDENTIFY)}
-        onTogglePoll={(id) => {
+        onTogglePoll={(id: string) => {
             const updated = polls.map(p => p.id === id ? {...p, isActive: !p.isActive} : p);
             setPolls(updated);
             savePolls(updated);
         }}
-        onEndPoll={(id) => {
+        onEndPoll={(id: string) => {
             const updated = polls.map(p => p.id === id ? {...p, isActive: false, isEnded: true} : p);
             setPolls(updated);
             savePolls(updated);
         }}
-        onDeletePoll={(id) => {
+        onDeletePoll={(id: string) => {
             const updated = polls.filter(p => p.id !== id);
             setPolls(updated);
             savePolls(updated);
         }}
-        onDeleteUser={(id) => {
-            const updated = users.filter(u => u.id !== id);
-            setUsers(updated);
-            saveUsers(updated);
-        }}
-        onStartAssembly={handleStartAssembly}
         onEndAssembly={handleEndAssembly}
-        onDeleteAssembly={(id) => setPastAssemblies(prev => prev.filter(a => a.id !== id))}
+        onBackToCompany={() => setCurrentView(AppView.COMPANY_DASHBOARD)}
+        currentUser={currentUser}
       />
     );
   }
@@ -370,7 +450,13 @@ const App: React.FC = () => {
       onRegisterAttendance={handleRegisterAttendance}
       hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
       isAdmin={!!currentUser}
-      onBack={() => setCurrentView(currentUser ? AppView.ADMIN_DASHBOARD : AppView.ADMIN_LOGIN)}
+      onBack={() => {
+        if (currentUser) {
+          setCurrentView(AppView.ADMIN_DASHBOARD);
+        } else {
+          setCurrentView(AppView.ADMIN_LOGIN);
+        }
+      }}
     />
   );
 };

@@ -36,7 +36,6 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   onRegisterAttendance,
   hasVoted, 
   onBack, 
-  isAdmin = false 
 }) => {
   const [step, setStep] = useState<VoteStep>(VoteStep.IDENTIFY);
   
@@ -63,7 +62,6 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
   // Helper status checks
   const allApproved = selectedUnits.length > 0 && selectedUnits.every(u => u.attendanceStatus === 'APPROVED');
-  const allPending = selectedUnits.length > 0 && selectedUnits.every(u => u.attendanceStatus === 'PENDING');
   
   // --- EFFECTS ---
 
@@ -357,7 +355,14 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 relative">
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4 relative">
+      <div className="mb-8 text-center">
+         <img 
+            src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
+            alt="Zip Consultoria" 
+            className="h-24 w-auto mx-auto object-contain brightness-0" 
+         />
+      </div>
       
       {/* Network Status Indicator */}
       <div className="absolute top-4 right-4 z-10">

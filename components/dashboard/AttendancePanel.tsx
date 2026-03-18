@@ -1,17 +1,18 @@
 
 import React, { useState } from 'react';
-import { Resident } from '../../types';
+import { Resident, User } from '../../types';
 import { Button, Input, Card } from '../ui';
-import { exportAttendanceCSV, saveResidents } from '../../services/dataService';
-import { FileSpreadsheet, Clock, CheckCircle2, Ban, LogOut, Pencil, Edit3, UserCheck } from 'lucide-react';
+import { exportAttendanceCSV, saveResidents, addLog } from '../../services/dataService';
+import { FileSpreadsheet, Clock, CheckCircle2, Ban, LogOut, Pencil, Edit3 } from 'lucide-react';
 
 interface AttendancePanelProps {
   residents: Resident[];
   setResidents: React.Dispatch<React.SetStateAction<Resident[]>>;
   condoName: string;
+  currentUser: User | null;
 }
 
-export const AttendancePanel: React.FC<AttendancePanelProps> = ({ residents, setResidents, condoName }) => {
+export const AttendancePanel: React.FC<AttendancePanelProps> = ({ residents, setResidents, condoName, currentUser }) => {
   const [editingResident, setEditingResident] = useState<{unit: string, name: string, zoomName: string} | null>(null);
   const [confirmBlockUnit, setConfirmBlockUnit] = useState<string | null>(null);
 
@@ -24,6 +25,9 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({ residents, set
     );
     setResidents(updated);
     saveResidents(updated); // Explicit Save
+    if (currentUser) {
+      addLog(currentUser, 'APROVAR_MORADOR', `Aprovou entrada da unidade: ${unit}`);
+    }
   };
 
   const handleBlockResident = (unit: string) => {
@@ -32,6 +36,9 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({ residents, set
       );
       setResidents(updated);
       saveResidents(updated); // Explicit Save
+      if (currentUser) {
+        addLog(currentUser, 'BLOQUEAR_MORADOR', `Bloqueou entrada da unidade: ${unit}`);
+      }
   };
 
   const handleResetResident = (unit: string) => {
@@ -46,6 +53,9 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({ residents, set
       });
       setResidents(updated);
       saveResidents(updated); // Explicit Save
+      if (currentUser) {
+        addLog(currentUser, 'RESET_MORADOR', `Resetou status da unidade: ${unit}`);
+      }
   };
 
   const handleExportAttendance = () => {
