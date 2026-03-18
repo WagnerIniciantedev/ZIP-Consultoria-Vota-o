@@ -40,6 +40,7 @@ interface AdminDashboardProps {
   onEndAssembly: () => void;
   onBackToCompany: () => void;
   currentUser: User | null;
+  selectedAssemblyId?: string;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -57,7 +58,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeletePoll,
   onEndAssembly,
   onBackToCompany,
-  currentUser
+  currentUser,
+  selectedAssemblyId
 }) => {
   const [activeTab, setActiveTab] = useState<'setup_excel' | 'create_poll' | 'manage_polls' | 'attendance' | 'end_assembly'>('setup_excel');
   const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
@@ -96,7 +98,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleCopyLink = () => {
-    const safeKey = condoName.trim().replace(/[^a-zA-Z0-9]/g, '_');
+    const safeKey = selectedAssemblyId || condoName.trim().replace(/[^a-zA-Z0-9]/g, '_');
     const token = btoa(JSON.stringify({ a: 'r', id: safeKey }));
     const url = `${window.location.origin}?t=${token}`;
     navigator.clipboard.writeText(url);

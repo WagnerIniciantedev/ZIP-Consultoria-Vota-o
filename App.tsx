@@ -175,15 +175,16 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!db) return;
 
-    const currentName = selectedAssemblyId || condoName || localStorage.getItem('condovote_condo_name') || 'setup';
-    const safeKey = currentName.replace(/[^a-zA-Z0-9]/g, '_');
+    const safeKey = selectedAssemblyId || (condoName || localStorage.getItem('condovote_condo_name') || 'setup').replace(/[^a-zA-Z0-9]/g, '_');
     const assemblyRef = doc(db, 'assemblies', safeKey);
 
     const unsubAssembly = onSnapshot(assemblyRef, (docSnapshot) => {
         setIsDataLoaded(true);
         if (docSnapshot.exists()) {
             const data = docSnapshot.data();
-            if (data.name) setCondoName(data.name);
+            if (data.condoName) setCondoName(data.condoName);
+            else if (data.name) setCondoName(data.name);
+            
             if (data.polls) setPolls(data.polls);
             if (data.votes) setVotes(data.votes);
             if (data.residents) setResidents(data.residents);
@@ -239,11 +240,12 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStartAssembly = (name: string, initialResidents: Resident[] = []) => {
+  const handleStartAssembly = (name: string, assemblyId: string, initialResidents: Resident[] = []) => {
     setResidents(initialResidents);
     setPolls([]);
     setVotes([]);
     setCondoName(name);
+    setSelectedAssemblyId(assemblyId);
     setIsAssemblyActive(true);
     
     saveResidents(initialResidents);
@@ -251,6 +253,17 @@ const App: React.FC = () => {
     saveVotes([]);
     saveCondoName(name);
     saveAssemblyStatus(true);
+    
+    // Save metadata to Firestore so residents can find the condo name
+    if (db && assemblyId) {
+      const assemblyRef = doc(db, 'assemblies', assemblyId);
+      setDoc(assemblyRef, { 
+        condoName: name, 
+        isActive: true,
+        createdAt: Date.now()
+      }, { merge: true }).catch(e => console.error("Error saving assembly metadata:", e));
+    }
+
     if (currentUser) {
       addLog(currentUser, 'INÍCIO_ASSEMBLEIA', `Iniciou a assembleia: ${name}`);
     }
@@ -283,6 +296,13 @@ const App: React.FC = () => {
         : a
       );
       saveActiveAssemblies(updatedActive);
+      
+      // Update Firestore document to inactive
+      if (db && selectedAssemblyId) {
+        const assemblyRef = doc(db, 'assemblies', selectedAssemblyId);
+        setDoc(assemblyRef, { isActive: false }, { merge: true }).catch(e => console.error("Error ending assembly in Firestore:", e));
+      }
+
       if (currentUser) {
         addLog(currentUser, 'FIM_ASSEMBLEIA', `Finalizou a assembleia: ${condoName}`);
       }
@@ -467,6 +487,7 @@ const App: React.FC = () => {
         onEndAssembly={handleEndAssembly}
         onBackToCompany={() => setCurrentView(AppView.COMPANY_DASHBOARD)}
         currentUser={currentUser}
+        selectedAssemblyId={selectedAssemblyId}
       />
     );
   }
