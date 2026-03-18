@@ -9,7 +9,9 @@ import {
   ArrowLeft,
   Archive,
   UserCheck,
-  HelpCircle
+  HelpCircle,
+  Share2,
+  Check
 } from 'lucide-react';
 import { Button, Card } from './ui';
 import { Resident, Poll, VoteRecord, User } from '../types';
@@ -62,6 +64,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   
   // TOUR STATE
   const [isTourOpen, setIsTourOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // --- Auth Checks ---
   // (Removed unused isSuperUser)
@@ -90,6 +93,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleRestartTour = () => {
     setIsTourOpen(true);
+  };
+
+  const handleCopyLink = () => {
+    const safeKey = condoName.trim().replace(/[^a-zA-Z0-9]/g, '_');
+    const token = btoa(JSON.stringify({ a: 'r', id: safeKey }));
+    const url = `${window.location.origin}?t=${token}`;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const tourSteps: TourStep[] = [
@@ -167,6 +179,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             <div className="flex items-center gap-4">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleCopyLink}
+                className={`hidden sm:flex items-center gap-2 transition-all ${copied ? 'bg-green-50 border-green-200 text-green-600' : 'border-blue-200 text-blue-600 hover:bg-blue-50'}`}
+              >
+                {copied ? <Check size={16} /> : <Share2 size={16} />} 
+                {copied ? 'Link Copiado!' : 'Copiar Link de Votação'}
+              </Button>
+
               <Button 
                 variant="outline" 
                 size="sm" 

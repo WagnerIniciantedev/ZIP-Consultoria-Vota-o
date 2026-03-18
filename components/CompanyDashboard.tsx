@@ -21,7 +21,9 @@ import {
   Clock,
   Download,
   Menu,
-  X
+  X,
+  Share2,
+  Check
 } from 'lucide-react';
 import { Button, Input, Card, Badge } from './ui';
 import { UsersManagement } from './Users';
@@ -105,6 +107,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [assemblies, setAssemblies] = useState<ActiveAssembly[]>([]);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   
   // Create Assembly Form
   const [newCondoName, setNewCondoName] = useState('');
@@ -147,6 +150,14 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
 
   const handleDeleteClick = (id: string, type: 'active' | 'history') => {
     setDeleteModal({ isOpen: true, assemblyId: id, type });
+  };
+
+  const handleCopyLink = (id: string) => {
+    const token = btoa(JSON.stringify({ a: 'r', id }));
+    const url = `${window.location.origin}?t=${token}`;
+    navigator.clipboard.writeText(url);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleConfirmDelete = () => {
@@ -298,12 +309,24 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                 <div className="flex items-center gap-2 text-xs text-gray-500 mb-6">
                   <Clock size={14} /> Criada em {new Date(assembly.createdAt).toLocaleDateString()}
                 </div>
-                <Button 
-                  onClick={() => onSelectAssembly(assembly.id, assembly.condoName)}
-                  className="w-full bg-gray-900 hover:bg-black text-white flex items-center justify-center gap-2"
-                >
-                  Entrar na Assembleia <ArrowRight size={18} />
-                </Button>
+                
+                <div className="flex flex-col gap-2">
+                  <Button 
+                    onClick={() => onSelectAssembly(assembly.id, assembly.condoName)}
+                    className="w-full bg-gray-900 hover:bg-black text-white flex items-center justify-center gap-2"
+                  >
+                    Entrar na Assembleia <ArrowRight size={18} />
+                  </Button>
+                  
+                  <Button 
+                    variant="outline"
+                    onClick={() => handleCopyLink(assembly.id)}
+                    className={`w-full flex items-center justify-center gap-2 transition-all ${copiedId === assembly.id ? 'bg-green-50 border-green-200 text-green-600' : 'border-blue-200 text-blue-600 hover:bg-blue-50'}`}
+                  >
+                    {copiedId === assembly.id ? <Check size={16} /> : <Share2 size={16} />} 
+                    {copiedId === assembly.id ? 'Link Copiado!' : 'Copiar Link de Votação'}
+                  </Button>
+                </div>
               </Card>
             ))}
             

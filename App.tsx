@@ -23,7 +23,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { CompanyDashboard } from './components/CompanyDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
 import { Button, Input } from './components/ui';
-import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, UserCheck } from 'lucide-react';
+import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, RefreshCw } from 'lucide-react';
 
 const App: React.FC = () => {
   
@@ -38,6 +38,7 @@ const App: React.FC = () => {
   const [pastAssemblies, setPastAssemblies] = useState<AssemblyRecord[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [isAssemblyActive, setIsAssemblyActive] = useState<boolean>(false);
+  const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
 
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -51,8 +52,19 @@ const App: React.FC = () => {
   // --- INITIAL LOAD ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const isResidentAccess = params.get('access') === 'resident';
-    const urlAssemblyId = params.get('assemblyId');
+    const token = params.get('t');
+    let isResidentAccess = params.get('access') === 'resident';
+    let urlAssemblyId = params.get('assemblyId');
+
+    if (token) {
+      try {
+        const decoded = JSON.parse(atob(token));
+        if (decoded.a === 'r') isResidentAccess = true;
+        if (decoded.id) urlAssemblyId = decoded.id;
+      } catch (e) {
+        console.error("Invalid token");
+      }
+    }
 
     const initialUsers = getUsers();
     setResidents(getResidents());
@@ -69,7 +81,16 @@ const App: React.FC = () => {
     if (isResidentAccess) {
       if (urlAssemblyId) {
         setSelectedAssemblyId(urlAssemblyId);
-        // We'll need to fetch the condo name for this assembly ID to show it in the UI
+        // Try to find the original condo name from the active assemblies list
+        const active = getActiveAssemblies();
+        const found = active.find((a: any) => a.id === urlAssemblyId);
+        if (found) {
+          setCondoName(found.condoName);
+        } else {
+          // If not found in local active list, we'll try to use the ID as the name for now
+          // The Firestore listener will pick up the real data if it exists
+          setCondoName(urlAssemblyId.replace(/_/g, ' '));
+        }
       }
       setCurrentView(AppView.VOTE_IDENTIFY);
     } else if (savedUser) {
@@ -159,6 +180,7 @@ const App: React.FC = () => {
     const assemblyRef = doc(db, 'assemblies', safeKey);
 
     const unsubAssembly = onSnapshot(assemblyRef, (docSnapshot) => {
+        setIsDataLoaded(true);
         if (docSnapshot.exists()) {
             const data = docSnapshot.data();
             if (data.name) setCondoName(data.name);
@@ -339,16 +361,8 @@ const App: React.FC = () => {
 
               <div className="mt-8 relative">
                   <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
-                  <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500 font-medium text-[10px] tracking-widest">ÁREA DO CONDÔMINO</span></div>
+                  <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500 font-medium text-[10px] tracking-widest">ACESSO RESTRITO</span></div>
               </div>
-
-              {isAssemblyActive && (
-                <div className="mt-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                  <Button onClick={() => setCurrentView(AppView.VOTE_IDENTIFY)} variant="outline" className="w-full py-4 border-2 border-blue-600 text-blue-700 hover:bg-blue-50 font-bold flex items-center justify-center gap-3">
-                    <UserCheck className="w-6 h-6" /> SOU MORADOR / QUERO VOTAR
-                  </Button>
-                </div>
-              )}
             </div>
           </div>
           <div className="mt-8">
@@ -362,19 +376,34 @@ const App: React.FC = () => {
   }
 
   // --- RESIDENT VIEW GUARD ---
-  if (currentView === AppView.VOTE_IDENTIFY && (!isAssemblyActive || !condoName) && !currentUser) {
-      return (
-        <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full text-center">
-                <div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <AlertCircle className="text-red-600" size={32} />
+  if (currentView === AppView.VOTE_IDENTIFY && !currentUser) {
+      // While data is loading, show a spinner
+      if (!isDataLoaded) {
+          return (
+            <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+                <div className="text-center">
+                    <RefreshCw className="animate-spin h-12 w-12 text-red-600 mx-auto mb-4" />
+                    <p className="text-gray-600 font-medium">Sincronizando Assembleia...</p>
                 </div>
-                <h2 className="text-xl font-bold text-gray-900 mb-2">Assembleia Encerrada</h2>
-                <p className="text-gray-500 mb-8">Esta assembleia já foi finalizada ou ainda não foi iniciada. Não é mais possível registrar votos.</p>
-                <Button onClick={() => setCurrentView(AppView.ADMIN_LOGIN)} variant="outline" className="w-full">Voltar ao Início</Button>
             </div>
-        </div>
-      );
+          );
+      }
+
+      // If data loaded but assembly is not active, show the "Ended" screen
+      if (!isAssemblyActive || !condoName) {
+          return (
+            <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full text-center">
+                    <div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <AlertCircle className="text-red-600" size={32} />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-2">Assembleia Indisponível</h2>
+                    <p className="text-gray-500 mb-8">Esta assembleia já foi finalizada ou ainda não foi iniciada. Não é mais possível registrar votos.</p>
+                    <Button onClick={() => window.location.reload()} variant="outline" className="w-full">Atualizar Página</Button>
+                </div>
+            </div>
+          );
+      }
   }
 
   if (currentView === AppView.COMPANY_DASHBOARD) {
@@ -449,7 +478,7 @@ const App: React.FC = () => {
       onVoteSubmit={handleVoteSubmit}
       onRegisterAttendance={handleRegisterAttendance}
       hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
-      isAdmin={!!currentUser}
+      isResidentLink={new URLSearchParams(window.location.search).get('access') === 'resident'}
       onBack={() => {
         if (currentUser) {
           setCurrentView(AppView.ADMIN_DASHBOARD);

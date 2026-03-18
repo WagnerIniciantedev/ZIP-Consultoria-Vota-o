@@ -11,7 +11,7 @@ interface ResidentVotingProps {
   onRegisterAttendance: (unit: string, zoomName: string) => void;
   hasVoted: (pollId: string, unit: string) => boolean;
   onBack: () => void;
-  isAdmin?: boolean;
+  isResidentLink?: boolean;
 }
 
 // Internal State for Navigation
@@ -35,7 +35,8 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   onVoteSubmit, 
   onRegisterAttendance,
   hasVoted, 
-  onBack, 
+  onBack,
+  isResidentLink = false,
 }) => {
   const [step, setStep] = useState<VoteStep>(VoteStep.IDENTIFY);
   
@@ -242,7 +243,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
       setCpfInput('');
       setZoomNameInput('');
       setCachedUnitDisplay('');
-      if(onBack) onBack();
+      if(onBack && !isResidentLink) onBack();
   };
 
   // --- Dashboard Logic ---
@@ -428,10 +429,12 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                 <p className="text-xs text-gray-400 mt-1">Digite os 5 primeiros números.</p>
               </div>
               <div className="flex gap-3 pt-2">
-                <Button variant="outline" onClick={onBack} className="flex-1">
-                  Voltar
-                </Button>
-                <Button onClick={handleIdentify} className="flex-[2] flex items-center justify-center gap-2" disabled={residents.length === 0}>
+                {!isResidentLink && (
+                  <Button variant="outline" onClick={onBack} className="flex-1">
+                    Voltar
+                  </Button>
+                )}
+                <Button onClick={handleIdentify} className={`${isResidentLink ? 'w-full' : 'flex-[2]'} flex items-center justify-center gap-2`} disabled={residents.length === 0}>
                   <Search size={18} /> Buscar Cadastro
                 </Button>
               </div>
