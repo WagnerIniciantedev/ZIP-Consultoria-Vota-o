@@ -1,6 +1,7 @@
 
 import { Resident, Poll, VoteRecord, User, AssemblyRecord } from '../types';
-import { db, doc, setDoc, deleteDoc } from './firebase';
+import { doc, setDoc, deleteDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from './firebase';
 
 const STORAGE_KEYS = {
   RESIDENTS: 'condovote_residents',
@@ -13,7 +14,10 @@ const STORAGE_KEYS = {
   IS_ASSEMBLY_ACTIVE: 'condovote_is_active',
   ASSEMBLY_START_TIME: 'condovote_assembly_start_time',
   ACTIVE_ASSEMBLIES: 'condovote_active_assemblies',
-  LOGS: 'condovote_logs'
+  LOGS: 'condovote_logs',
+  ASSEMBLY_ID: 'condovote_assembly_id',
+  RESIDENT_IDENTITY: 'condovote_my_identity',
+  RESIDENT_ZOOM_NAME: 'condovote_my_zoom_name'
 };
 
 // Firestore Collections
@@ -33,7 +37,7 @@ const DEFAULT_USERS: User[] = [
 
 const syncToCloud = (key: string, data: any, specificAssemblyId?: string) => {
     if (db) {
-        const assemblyId = specificAssemblyId || localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
+        const assemblyId = specificAssemblyId || localStorage.getItem(STORAGE_KEYS.ASSEMBLY_ID) || localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
         const safeKey = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
         
         let fieldName = '';
@@ -70,6 +74,8 @@ export const getSession = (): User | null => {
 export const clearSession = () => {
   localStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
   sessionStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
+  localStorage.removeItem(STORAGE_KEYS.RESIDENT_IDENTITY);
+  localStorage.removeItem(STORAGE_KEYS.RESIDENT_ZOOM_NAME);
 };
 
 export const saveAssemblyStatus = (isActive: boolean | null) => {
@@ -185,6 +191,51 @@ export const saveCondoName = (name: string) => {
 
 export const getCondoName = (): string => {
   return localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || '';
+};
+
+export const saveAssemblyId = (id: string) => {
+  localStorage.setItem(STORAGE_KEYS.ASSEMBLY_ID, id);
+};
+
+export const getAssemblyId = (): string => {
+  return localStorage.getItem(STORAGE_KEYS.ASSEMBLY_ID) || '';
+};
+
+export const identifyResident = async (assemblyId: string, unit: string, cpfPart: string): Promise<{ resident: Resident | null, siblings: Resident[] }> => {
+  if (!db || !assemblyId) return { resident: null, siblings: [] };
+
+  const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+  
+  try {
+    // 1. Try to get the specific unit
+    const residentRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', unit.toLowerCase());
+    const snap = await getDoc(residentRef);
+    
+    if (!snap.exists()) return { resident: null, siblings: [] };
+    
+    const resident = snap.data() as Resident;
+    
+    // 2. Validate CPF (first 5 digits)
+    const recordCpf = (resident.cpf || '').replace(/\D/g, '');
+    if (!recordCpf.startsWith(cpfPart)) {
+      return { resident: null, siblings: [] };
+    }
+
+    // 3. Find siblings (other units with same CPF)
+    const residentsRef = collection(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list');
+    const q = query(residentsRef, where("cpf", "==", resident.cpf));
+    const querySnap = await getDocs(q);
+    
+    const siblings: Resident[] = [];
+    querySnap.forEach((doc: any) => {
+      siblings.push(doc.data() as Resident);
+    });
+
+    return { resident, siblings };
+  } catch (error) {
+    console.error("Error identifying resident:", error);
+    return { resident: null, siblings: [] };
+  }
 };
 
 export const saveActiveAssemblies = (assemblies: any[]) => {

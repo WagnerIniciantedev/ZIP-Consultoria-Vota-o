@@ -10,49 +10,80 @@ interface AttendancePanelProps {
   setResidents: React.Dispatch<React.SetStateAction<Resident[]>>;
   condoName: string;
   currentUser: User | null;
+  selectedAssemblyId?: string;
 }
 
-export const AttendancePanel: React.FC<AttendancePanelProps> = ({ residents, setResidents, condoName, currentUser }) => {
+export const AttendancePanel: React.FC<AttendancePanelProps> = ({ 
+  residents, 
+  setResidents, 
+  condoName, 
+  currentUser,
+  selectedAssemblyId
+}) => {
   const [editingResident, setEditingResident] = useState<{unit: string, name: string, zoomName: string} | null>(null);
   const [confirmBlockUnit, setConfirmBlockUnit] = useState<string | null>(null);
 
   const pendingResidents = residents.filter(r => r.attendanceStatus === 'PENDING');
   const approvedResidents = residents.filter(r => r.attendanceStatus === 'APPROVED');
 
+  const updateResidentInCloud = async (resident: Resident) => {
+    if (!selectedAssemblyId) return;
+    try {
+      const { db } = await import('../../services/firebase');
+      const { doc, setDoc } = await import('firebase/firestore');
+      const residentRef = doc(db, 'assemblies', selectedAssemblyId, 'residents_list', resident.unit);
+      await setDoc(residentRef, resident);
+    } catch (error) {
+      console.error("Error updating resident in cloud:", error);
+    }
+  };
+
   const handleApproveResident = (unit: string) => {
-    const updated = residents.map(r => 
-      r.unit === unit ? { ...r, attendanceStatus: 'APPROVED' as const, checkInTimestamp: Date.now() } : r
-    );
+    const resident = residents.find(r => r.unit === unit);
+    if (!resident) return;
+
+    const updatedResident = { ...resident, attendanceStatus: 'APPROVED' as const, checkInTimestamp: Date.now() };
+    const updated = residents.map(r => r.unit === unit ? updatedResident : r);
+    
     setResidents(updated);
-    saveResidents(updated); // Explicit Save
+    saveResidents(updated); // Local Save
+    updateResidentInCloud(updatedResident); // Cloud Sync
+
     if (currentUser) {
       addLog(currentUser, 'APROVAR_MORADOR', `Aprovou entrada da unidade: ${unit}`);
     }
   };
 
   const handleBlockResident = (unit: string) => {
-      const updated = residents.map(r => 
-        r.unit === unit ? { ...r, attendanceStatus: 'BLOCKED' as const } : r
-      );
+      const resident = residents.find(r => r.unit === unit);
+      if (!resident) return;
+
+      const updatedResident = { ...resident, attendanceStatus: 'BLOCKED' as const };
+      const updated = residents.map(r => r.unit === unit ? updatedResident : r);
+      
       setResidents(updated);
-      saveResidents(updated); // Explicit Save
+      saveResidents(updated); // Local Save
+      updateResidentInCloud(updatedResident); // Cloud Sync
+
       if (currentUser) {
         addLog(currentUser, 'BLOQUEAR_MORADOR', `Bloqueou entrada da unidade: ${unit}`);
       }
   };
 
   const handleResetResident = (unit: string) => {
-      const updated = residents.map(r => {
-        if (r.unit === unit) {
-           // Create new object extracting ONLY the base properties
-           // This effectively removes 'zoomName' and 'checkInTimestamp' keys instead of setting them to undefined
-           const { zoomName, checkInTimestamp, ...rest } = r;
-           return { ...rest, attendanceStatus: 'NONE' as const };
-        }
-        return r;
-      });
+      const resident = residents.find(r => r.unit === unit);
+      if (!resident) return;
+
+      // Create new object extracting ONLY the base properties
+      const { zoomName, checkInTimestamp, ...rest } = resident;
+      const updatedResident = { ...rest, attendanceStatus: 'NONE' as const };
+      
+      const updated = residents.map(r => r.unit === unit ? updatedResident : r);
+      
       setResidents(updated);
-      saveResidents(updated); // Explicit Save
+      saveResidents(updated); // Local Save
+      updateResidentInCloud(updatedResident); // Cloud Sync
+
       if (currentUser) {
         addLog(currentUser, 'RESET_MORADOR', `Resetou status da unidade: ${unit}`);
       }
@@ -73,13 +104,15 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({ residents, set
   const handleSaveResidentDetails = () => {
     if (!editingResident) return;
     
-    const updated = residents.map(r => 
-      r.unit === editingResident.unit 
-        ? { ...r, name: editingResident.name, zoomName: editingResident.zoomName } 
-        : r
-    );
+    const resident = residents.find(r => r.unit === editingResident.unit);
+    if (!resident) return;
+
+    const updatedResident = { ...resident, name: editingResident.name, zoomName: editingResident.zoomName };
+    const updated = residents.map(r => r.unit === editingResident.unit ? updatedResident : r);
+    
     setResidents(updated);
-    saveResidents(updated); // Explicit Save
+    saveResidents(updated); // Local Save
+    updateResidentInCloud(updatedResident); // Cloud Sync
     setEditingResident(null);
   };
 

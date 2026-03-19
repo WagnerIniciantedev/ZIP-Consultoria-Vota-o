@@ -3,9 +3,12 @@ import React, { useState, useEffect } from 'react';
 import { Button, Input, Card, Badge } from './ui';
 import { Resident, Poll } from '../types';
 import { Vote, CheckCircle, UserCheck, ArrowLeft, ChevronRight, Clock, Building, Users, LayoutDashboard, AlertCircle, RefreshCw, Search, WifiOff, Wifi } from 'lucide-react';
+import { identifyResident } from '../services/dataService';
+import { db, doc, onSnapshot } from '../services/firebase';
 
 interface ResidentVotingProps {
-  residents: Resident[];
+  assemblyId: string;
+  sampleUnit?: string;
   polls: Poll[];
   onVoteSubmit: (pollId: string, unit: string, optionId: string, isDelinquent: boolean) => void;
   onRegisterAttendance: (unit: string, zoomName: string) => void;
@@ -30,7 +33,8 @@ const STORAGE_IDENTITY_KEY = 'condovote_my_identity';
 const STORAGE_ZOOM_NAME_KEY = 'condovote_my_zoom_name';
 
 export const ResidentVoting: React.FC<ResidentVotingProps> = ({ 
-  residents, 
+  assemblyId,
+  sampleUnit = '',
   polls, 
   onVoteSubmit, 
   onRegisterAttendance,
@@ -56,6 +60,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
   // Loading State
   const [isRestoringSession, setIsRestoringSession] = useState(true);
+  const [isIdentifying, setIsIdentifying] = useState(false);
   const [cachedUnitDisplay, setCachedUnitDisplay] = useState<string>('');
 
   // Filter Active Polls
@@ -72,7 +77,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
     const savedIdentity = localStorage.getItem(STORAGE_IDENTITY_KEY);
     const savedZoomName = localStorage.getItem(STORAGE_ZOOM_NAME_KEY);
 
-    if (savedIdentity) {
+    if (savedIdentity && assemblyId) {
         try {
             const myUnitNumbers: string[] = JSON.parse(savedIdentity);
             setCachedUnitDisplay(myUnitNumbers.join(', '));
@@ -82,87 +87,73 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                 setZoomNameInput(savedZoomName);
             }
 
-            // Only attempt full restore logic if residents list is populated
-            if (residents.length > 0) {
-                // Find these units in the fresh residents list
-                const foundUnits = residents.filter(r => myUnitNumbers.includes(r.unit));
-                
-                if (foundUnits.length > 0) {
-                    // Update selection with fresh data
-                    setSelectedUnits(foundUnits);
+            // Fetch these units from Firestore
+            const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+            const fetchUnits = async () => {
+                const foundUnits: Resident[] = [];
+                for (const unit of myUnitNumbers) {
+                    const resRef = doc(db, 'assemblies', safeAssemblyId, 'residents_list', unit.toLowerCase());
+                    // We don't use onSnapshot here yet, just a one-time fetch to restore session
+                    // The real-time listener will handle updates
+                    const { getDoc } = await import('../services/firebase');
+                    const snap = await getDoc(resRef);
+                    if (snap.exists()) {
+                        foundUnits.push(snap.data() as Resident);
+                    }
+                }
 
-                    // Determine where to send them based on status
+                if (foundUnits.length > 0) {
+                    setSelectedUnits(foundUnits);
                     const isApproved = foundUnits.every(u => u.attendanceStatus === 'APPROVED');
                     const isPending = foundUnits.every(u => u.attendanceStatus === 'PENDING');
 
-                    if (isApproved) {
-                        setStep(VoteStep.DASHBOARD);
-                    } else if (isPending) {
-                        setStep(VoteStep.WAITING_ROOM);
-                    } else {
-                        // Identity saved, but not approved or pending yet. 
-                        // Likely dropped before clicking "Confirm" or was reset.
-                        // Send back to confirmation screen.
-                         setStep(VoteStep.ZOOM_CHECKIN);
-                    }
-                    setIsRestoringSession(false);
-                } else {
-                    // Identity exists in cache, but units not found in current list (maybe list changed)
-                    // Keep loading until list syncs or fails
-                    // Don't disable restore yet if we think list is just loading
-                    if (residents.length > 0) setIsRestoringSession(false); 
+                    if (isApproved) setStep(VoteStep.DASHBOARD);
+                    else if (isPending) setStep(VoteStep.WAITING_ROOM);
+                    else setStep(VoteStep.ZOOM_CHECKIN);
                 }
-            } else {
-                // We have an identity, but no residents list yet (Offline or loading).
-                // Keep showing "Restoring..." loader.
-                // Do NOT set isRestoringSession(false) immediately.
-            }
+                setIsRestoringSession(false);
+            };
+            fetchUnits();
         } catch (e) {
             console.error("Failed to parse saved identity", e);
             localStorage.removeItem(STORAGE_IDENTITY_KEY);
             setIsRestoringSession(false);
         }
     } else {
-        // No saved identity, go to Identify screen
         setIsRestoringSession(false);
     }
-  }, [residents]); // Re-run when residents list updates (e.g. initial sync)
+  }, [assemblyId]);
 
 
-  // 2. REAL-TIME STATUS UPDATES
+  // 2. REAL-TIME STATUS UPDATES (Per Unit)
   useEffect(() => {
-    if (selectedUnits.length > 0) {
-      // Re-fetch the latest data for these units from the props
-      const updatedUnits = selectedUnits.map(selected => {
-          const found = residents.find(r => r.unit === selected.unit);
-          return found || selected;
+    if (selectedUnits.length > 0 && assemblyId) {
+      const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+      
+      const unsubs = selectedUnits.map(unit => {
+          const resRef = doc(db, 'assemblies', safeAssemblyId, 'residents_list', unit.unit.toLowerCase());
+          return onSnapshot(resRef, (snap) => {
+              if (snap.exists()) {
+                  const updatedData = snap.data() as Resident;
+                  setSelectedUnits(prev => prev.map(u => u.unit === updatedData.unit ? updatedData : u));
+                  
+                  if (updatedData.attendanceStatus === 'BLOCKED') {
+                      alert(`O acesso da unidade ${updatedData.unit} foi bloqueado pelo administrador.`);
+                      handleLogout();
+                  }
+              }
+          });
       });
-      
-      // Check if we need to update state (avoid loops)
-      const hasChanged = JSON.stringify(updatedUnits) !== JSON.stringify(selectedUnits);
-      if (hasChanged) {
-          setSelectedUnits(updatedUnits);
-      }
 
-      // Check attendance status for all selected units
-      const anyBlocked = updatedUnits.some(u => u.attendanceStatus === 'BLOCKED');
-      
-      if (anyBlocked) {
-         alert("O acesso de uma ou mais unidades foi bloqueado pelo administrador.");
-         handleLogout();
-         return;
-      }
+      return () => unsubs.forEach(unsub => unsub());
     }
-  }, [residents, step]); // We don't include selectedUnits in dependency to avoid deep loop, logic handles it
+  }, [selectedUnits.length, assemblyId]); // Only run when identity established
 
   
   // --- HANDLERS ---
 
-  const handleIdentify = () => {
-    if (residents.length === 0) {
-        alert("A lista de moradores ainda não foi carregada pelo administrador ou seu dispositivo está sem conexão. Aguarde um momento.");
-        return;
-    }
+  const handleIdentify = async () => {
+    if (!assemblyId) return;
 
     const targetUnit = unitInput.toLowerCase().trim();
     const targetCpfClean = cpfInput.replace(/\D/g, '');
@@ -172,41 +163,30 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
         return;
     }
 
-    // 1. Find the specific unit requested
-    const resident = residents.find(r => r.unit.toLowerCase() === targetUnit);
+    if (targetCpfClean.length < 5) {
+        alert("Digite pelo menos os 5 primeiros dígitos do CPF.");
+        return;
+    }
 
-    if (resident) {
-      // 2. Validate CPF (Only if CPF exists in Excel)
-      if (resident.cpf) {
-         const recordCpfClean = resident.cpf.replace(/\D/g, '');
-         // Check matches start
-         if (!targetCpfClean || !recordCpfClean.startsWith(targetCpfClean)) {
-             alert("Os dados de CPF não conferem com a unidade informada.");
-             return;
-         }
-         if (targetCpfClean.length < 5) {
-             alert("Digite pelo menos os 5 primeiros dígitos do CPF.");
-             return;
-         }
-      }
+    setIsIdentifying(true);
+    try {
+        const { resident, siblings } = await identifyResident(assemblyId, targetUnit, targetCpfClean);
 
-      // 3. Check for Multi-Unit Ownership (same CPF)
-      if (resident.cpf) {
-          const cleanRecordCpf = resident.cpf.replace(/\D/g, '');
-          const siblings = residents.filter(r => r.cpf && r.cpf.replace(/\D/g, '') === cleanRecordCpf);
-          
-          if (siblings.length > 1) {
-              setMultiUnitCandidates(siblings);
-              setStep(VoteStep.MULTI_UNIT_SELECT);
-              return;
-          }
-      }
-
-      // If single unit, proceed
-      proceedWithUnits([resident]);
-
-    } else {
-      alert("Unidade não encontrada na lista de votação.\n\nVerifique se digitou corretamente ou contate o administrador.");
+        if (resident) {
+            if (siblings.length > 1) {
+                setMultiUnitCandidates(siblings);
+                setStep(VoteStep.MULTI_UNIT_SELECT);
+            } else {
+                proceedWithUnits([resident]);
+            }
+        } else {
+            alert("Dados não conferem ou unidade não encontrada.\n\nVerifique se digitou corretamente ou contate o administrador.");
+        }
+    } catch (error) {
+        console.error("Identification error:", error);
+        alert("Erro ao conectar ao servidor. Verifique sua conexão.");
+    } finally {
+        setIsIdentifying(false);
     }
   };
 
@@ -367,7 +347,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
       
       {/* Network Status Indicator */}
       <div className="absolute top-4 right-4 z-10">
-          {residents.length > 0 ? (
+          {assemblyId ? (
              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-700 rounded-full text-xs font-medium border border-green-200 shadow-sm transition-all duration-500">
                 <Wifi size={14} /> <span>Conectado</span>
              </div>
@@ -391,14 +371,14 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   </p>
               </div>
               
-              {residents.length === 0 && (
+              {!assemblyId && (
                   <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg text-sm text-yellow-800 text-center">
                       <div className="flex justify-center mb-2">
                           <WifiOff className="text-yellow-600" />
                       </div>
-                      <p className="font-bold mb-1">Aguardando Lista de Moradores</p>
+                      <p className="font-bold mb-1">Aguardando Sincronização</p>
                       <p className="text-xs opacity-80 mb-3">
-                          O administrador ainda não carregou a lista ou a conexão está lenta.
+                          O sistema está carregando os dados da assembleia.
                       </p>
                       <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="w-full bg-white">
                           <RefreshCw size={14} className="mr-2" /> Atualizar Página
@@ -412,8 +392,14 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   placeholder="Ex: 101" 
                   value={unitInput}
                   onChange={(e) => setUnitInput(e.target.value)}
-                  disabled={residents.length === 0}
+                  disabled={!assemblyId || isIdentifying}
                 />
+                {sampleUnit && (
+                  <p className="mt-1.5 text-[11px] text-gray-500 flex items-center gap-1.5 bg-gray-50 p-1.5 rounded border border-gray-100 animate-in fade-in slide-in-from-top-1">
+                    <Building size={12} className="text-blue-500" />
+                    <span>Exemplo de preenchimento: <strong className="text-blue-700 font-bold">{sampleUnit}</strong></span>
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-800 mb-1">Identificação (5 primeiros dígitos do CPF)</label>
@@ -423,19 +409,15 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   onChange={(e) => setCpfInput(e.target.value.replace(/\D/g, '').substring(0, 5))}
                   maxLength={5}
                   type="tel"
-                  disabled={residents.length === 0}
+                  disabled={!assemblyId || isIdentifying}
                   onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
                 />
                 <p className="text-xs text-gray-400 mt-1">Digite os 5 primeiros números do seu CPF.</p>
               </div>
               <div className="flex gap-3 pt-2">
-                {!isResidentLink && (
-                  <Button variant="outline" onClick={onBack} className="flex-1">
-                    Voltar
-                  </Button>
-                )}
-                <Button onClick={handleIdentify} className={`${isResidentLink ? 'w-full' : 'flex-[2]'} flex items-center justify-center gap-2`} disabled={residents.length === 0}>
-                  <Search size={18} /> Buscar Cadastro
+                <Button onClick={handleIdentify} className="w-full flex items-center justify-center gap-2" disabled={!assemblyId || isIdentifying}>
+                  {isIdentifying ? <RefreshCw size={18} className="animate-spin" /> : <Search size={18} />} 
+                  {isIdentifying ? 'Buscando...' : 'Buscar Cadastro'}
                 </Button>
               </div>
             </div>

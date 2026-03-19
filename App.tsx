@@ -9,6 +9,7 @@ import {
   getCondoName, saveCondoName,
   getAssemblies, saveAssemblies,
   getAssemblyStatus, saveAssemblyStatus,
+  saveAssemblyId,
   saveSession, getSession, clearSession,
   getMasterSecurityUsers,
   getActiveAssemblies, saveActiveAssemblies,
@@ -16,7 +17,9 @@ import {
   getLogs, saveLogs
 } from './services/dataService';
 import { ActiveAssembly } from './types';
-import { db, doc, onSnapshot, setDoc, auth, signInAnonymously } from './services/firebase';
+import { onSnapshot, doc, setDoc, collection } from 'firebase/firestore';
+import { signInAnonymously } from 'firebase/auth';
+import { db, auth } from './services/firebase';
 
 // UI Components
 import { AdminDashboard } from './components/AdminDashboard';
@@ -34,6 +37,7 @@ const App: React.FC = () => {
   const [votes, setVotes] = useState<VoteRecord[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [condoName, setCondoName] = useState<string>('');
+  const [sampleUnit, setSampleUnit] = useState<string>('');
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<string>('');
   const [pastAssemblies, setPastAssemblies] = useState<AssemblyRecord[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
@@ -188,10 +192,17 @@ const App: React.FC = () => {
             if (data.condoName) setCondoName(data.condoName);
             else if (data.name) setCondoName(data.name);
             
+            if (data.sampleUnit) setSampleUnit(data.sampleUnit);
             if (data.polls) setPolls(data.polls);
             if (data.votes) setVotes(data.votes);
-            if (data.residents) setResidents(data.residents);
-            if (data.isActive !== undefined) setIsAssemblyActive(data.isActive);
+            // We no longer get residents from the main document for security
+            if (data.isActive !== undefined) {
+                setIsAssemblyActive(data.isActive);
+                // If assembly ended and we are a resident, clear session
+                if (data.isActive === false && !currentUser) {
+                    clearSession();
+                }
+            }
         } else {
             if (selectedAssemblyId || (condoName && condoName !== 'Modo Administrativo')) {
               setPolls([]);
@@ -202,8 +213,23 @@ const App: React.FC = () => {
         }
     });
 
-    return () => unsubAssembly();
-  }, [selectedAssemblyId, condoName]);
+    // 4. RESIDENTS LISTENER (Admin only)
+    let unsubResidents = () => {};
+    if (currentView === AppView.ADMIN_DASHBOARD) {
+        const residentsRef = collection(db, 'assemblies', safeKey, 'residents_list');
+        unsubResidents = onSnapshot(residentsRef, (snap: any) => {
+            const list: Resident[] = [];
+            snap.forEach((doc: any) => list.push(doc.data() as Resident));
+            setResidents(list);
+            saveResidents(list);
+        });
+    }
+
+    return () => {
+        unsubAssembly();
+        unsubResidents();
+    };
+  }, [selectedAssemblyId, condoName, currentView]);
 
   // Persistence triggers
   useEffect(() => { if(condoName) saveCondoName(condoName) }, [condoName]);
@@ -251,6 +277,7 @@ const App: React.FC = () => {
     setSelectedAssemblyId(assemblyId);
     setIsAssemblyActive(true);
     
+    saveAssemblyId(assemblyId);
     saveResidents(initialResidents);
     savePolls([]);
     saveVotes([]);
@@ -497,7 +524,8 @@ const App: React.FC = () => {
 
   return (
     <ResidentVoting 
-      residents={residents}
+      assemblyId={selectedAssemblyId}
+      sampleUnit={sampleUnit}
       polls={polls}
       onVoteSubmit={handleVoteSubmit}
       onRegisterAttendance={handleRegisterAttendance}

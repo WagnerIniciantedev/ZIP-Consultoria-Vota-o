@@ -319,7 +319,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <SetupPanel 
                 residents={residents}
                 setResidents={setResidents}
-                condoName={condoName} // PASSED HERE
+                condoName={condoName}
+                selectedAssemblyId={selectedAssemblyId}
                 currentUser={currentUser}
               />
             )}
@@ -367,6 +368,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 setResidents={setResidents}
                 condoName={condoName}
                 currentUser={currentUser}
+                selectedAssemblyId={selectedAssemblyId}
               />
             )}
 

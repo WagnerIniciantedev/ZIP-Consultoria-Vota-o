@@ -9,11 +9,12 @@ import { Button, Card, Badge } from '../ui';
 interface SetupPanelProps {
   residents: Resident[];
   setResidents: React.Dispatch<React.SetStateAction<Resident[]>>;
-  condoName?: string; // Add condoName prop for explicit addressing
+  condoName?: string;
+  selectedAssemblyId?: string;
   currentUser: User | null;
 }
 
-export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents, condoName, currentUser }) => {
+export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents, condoName, selectedAssemblyId, currentUser }) => {
   const [importType, setImportType] = useState<PollCalculationType>(PollCalculationType.NORMAL);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -57,12 +58,27 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents,
           const cleanResidents = JSON.parse(JSON.stringify(pendingResidents));
 
           // 1. Explicitly write to Firestore (Bypassing race conditions)
-          // Use the condoName passed via props to ensure we write to the active session
-          if (db && condoName) {
-              const safeKey = condoName.replace(/[^a-zA-Z0-9]/g, '_');
+          // Use the selectedAssemblyId or condoName passed via props to ensure we write to the active session
+          if (db && (selectedAssemblyId || condoName)) {
+              const safeKey = (selectedAssemblyId || condoName || '').replace(/[^a-zA-Z0-9]/g, '_');
               const docRef = doc(db, 'assemblies', safeKey);
-              await setDoc(docRef, { residents: cleanResidents }, { merge: true });
-              console.log(`[SetupPanel] Explicit write to assemblies/${safeKey} successful.`);
+              
+              // Save metadata/summary to main doc
+              await setDoc(docRef, { 
+                residentsCount: cleanResidents.length,
+                lastImportAt: Date.now(),
+                sampleUnit: cleanResidents[0]?.unit || ''
+              }, { merge: true });
+
+              // Save EACH resident to subcollection for secure identification
+              // We use Promise.all to speed up, but for very large lists we might need chunks
+              const savePromises = cleanResidents.map((r: Resident) => {
+                  const resRef = doc(db, 'assemblies', safeKey, 'residents_list', r.unit.toLowerCase());
+                  return setDoc(resRef, r, { merge: true });
+              });
+              
+              await Promise.all(savePromises);
+              console.log(`[SetupPanel] Explicit write to assemblies/${safeKey}/residents_list successful.`);
           }
           
           // 2. Also call the service (which updates LocalStorage)
