@@ -24,7 +24,7 @@ import { ResultsPanel } from './dashboard/ResultsPanel';
 import { TourGuide, TourStep } from './TourGuide';
 
 interface AdminDashboardProps {
-  isAssemblyActive: boolean;
+  isAssemblyActive: boolean | null;
   residents: Resident[];
   setResidents: React.Dispatch<React.SetStateAction<Resident[]>>;
   polls: Poll[];
@@ -342,6 +342,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 onDeletePoll={onDeletePoll}
                 onSelectPoll={(id) => { setSelectedPollId(id); }}
                 currentUser={currentUser}
+                condoName={condoName}
+                selectedAssemblyId={selectedAssemblyId}
               />
             )}
 

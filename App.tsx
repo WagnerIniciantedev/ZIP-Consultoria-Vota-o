@@ -37,7 +37,7 @@ const App: React.FC = () => {
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<string>('');
   const [pastAssemblies, setPastAssemblies] = useState<AssemblyRecord[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
-  const [isAssemblyActive, setIsAssemblyActive] = useState<boolean>(false);
+  const [isAssemblyActive, setIsAssemblyActive] = useState<boolean | null>(null);
   const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
 
   // Auth State
@@ -74,7 +74,10 @@ const App: React.FC = () => {
     setCondoName(getCondoName());
     setPastAssemblies(getAssemblies());
     setLogs(getLogs());
-    setIsAssemblyActive(getAssemblyStatus());
+    // Don't set initial active status from local storage if we have a resident link
+    if (!isResidentAccess) {
+      setIsAssemblyActive(getAssemblyStatus());
+    }
 
     const savedUser = getSession();
     
@@ -410,7 +413,7 @@ const App: React.FC = () => {
       }
 
       // If data loaded but assembly is not active, show the "Ended" screen
-      if (!isAssemblyActive || !condoName) {
+      if (isAssemblyActive === false || (isDataLoaded && !condoName && isAssemblyActive !== true)) {
           return (
             <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
                 <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full text-center">

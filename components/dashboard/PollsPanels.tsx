@@ -180,6 +180,8 @@ interface PollListProps {
   onDeletePoll: (id: string) => void;
   onSelectPoll: (id: string) => void;
   currentUser: User | null;
+  condoName: string;
+  selectedAssemblyId?: string;
 }
 
 export const PollList: React.FC<PollListProps> = ({ 
@@ -188,7 +190,9 @@ export const PollList: React.FC<PollListProps> = ({
   onEndPoll, 
   onDeletePoll, 
   onSelectPoll,
-  currentUser
+  currentUser,
+  condoName,
+  selectedAssemblyId
 }) => {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmEndId, setConfirmEndId] = useState<string | null>(null);
@@ -198,7 +202,9 @@ export const PollList: React.FC<PollListProps> = ({
       e.preventDefault();
       e.stopPropagation();
     }
-    const link = `${window.location.origin}?access=resident`;
+    const safeKey = selectedAssemblyId || condoName.trim().replace(/[^a-zA-Z0-9]/g, '_');
+    const token = btoa(JSON.stringify({ a: 'r', id: safeKey }));
+    const link = `${window.location.origin}?t=${token}`;
     navigator.clipboard.writeText(link).then(() => {
         alert("Link copiado! Envie este link para os moradores.\n\n" + link);
         if (currentUser) {
@@ -223,11 +229,6 @@ export const PollList: React.FC<PollListProps> = ({
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
            <h2 className="text-xl font-bold text-gray-800">Enquetes e Votações</h2>
-           {polls.length > 0 && (
-              <Button onClick={handleCopyLink} variant="outline" className="flex items-center gap-2 text-sm bg-white shadow-sm">
-                  <LinkIcon size={16} /> Copiar Link Geral
-              </Button>
-           )}
       </div>
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -280,23 +281,6 @@ export const PollList: React.FC<PollListProps> = ({
                 </div>
 
                 <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end items-center gap-2 flex-wrap">
-                    {!isConfirmingDelete && !isConfirmingEnd && (
-                        <Button
-                            type="button"
-                            onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                const link = `${window.location.origin}?access=resident`;
-                                navigator.clipboard.writeText(`Votação: ${poll.title}\nLink: ${link}`).then(() => alert("Convite copiado!"));
-                            }}
-                            variant="outline"
-                            className="text-sm py-1 px-3 h-8 bg-white"
-                            title="Copiar convite desta enquete"
-                        >
-                            <div className="flex gap-1 items-center"><Copy size={14} /> Convite</div>
-                        </Button>
-                    )}
-
                     {!poll.isEnded && !isConfirmingDelete && !isConfirmingEnd ? (
                       <>
                         <Button 

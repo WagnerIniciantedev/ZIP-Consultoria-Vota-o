@@ -72,7 +72,8 @@ export const clearSession = () => {
   sessionStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
 };
 
-export const saveAssemblyStatus = (isActive: boolean) => {
+export const saveAssemblyStatus = (isActive: boolean | null) => {
+  if (isActive === null) return;
   localStorage.setItem(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE, JSON.stringify(isActive));
   syncToCloud(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE, isActive);
 };

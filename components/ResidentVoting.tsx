@@ -416,17 +416,17 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-800 mb-1">CPF (Início)</label>
+                <label className="block text-sm font-bold text-gray-800 mb-1">Identificação (5 primeiros dígitos do CPF)</label>
                 <Input 
                   placeholder="Ex: 12345" 
                   value={cpfInput}
-                  onChange={(e) => setCpfInput(e.target.value)}
-                  maxLength={11}
+                  onChange={(e) => setCpfInput(e.target.value.replace(/\D/g, '').substring(0, 5))}
+                  maxLength={5}
                   type="tel"
                   disabled={residents.length === 0}
                   onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
                 />
-                <p className="text-xs text-gray-400 mt-1">Digite os 5 primeiros números.</p>
+                <p className="text-xs text-gray-400 mt-1">Digite os 5 primeiros números do seu CPF.</p>
               </div>
               <div className="flex gap-3 pt-2">
                 {!isResidentLink && (
