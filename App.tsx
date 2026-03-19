@@ -25,7 +25,7 @@ import { db, auth } from './services/firebase';
 import { AdminDashboard } from './components/AdminDashboard';
 import { CompanyDashboard } from './components/CompanyDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
-import { Button, Input } from './components/ui';
+import { Button, Input, Card } from './components/ui';
 import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, RefreshCw } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -43,6 +43,8 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [isAssemblyActive, setIsAssemblyActive] = useState<boolean | null>(null);
   const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
+  const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
+  const [hasPermissionError, setHasPermissionError] = useState<boolean>(false);
 
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -51,10 +53,15 @@ const App: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false); 
   const [loginError, setLoginError] = useState('');
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(navigator.onLine);
 
   // --- INITIAL LOAD ---
   useEffect(() => {
+    const handleOnline = () => setIsConnected(true);
+    const handleOffline = () => setIsConnected(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
     const params = new URLSearchParams(window.location.search);
     const token = params.get('t');
     let isResidentAccess = params.get('access') === 'resident';
@@ -62,11 +69,13 @@ const App: React.FC = () => {
 
     if (token) {
       try {
-        const decoded = JSON.parse(atob(token));
+        // Handle the "encrypted" prefix if present
+        const cleanToken = token.startsWith('ZV_') ? token.substring(3) : token;
+        const decoded = JSON.parse(atob(cleanToken));
         if (decoded.a === 'r') isResidentAccess = true;
         if (decoded.id) urlAssemblyId = decoded.id;
       } catch (e) {
-        console.error("Invalid token");
+        console.error("Invalid token format");
       }
     }
 
@@ -89,10 +98,13 @@ const App: React.FC = () => {
     }
 
     const savedUser = getSession();
+    const savedAssemblyId = localStorage.getItem('condovote_assembly_id');
+    if (savedAssemblyId) setSelectedAssemblyId(savedAssemblyId);
     
     if (isResidentAccess) {
       if (urlAssemblyId) {
         setSelectedAssemblyId(urlAssemblyId);
+        saveAssemblyId(urlAssemblyId);
         // Try to find the original condo name from the active assemblies list
         const active = getActiveAssemblies();
         const found = active.find((a: any) => a.id === urlAssemblyId);
@@ -112,13 +124,25 @@ const App: React.FC = () => {
 
     // Authenticate Anonymously
     if (auth) {
-        signInAnonymously(auth).catch(e => console.warn("Firebase Auth Error:", e));
+        signInAnonymously(auth)
+          .then(() => setIsAuthReady(true))
+          .catch(e => {
+            console.warn("Firebase Auth Error:", e);
+            setIsAuthReady(true);
+          });
+    } else {
+        setIsAuthReady(true);
     }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   // --- 1. GLOBAL SYSTEM LISTENER (Users & Pointer) ---
   useEffect(() => {
-    if (!db) return;
+    if (!db || !isAuthReady) return;
     setIsConnected(true);
 
     const usersRef = doc(db, 'system', 'users');
@@ -165,11 +189,11 @@ const App: React.FC = () => {
         unsubUsers();
         unsubGlobal();
     };
-  }, [currentView]);
+  }, [currentView, isAuthReady]);
 
   // --- 2. LOGS LISTENER (Global) ---
   useEffect(() => {
-    if (!db) return;
+    if (!db || !isAuthReady) return;
     const logsRef = doc(db, 'system', 'logs');
     const unsubLogs = onSnapshot(logsRef, (snap) => {
       if (snap.exists()) {
@@ -181,17 +205,27 @@ const App: React.FC = () => {
       }
     });
     return () => unsubLogs();
-  }, []);
+  }, [isAuthReady]);
 
   // --- 3. ASSEMBLY SPECIFIC LISTENER ---
   useEffect(() => {
-    if (!db) return;
+    if (!db || !isAuthReady) return;
 
-    const safeKey = selectedAssemblyId || (condoName || localStorage.getItem('condovote_condo_name') || 'setup').replace(/[^a-zA-Z0-9]/g, '_');
+    // If we are in company dashboard, we don't need the assembly listener
+    if (currentView === AppView.COMPANY_DASHBOARD) {
+        setIsDataLoaded(true);
+        setIsAssemblyActive(null);
+        return;
+    }
+
+    setIsDataLoaded(false);
+    setIsAssemblyActive(null);
+
+    const currentAssemblyId = selectedAssemblyId || localStorage.getItem('condovote_assembly_id');
+    const safeKey = (currentAssemblyId || condoName || localStorage.getItem('condovote_condo_name') || 'setup').replace(/[^a-zA-Z0-9]/g, '_');
     const assemblyRef = doc(db, 'assemblies', safeKey);
 
     const unsubAssembly = onSnapshot(assemblyRef, (docSnapshot) => {
-        setIsDataLoaded(true);
         if (docSnapshot.exists()) {
             const data = docSnapshot.data();
             if (data.condoName) setCondoName(data.condoName);
@@ -203,21 +237,36 @@ const App: React.FC = () => {
             }
             if (data.polls) setPolls(data.polls);
             if (data.votes) setVotes(data.votes);
-            // We no longer get residents from the main document for security
+            
             if (data.isActive !== undefined) {
                 setIsAssemblyActive(data.isActive);
-                // If assembly ended and we are a resident, clear session
                 if (data.isActive === false && !currentUser) {
                     clearSession();
                 }
             }
+            setIsDataLoaded(true);
         } else {
-            if (selectedAssemblyId || (condoName && condoName !== 'Modo Administrativo')) {
-              setPolls([]);
-              setVotes([]);
-              setResidents([]);
-              setIsAssemblyActive(false);
-            }
+            // If assembly doc doesn't exist, wait longer before giving up
+            // This prevents "unavailable" flash during creation propagation
+            setTimeout(() => {
+              if (selectedAssemblyId || (condoName && condoName !== 'Modo Administrativo')) {
+                // Double check if it still doesn't exist
+                if (!isDataLoaded) {
+                  setPolls([]);
+                  setVotes([]);
+                  setResidents([]);
+                  setIsAssemblyActive(false);
+                  setIsDataLoaded(true);
+                }
+              }
+            }, 8000);
+        }
+    }, (error) => {
+        console.error("[App] Firestore Listener Error:", error);
+        if (error.message.includes('permission-denied')) {
+            setHasPermissionError(true);
+            setIsAssemblyActive(false);
+            setIsDataLoaded(true);
         }
     });
 
@@ -237,7 +286,7 @@ const App: React.FC = () => {
         unsubAssembly();
         unsubResidents();
     };
-  }, [selectedAssemblyId, condoName, currentView]);
+  }, [selectedAssemblyId, condoName, currentView, isAuthReady]);
 
   // Persistence triggers
   useEffect(() => { if(condoName) saveCondoName(condoName) }, [condoName]);
@@ -283,6 +332,7 @@ const App: React.FC = () => {
     setVotes([]);
     setCondoName(name);
     setSelectedAssemblyId(assemblyId);
+    saveAssemblyId(assemblyId);
     setIsAssemblyActive(true);
     
     const sampleUnitValue = initialResidents[0]?.unit || '';
@@ -298,7 +348,8 @@ const App: React.FC = () => {
     
     // Save metadata to Firestore so residents can find the condo name
     if (db && assemblyId) {
-      const assemblyRef = doc(db, 'assemblies', assemblyId);
+      const safeKey = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+      const assemblyRef = doc(db, 'assemblies', safeKey);
       try {
         await setDoc(assemblyRef, { 
           condoName: name, 
@@ -313,7 +364,7 @@ const App: React.FC = () => {
           // Use chunks for large lists to avoid hitting limits if necessary, 
           // but for now Promise.all is fine for typical condo sizes
           const savePromises = initialResidents.map((r: Resident) => {
-            const resRef = doc(db, 'assemblies', assemblyId, 'residents_list', r.unit.toLowerCase());
+            const resRef = doc(db, 'assemblies', safeKey, 'residents_list', r.unit.toLowerCase());
             return setDoc(resRef, r, { merge: true });
           });
           await Promise.all(savePromises);
@@ -358,7 +409,8 @@ const App: React.FC = () => {
       
       // Update Firestore document to inactive
       if (db && selectedAssemblyId) {
-        const assemblyRef = doc(db, 'assemblies', selectedAssemblyId);
+        const safeKey = selectedAssemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+        const assemblyRef = doc(db, 'assemblies', safeKey);
         setDoc(assemblyRef, { isActive: false }, { merge: true }).catch(e => console.error("Error ending assembly in Firestore:", e));
       }
 
@@ -377,6 +429,7 @@ const App: React.FC = () => {
     setCondoName('');
     setIsAssemblyActive(false);
     setSelectedAssemblyId('');
+    saveAssemblyId('');
     setCurrentView(AppView.COMPANY_DASHBOARD);
   };
 
@@ -456,6 +509,21 @@ const App: React.FC = () => {
 
   // --- RESIDENT VIEW GUARD ---
   if (currentView === AppView.VOTE_IDENTIFY && !currentUser) {
+      // If offline, show a specific message
+      if (!isConnected) {
+          return (
+            <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full text-center">
+                    <div className="bg-yellow-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <RefreshCw className="text-yellow-600" size={32} />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-2">Sem Conexão</h2>
+                    <p className="text-gray-500 mb-8">Parece que você está sem internet. O sistema tentará reconectar automaticamente assim que o sinal voltar.</p>
+                </div>
+            </div>
+          );
+      }
+
       // While data is loading, show a spinner
       if (!isDataLoaded) {
           return (
@@ -469,7 +537,20 @@ const App: React.FC = () => {
       }
 
       // If data loaded but assembly is not active, show the "Ended" screen
-      if (isAssemblyActive === false || (isDataLoaded && !condoName && isAssemblyActive !== true)) {
+      if (hasPermissionError) {
+          return (
+              <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+                  <Card className="max-w-md w-full text-center">
+                      <AlertCircle size={48} className="text-red-600 mx-auto mb-4" />
+                      <h2 className="text-xl font-bold mb-2">Erro de Permissão</h2>
+                      <p className="text-gray-600 mb-6">Não foi possível conectar ao banco de dados. Verifique as regras do Firestore (liberação).</p>
+                      <Button onClick={() => window.location.reload()} className="w-full">Tentar Novamente</Button>
+                  </Card>
+              </div>
+          );
+      }
+
+      if (isAssemblyActive === false) {
           return (
             <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
                 <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full text-center">
@@ -477,8 +558,15 @@ const App: React.FC = () => {
                         <AlertCircle className="text-red-600" size={32} />
                     </div>
                     <h2 className="text-xl font-bold text-gray-900 mb-2">Assembleia Indisponível</h2>
-                    <p className="text-gray-500 mb-8">Esta assembleia já foi finalizada ou ainda não foi iniciada. Não é mais possível registrar votos.</p>
-                    <Button onClick={() => window.location.reload()} variant="outline" className="w-full">Atualizar Página</Button>
+                    <p className="text-gray-500 mb-8">Esta assembleia já foi finalizada, ainda não foi iniciada ou o link expirou. Por favor, verifique com a administração.</p>
+                    <div className="space-y-3">
+                      <Button onClick={() => window.location.reload()} variant="outline" className="w-full flex items-center justify-center gap-2">
+                        <RefreshCw size={16} /> Tentar Novamente
+                      </Button>
+                      <Button onClick={() => window.location.href = window.location.origin} variant="ghost" className="w-full text-sm text-gray-400">
+                        Voltar ao Início
+                      </Button>
+                    </div>
                 </div>
             </div>
           );
@@ -498,6 +586,7 @@ const App: React.FC = () => {
         onSelectAssembly={(id, name) => {
           if (currentUser) addLog(currentUser, 'SELEÇÃO_ASSEMBLEIA', `Selecionou a assembleia: ${name}`);
           setSelectedAssemblyId(id);
+          saveAssemblyId(id);
           setCondoName(name);
           setIsAssemblyActive(true);
           setCurrentView(AppView.ADMIN_DASHBOARD);
@@ -513,6 +602,15 @@ const App: React.FC = () => {
           const updated = pastAssemblies.filter(a => a.id !== id);
           setPastAssemblies(updated);
           saveAssemblies(updated);
+        }}
+        onDeleteLog={(id) => {
+          const updated = logs.filter(l => l.id !== id);
+          setLogs(updated);
+          saveLogs(updated);
+        }}
+        onClearLogs={() => {
+          setLogs([]);
+          saveLogs([]);
         }}
       />
     );
@@ -561,6 +659,7 @@ const App: React.FC = () => {
       onRegisterAttendance={handleRegisterAttendance}
       hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
       isResidentLink={new URLSearchParams(window.location.search).get('access') === 'resident'}
+      isConnected={isConnected}
       onBack={() => {
         if (currentUser) {
           setCurrentView(AppView.ADMIN_DASHBOARD);

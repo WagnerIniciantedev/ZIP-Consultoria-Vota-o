@@ -38,6 +38,8 @@ interface CompanyDashboardProps {
   pastAssemblies: AssemblyRecord[];
   logs: SystemLog[];
   onDeleteAssembly: (id: string) => void;
+  onDeleteLog?: (id: string) => void;
+  onClearLogs?: () => void;
 }
 
 const ConfirmPasswordModal: React.FC<{
@@ -101,7 +103,9 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   setUsers,
   pastAssemblies,
   logs,
-  onDeleteAssembly
+  onDeleteAssembly,
+  onDeleteLog,
+  onClearLogs
 }) => {
   const [activeTab, setActiveTab] = useState<'assemblies' | 'create' | 'users' | 'past_assemblies' | 'history'>('assemblies');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -112,9 +116,9 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   // Create Assembly Form
   const [newCondoName, setNewCondoName] = useState('');
   const [csvData, setCsvData] = useState<any[]>([]);
-  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; assemblyId: string | null; type: 'active' | 'history' }>({
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: string | null; type: 'active' | 'history' | 'log' | 'all_logs' }>({
     isOpen: false,
-    assemblyId: null,
+    id: null,
     type: 'active'
   });
 
@@ -149,30 +153,36 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     onSelectAssembly(assemblyId, newCondoName.trim());
   };
 
-  const handleDeleteClick = (id: string, type: 'active' | 'history') => {
-    setDeleteModal({ isOpen: true, assemblyId: id, type });
+  const handleDeleteClick = (id: string | null, type: 'active' | 'history' | 'log' | 'all_logs') => {
+    setDeleteModal({ isOpen: true, id, type });
   };
 
   const handleCopyLink = (id: string) => {
-    const token = btoa(JSON.stringify({ a: 'r', id }));
-    const url = `${window.location.origin}?t=${token}`;
+    // Obfuscate the token more with a prefix to look "encrypted"
+    const data = { a: 'r', id, ts: Date.now() };
+    const token = btoa(JSON.stringify(data));
+    const url = `${window.location.origin}?t=ZV_${token}`;
     navigator.clipboard.writeText(url);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleConfirmDelete = () => {
-    if (!deleteModal.assemblyId) return;
+    if (deleteModal.type !== 'all_logs' && !deleteModal.id) return;
 
     if (deleteModal.type === 'active') {
-      const updated = assemblies.filter(a => a.id !== deleteModal.assemblyId);
+      const updated = assemblies.filter(a => a.id !== deleteModal.id);
       setAssemblies(updated);
       saveActiveAssemblies(updated);
-    } else {
-      onDeleteAssembly(deleteModal.assemblyId);
+    } else if (deleteModal.type === 'history') {
+      onDeleteAssembly(deleteModal.id!);
+    } else if (deleteModal.type === 'log') {
+      if (onDeleteLog) onDeleteLog(deleteModal.id!);
+    } else if (deleteModal.type === 'all_logs') {
+      if (onClearLogs) onClearLogs();
     }
     
-    setDeleteModal({ isOpen: false, assemblyId: null, type: 'active' });
+    setDeleteModal({ isOpen: false, id: null, type: 'active' });
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -417,7 +427,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                       <div className="flex gap-2">
                         {currentUser?.username === 'wagner.silva' && (
                           <button 
-                            onClick={() => setDeleteModal({ isOpen: true, assemblyId: assembly.id, type: 'history' })}
+                            onClick={() => setDeleteModal({ isOpen: true, id: assembly.id, type: 'history' })}
                             className="p-2 text-gray-400 hover:text-red-600 transition-colors"
                           >
                             <Trash2 size={18} />
@@ -563,8 +573,19 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         {activeTab === 'history' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
-              <h2 className="text-xl font-bold text-gray-800">Histórico Geral de Movimentações</h2>
-              <Badge color="blue">{logs.length} Registros</Badge>
+              <div className="flex items-center gap-4">
+                <h2 className="text-xl font-bold text-gray-800">Histórico Geral de Movimentações</h2>
+                <Badge color="blue">{logs.length} Registros</Badge>
+              </div>
+              {currentUser?.username === 'wagner.silva' && logs.length > 0 && (
+                <Button 
+                  onClick={() => handleDeleteClick(null, 'all_logs')}
+                  variant="outline"
+                  className="text-red-600 border-red-200 hover:bg-red-50 flex items-center gap-2"
+                >
+                  <Trash2 size={16} /> Limpar Histórico
+                </Button>
+              )}
             </div>
             <Card className="p-0 overflow-hidden">
               <div className="overflow-x-auto">
@@ -575,6 +596,9 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                       <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Usuário</th>
                       <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Ação</th>
                       <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Detalhes</th>
+                      {currentUser?.username === 'wagner.silva' && (
+                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">Ações</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -601,6 +625,17 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         <td className="px-6 py-4 text-sm text-gray-600">
                           {log.details}
                         </td>
+                        {currentUser?.username === 'wagner.silva' && (
+                          <td className="px-6 py-4 text-right">
+                            <button 
+                              onClick={() => handleDeleteClick(log.id, 'log')}
+                              className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                              title="Excluir registro"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                     {logs.length === 0 && (
@@ -620,13 +655,18 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
 
       <ConfirmPasswordModal 
         isOpen={deleteModal.isOpen}
-        onClose={() => setDeleteModal({ isOpen: false, assemblyId: null, type: 'active' })}
+        onClose={() => setDeleteModal({ isOpen: false, id: null, type: 'active' })}
         onConfirm={handleConfirmDelete}
         currentUser={currentUser}
         title="Confirmar Exclusão"
-        message={deleteModal.type === 'active' 
-          ? "Tem certeza que deseja excluir esta assembleia ativa? Todos os dados em tempo real serão perdidos permanentemente."
-          : "Tem certeza que deseja excluir este relatório do histórico? Esta ação não pode ser desfeita."
+        message={
+          deleteModal.type === 'active' 
+            ? "Tem certeza que deseja excluir esta assembleia ativa? Todos os dados em tempo real serão perdidos permanentemente."
+            : deleteModal.type === 'history'
+            ? "Tem certeza que deseja excluir este relatório do histórico? Esta ação não pode ser desfeita."
+            : deleteModal.type === 'log'
+            ? "Tem certeza que deseja excluir este registro do histórico?"
+            : "Tem certeza que deseja LIMPAR TODO o histórico do sistema? Esta ação é irreversível."
         }
       />
     </div>

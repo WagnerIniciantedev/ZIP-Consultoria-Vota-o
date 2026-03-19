@@ -101,8 +101,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleCopyLink = () => {
     const safeKey = selectedAssemblyId || condoName.trim().replace(/[^a-zA-Z0-9]/g, '_');
-    const token = btoa(JSON.stringify({ a: 'r', id: safeKey }));
-    const url = `${window.location.origin}?t=${token}`;
+    // Obfuscate the token more with a prefix to look "encrypted"
+    const data = { a: 'r', id: safeKey, ts: Date.now() };
+    const token = btoa(JSON.stringify(data));
+    const url = `${window.location.origin}?t=ZV_${token}`;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);

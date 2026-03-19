@@ -15,6 +15,7 @@ interface ResidentVotingProps {
   hasVoted: (pollId: string, unit: string) => boolean;
   onBack: () => void;
   isResidentLink?: boolean;
+  isConnected?: boolean;
 }
 
 // Internal State for Navigation
@@ -41,6 +42,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   hasVoted, 
   onBack,
   isResidentLink = false,
+  isConnected = true,
 }) => {
   const [step, setStep] = useState<VoteStep>(VoteStep.IDENTIFY);
   
@@ -337,6 +339,13 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4 relative">
+      {!isConnected && (
+        <div className="fixed top-4 right-4 z-50">
+          <Badge color="red" className="animate-pulse flex items-center gap-1 shadow-lg py-2 px-3">
+            <WifiOff size={16} /> Sem Conexão
+          </Badge>
+        </div>
+      )}
       <div className="mb-8 text-center">
          <img 
             src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 

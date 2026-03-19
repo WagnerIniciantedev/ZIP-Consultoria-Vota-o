@@ -1,6 +1,6 @@
 import React from 'react';
 
-export const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'danger' | 'outline', size?: 'sm' | 'md' | 'lg' }> = ({ 
+export const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'danger' | 'outline' | 'ghost', size?: 'sm' | 'md' | 'lg' }> = ({ 
   children, 
   className = '', 
   variant = 'primary', 
@@ -14,7 +14,8 @@ export const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { 
     primary: "bg-red-600 text-white hover:bg-red-700 focus:ring-red-500",
     secondary: "bg-gray-600 text-white hover:bg-gray-700 focus:ring-gray-500",
     danger: "bg-red-800 text-white hover:bg-red-900 focus:ring-red-700",
-    outline: "border-2 border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-500"
+    outline: "border-2 border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-500",
+    ghost: "bg-transparent text-gray-600 hover:bg-gray-100 focus:ring-gray-200"
   };
 
   const sizes = {
@@ -54,7 +55,7 @@ export const Card: React.FC<{ children: React.ReactNode, title?: string, classNa
   );
 };
 
-export const Badge: React.FC<{ children: React.ReactNode, color?: 'green' | 'red' | 'yellow' | 'gray' | 'purple' | 'blue' }> = ({ children, color = 'gray' }) => {
+export const Badge: React.FC<{ children: React.ReactNode, color?: 'green' | 'red' | 'yellow' | 'gray' | 'purple' | 'blue', className?: string }> = ({ children, color = 'gray', className = '' }) => {
   const colors = {
     green: 'bg-green-100 text-green-800',
     red: 'bg-red-100 text-red-800',
@@ -64,7 +65,7 @@ export const Badge: React.FC<{ children: React.ReactNode, color?: 'green' | 'red
     blue: 'bg-blue-100 text-blue-800',
   };
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[color]}`}>
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[color]} ${className}`}>
       {children}
     </span>
   );
