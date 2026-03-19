@@ -11,7 +11,7 @@ interface ResidentVotingProps {
   sampleUnit?: string;
   polls: Poll[];
   onVoteSubmit: (pollId: string, unit: string, optionId: string, isDelinquent: boolean) => void;
-  onRegisterAttendance: (unit: string, zoomName: string) => void;
+  onRegisterAttendance: (units: string[], zoomName: string) => void;
   hasVoted: (pollId: string, unit: string) => boolean;
   onBack: () => void;
   isResidentLink?: boolean;
@@ -106,8 +106,8 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
                 if (foundUnits.length > 0) {
                     setSelectedUnits(foundUnits);
-                    const isApproved = foundUnits.every(u => u.attendanceStatus === 'APPROVED');
-                    const isPending = foundUnits.every(u => u.attendanceStatus === 'PENDING');
+                    const isApproved = foundUnits.some(u => u.attendanceStatus === 'APPROVED');
+                    const isPending = foundUnits.some(u => u.attendanceStatus === 'PENDING');
 
                     if (isApproved) setStep(VoteStep.DASHBOARD);
                     else if (isPending) setStep(VoteStep.WAITING_ROOM);
@@ -137,7 +137,18 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
           return onSnapshot(resRef, (snap) => {
               if (snap.exists()) {
                   const updatedData = snap.data() as Resident;
-                  setSelectedUnits(prev => prev.map(u => u.unit === updatedData.unit ? updatedData : u));
+                  
+                  setSelectedUnits(prev => {
+                      const updated = prev.map(u => u.unit.toLowerCase() === updatedData.unit.toLowerCase() ? updatedData : u);
+                      
+                      // Check for auto-transition to DASHBOARD if approved
+                      const anyApproved = updated.some(u => u.attendanceStatus === 'APPROVED');
+                      if (anyApproved && step === VoteStep.WAITING_ROOM) {
+                          setStep(VoteStep.DASHBOARD);
+                      }
+
+                      return updated;
+                  });
                   
                   if (updatedData.attendanceStatus === 'BLOCKED') {
                       alert(`O acesso da unidade ${updatedData.unit} foi bloqueado pelo administrador.`);
@@ -149,7 +160,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
       return () => unsubs.forEach(unsub => unsub());
     }
-  }, [selectedUnits.length, assemblyId]); // Only run when identity established
+  }, [selectedUnits.length, assemblyId, step]); // Added step to dependency to allow transition check
 
   
   // --- HANDLERS ---
@@ -256,10 +267,9 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
       // SAVE ZOOM NAME TO CACHE (CRITICAL)
       localStorage.setItem(STORAGE_ZOOM_NAME_KEY, zoomNameInput);
       
-      // Register for ALL selected units
-      selectedUnits.forEach(u => {
-          onRegisterAttendance(u.unit, zoomNameInput);
-      });
+      // Register for ALL selected units at once
+      const unitNumbers = selectedUnits.map(u => u.unit);
+      onRegisterAttendance(unitNumbers, zoomNameInput);
       
       setStep(VoteStep.WAITING_ROOM);
   };

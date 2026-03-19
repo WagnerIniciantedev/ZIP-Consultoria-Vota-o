@@ -31,7 +31,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
     try {
       const { db } = await import('../../services/firebase');
       const { doc, setDoc } = await import('firebase/firestore');
-      const residentRef = doc(db, 'assemblies', selectedAssemblyId, 'residents_list', resident.unit);
+      const residentRef = doc(db, 'assemblies', selectedAssemblyId, 'residents_list', resident.unit.toLowerCase());
       await setDoc(residentRef, resident);
     } catch (error) {
       console.error("Error updating resident in cloud:", error);

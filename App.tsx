@@ -443,12 +443,40 @@ const App: React.FC = () => {
     });
   };
 
-  const handleRegisterAttendance = (unit: string, zoomName: string) => {
-     setResidents(prev => {
-       const updated = prev.map(r => r.unit.toLowerCase() === unit.toLowerCase() ? { ...r, zoomName, attendanceStatus: 'PENDING' as const } : r);
-       saveResidents(updated);
-       return updated;
-     });
+  const handleRegisterAttendance = async (units: string[], zoomName: string) => {
+    if (selectedAssemblyId && db) {
+      const { doc, setDoc } = await import('firebase/firestore');
+      
+      setResidents(prev => {
+        const updated = prev.map(r => {
+          if (units.some(u => u.toLowerCase() === r.unit.toLowerCase())) {
+            const updatedResident = { ...r, zoomName, attendanceStatus: 'PENDING' as const };
+            
+            // Sync each unit to Firestore subcollection
+            const resRef = doc(db, 'assemblies', selectedAssemblyId, 'residents_list', r.unit.toLowerCase());
+            setDoc(resRef, updatedResident, { merge: true }).catch(err => 
+              console.error(`Erro ao sincronizar unidade ${r.unit}:`, err)
+            );
+            
+            return updatedResident;
+          }
+          return r;
+        });
+        saveResidents(updated);
+        return updated;
+      });
+    } else {
+      // Fallback for local-only or if DB not ready
+      setResidents(prev => {
+        const updated = prev.map(r => 
+          units.some(u => u.toLowerCase() === r.unit.toLowerCase()) 
+            ? { ...r, zoomName, attendanceStatus: 'PENDING' as const } 
+            : r
+        );
+        saveResidents(updated);
+        return updated;
+      });
+    }
   };
 
   // --- RENDER ---
