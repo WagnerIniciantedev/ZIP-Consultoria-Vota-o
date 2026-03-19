@@ -320,27 +320,45 @@ export const restoreFullBackup = (jsonText: string): boolean => {
   }
 };
 
-const normalizeName = (name: string) => {
-  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const normalizeString = (str: string) => {
+  if (!str) return "";
+  // Remove accents/diacritics and convert to standard characters
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x00-\x7F]/g, "") // Remove any remaining non-ASCII characters
+    .trim();
 };
 
 export const parseCSV = (csvText: string): Resident[] => {
-  const lines = csvText.split('\n');
+  // Clean potential BOM or weird start characters
+  const cleanText = csvText.replace(/^\uFEFF/, '').trim();
+  const lines = cleanText.split(/\r?\n/);
   const residents: Resident[] = [];
+  
+  // Detect header
   let startIndex = 0;
-  if (lines[0] && (lines[0].toLowerCase().includes('cpf') || lines[0].toLowerCase().includes('unidade'))) startIndex = 1;
+  if (lines[0]) {
+    const firstLine = lines[0].toLowerCase();
+    if (firstLine.includes('cpf') || firstLine.includes('unidade') || firstLine.includes('nome')) {
+      startIndex = 1;
+    }
+  }
 
   for (let i = startIndex; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
+    
+    // Support both semicolon and comma as delimiters
     const delimiter = line.includes(';') ? ';' : ',';
-    const cols = line.split(delimiter).map(c => c.trim().replace(/^"|"$/g, ''));
+    const cols = line.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
+    
     if (cols.length >= 3) {
       residents.push({ 
-        unit: cols[1], 
-        name: normalizeName(cols[2]), 
-        isDelinquent: (cols[3] || '').toUpperCase() === 'SIM', 
-        hasHabiteSe: (cols[4] || '').toUpperCase() === 'SIM', 
+        unit: normalizeString(cols[1]), 
+        name: normalizeString(cols[2]).toUpperCase(), // Standardize names to uppercase
+        isDelinquent: (cols[3] || '').toUpperCase().trim() === 'SIM', 
+        hasHabiteSe: (cols[4] || '').toUpperCase().trim() === 'SIM', 
         fraction: parseFloat((cols[5] || '1').replace(',', '.')) || 1.0,
         cpf: (cols[0] || '').replace(/\D/g, ''), 
         attendanceStatus: 'NONE' 
