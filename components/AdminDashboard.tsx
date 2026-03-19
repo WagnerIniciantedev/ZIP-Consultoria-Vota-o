@@ -41,6 +41,7 @@ interface AdminDashboardProps {
   onBackToCompany: () => void;
   currentUser: User | null;
   selectedAssemblyId?: string;
+  setSampleUnit: React.Dispatch<React.SetStateAction<string>>;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -59,7 +60,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onEndAssembly,
   onBackToCompany,
   currentUser,
-  selectedAssemblyId
+  selectedAssemblyId,
+  setSampleUnit
 }) => {
   const [activeTab, setActiveTab] = useState<'setup_excel' | 'create_poll' | 'manage_polls' | 'attendance' | 'end_assembly'>('setup_excel');
   const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
@@ -322,6 +324,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 condoName={condoName}
                 selectedAssemblyId={selectedAssemblyId}
                 currentUser={currentUser}
+                setSampleUnit={setSampleUnit}
               />
             )}
 

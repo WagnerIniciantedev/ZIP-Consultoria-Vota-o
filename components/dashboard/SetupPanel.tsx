@@ -12,9 +12,17 @@ interface SetupPanelProps {
   condoName?: string;
   selectedAssemblyId?: string;
   currentUser: User | null;
+  setSampleUnit: React.Dispatch<React.SetStateAction<string>>;
 }
 
-export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents, condoName, selectedAssemblyId, currentUser }) => {
+export const SetupPanel: React.FC<SetupPanelProps> = ({ 
+  residents, 
+  setResidents, 
+  condoName, 
+  selectedAssemblyId, 
+  currentUser,
+  setSampleUnit
+}) => {
   const [importType, setImportType] = useState<PollCalculationType>(PollCalculationType.NORMAL);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -86,6 +94,11 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({ residents, setResidents,
 
           // 3. Update Local State (Visual)
           setResidents(pendingResidents);
+          
+          // Update sample unit for identification guidance
+          const newSampleUnit = pendingResidents[0]?.unit || '';
+          setSampleUnit(newSampleUnit);
+          localStorage.setItem('zip_assembly_sample_unit', newSampleUnit);
 
           if (currentUser) {
             addLog(currentUser, 'IMPORTAR_MORADORES', `Importou ${pendingResidents.length} moradores para ${condoName}`);

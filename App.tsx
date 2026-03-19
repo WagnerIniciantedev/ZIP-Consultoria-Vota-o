@@ -78,6 +78,11 @@ const App: React.FC = () => {
     setCondoName(getCondoName());
     setPastAssemblies(getAssemblies());
     setLogs(getLogs());
+    
+    // Restore sample unit if available
+    const savedSampleUnit = localStorage.getItem('condovote_sample_unit');
+    if (savedSampleUnit) setSampleUnit(savedSampleUnit);
+
     // Don't set initial active status from local storage if we have a resident link
     if (!isResidentAccess) {
       setIsAssemblyActive(getAssemblyStatus());
@@ -192,7 +197,10 @@ const App: React.FC = () => {
             if (data.condoName) setCondoName(data.condoName);
             else if (data.name) setCondoName(data.name);
             
-            if (data.sampleUnit) setSampleUnit(data.sampleUnit);
+            if (data.sampleUnit) {
+                setSampleUnit(data.sampleUnit);
+                localStorage.setItem('condovote_sample_unit', data.sampleUnit);
+            }
             if (data.polls) setPolls(data.polls);
             if (data.votes) setVotes(data.votes);
             // We no longer get residents from the main document for security
@@ -269,7 +277,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStartAssembly = (name: string, assemblyId: string, initialResidents: Resident[] = []) => {
+  const handleStartAssembly = async (name: string, assemblyId: string, initialResidents: Resident[] = []) => {
     setResidents(initialResidents);
     setPolls([]);
     setVotes([]);
@@ -277,6 +285,10 @@ const App: React.FC = () => {
     setSelectedAssemblyId(assemblyId);
     setIsAssemblyActive(true);
     
+    const sampleUnitValue = initialResidents[0]?.unit || '';
+    setSampleUnit(sampleUnitValue);
+    localStorage.setItem('condovote_sample_unit', sampleUnitValue);
+
     saveAssemblyId(assemblyId);
     saveResidents(initialResidents);
     savePolls([]);
@@ -287,11 +299,28 @@ const App: React.FC = () => {
     // Save metadata to Firestore so residents can find the condo name
     if (db && assemblyId) {
       const assemblyRef = doc(db, 'assemblies', assemblyId);
-      setDoc(assemblyRef, { 
-        condoName: name, 
-        isActive: true,
-        createdAt: Date.now()
-      }, { merge: true }).catch(e => console.error("Error saving assembly metadata:", e));
+      try {
+        await setDoc(assemblyRef, { 
+          condoName: name, 
+          isActive: true,
+          createdAt: Date.now(),
+          sampleUnit: sampleUnitValue,
+          residentsCount: initialResidents.length
+        }, { merge: true });
+
+        // If there are initial residents, sync them to the subcollection
+        if (initialResidents.length > 0) {
+          // Use chunks for large lists to avoid hitting limits if necessary, 
+          // but for now Promise.all is fine for typical condo sizes
+          const savePromises = initialResidents.map((r: Resident) => {
+            const resRef = doc(db, 'assemblies', assemblyId, 'residents_list', r.unit.toLowerCase());
+            return setDoc(resRef, r, { merge: true });
+          });
+          await Promise.all(savePromises);
+        }
+      } catch (e) {
+        console.error("Error saving assembly data to cloud:", e);
+      }
     }
 
     if (currentUser) {
@@ -518,6 +547,7 @@ const App: React.FC = () => {
         onBackToCompany={() => setCurrentView(AppView.COMPANY_DASHBOARD)}
         currentUser={currentUser}
         selectedAssemblyId={selectedAssemblyId}
+        setSampleUnit={setSampleUnit}
       />
     );
   }
