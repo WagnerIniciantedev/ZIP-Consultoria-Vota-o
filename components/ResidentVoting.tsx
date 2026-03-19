@@ -11,7 +11,7 @@ interface ResidentVotingProps {
   sampleUnit?: string;
   polls: Poll[];
   onVoteSubmit: (pollId: string, unit: string, optionId: string, isDelinquent: boolean) => void;
-  onRegisterAttendance: (units: string[], zoomName: string) => void;
+  onRegisterAttendance: (units: Resident[], zoomName: string) => void;
   hasVoted: (pollId: string, unit: string) => boolean;
   onBack: () => void;
   isResidentLink?: boolean;
@@ -78,6 +78,15 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
     // Check for saved identity immediately on mount
     const savedIdentity = localStorage.getItem(STORAGE_IDENTITY_KEY);
     const savedZoomName = localStorage.getItem(STORAGE_ZOOM_NAME_KEY);
+    const savedAssemblyId = localStorage.getItem('condovote_assembly_id');
+
+    // If the saved assembly ID is different from the current one, clear the session
+    if (savedAssemblyId && assemblyId && savedAssemblyId !== assemblyId) {
+        localStorage.removeItem(STORAGE_IDENTITY_KEY);
+        localStorage.removeItem(STORAGE_ZOOM_NAME_KEY);
+        setIsRestoringSession(false);
+        return;
+    }
 
     if (savedIdentity && assemblyId) {
         try {
@@ -268,8 +277,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
       localStorage.setItem(STORAGE_ZOOM_NAME_KEY, zoomNameInput);
       
       // Register for ALL selected units at once
-      const unitNumbers = selectedUnits.map(u => u.unit);
-      onRegisterAttendance(unitNumbers, zoomNameInput);
+      onRegisterAttendance(selectedUnits, zoomNameInput);
       
       setStep(VoteStep.WAITING_ROOM);
   };

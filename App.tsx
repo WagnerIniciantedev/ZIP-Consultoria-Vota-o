@@ -379,7 +379,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleEndAssembly = () => {
+  const handleEndAssembly = async () => {
     if (condoName && condoName !== 'Modo Administrativo') {
       // Filter logs for this specific assembly
       const currentLogs = logs.filter((l: SystemLog) => l.assemblyId === condoName);
@@ -411,7 +411,15 @@ const App: React.FC = () => {
       if (db && selectedAssemblyId) {
         const safeKey = selectedAssemblyId.replace(/[^a-zA-Z0-9]/g, '_');
         const assemblyRef = doc(db, 'assemblies', safeKey);
-        setDoc(assemblyRef, { isActive: false }, { merge: true }).catch(e => console.error("Error ending assembly in Firestore:", e));
+        try {
+          await setDoc(assemblyRef, { isActive: false }, { merge: true });
+          
+          // Also reset global pointer if this was the active one
+          const globalRef = doc(db, 'system', 'global');
+          await setDoc(globalRef, { active_condo: 'null' }, { merge: true });
+        } catch (e) {
+          console.error("Error ending assembly in Firestore:", e);
+        }
       }
 
       if (currentUser) {
@@ -419,10 +427,7 @@ const App: React.FC = () => {
       }
     }
     
-    // Clear current working state but don't delete cloud data yet if we want to keep it for reports
-    // Actually, clearAllData deletes the cloud doc. We should probably keep it or rely on pastAssemblies.
-    // The user wants "Concluídas" to have the report.
-    
+    // Clear current working state
     setPolls([]);
     setVotes([]);
     setResidents([]);
@@ -443,39 +448,36 @@ const App: React.FC = () => {
     });
   };
 
-  const handleRegisterAttendance = async (units: string[], zoomName: string) => {
-    if (selectedAssemblyId && db) {
+  const handleRegisterAttendance = async (targetAssemblyId: string, units: Resident[], zoomName: string) => {
+    if (db && targetAssemblyId) {
       const { doc, setDoc } = await import('firebase/firestore');
       
+      // Update local state first for immediate feedback
       setResidents(prev => {
         const updated = prev.map(r => {
-          if (units.some(u => u.toLowerCase() === r.unit.toLowerCase())) {
-            const updatedResident = { ...r, zoomName, attendanceStatus: 'PENDING' as const };
-            
-            // Sync each unit to Firestore subcollection
-            const resRef = doc(db, 'assemblies', selectedAssemblyId, 'residents_list', r.unit.toLowerCase());
-            setDoc(resRef, updatedResident, { merge: true }).catch(err => 
-              console.error(`Erro ao sincronizar unidade ${r.unit}:`, err)
-            );
-            
-            return updatedResident;
+          const match = units.find(u => u.unit.toLowerCase() === r.unit.toLowerCase());
+          if (match) {
+            return { ...r, zoomName, attendanceStatus: 'PENDING' as const };
           }
           return r;
         });
         saveResidents(updated);
         return updated;
       });
-    } else {
-      // Fallback for local-only or if DB not ready
-      setResidents(prev => {
-        const updated = prev.map(r => 
-          units.some(u => u.toLowerCase() === r.unit.toLowerCase()) 
-            ? { ...r, zoomName, attendanceStatus: 'PENDING' as const } 
-            : r
-        );
-        saveResidents(updated);
-        return updated;
+
+      // Sync each unit to Firestore subcollection using the explicit assemblyId
+      const safeAssemblyId = targetAssemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+      const syncPromises = units.map(u => {
+        const updatedResident = { ...u, zoomName, attendanceStatus: 'PENDING' as const };
+        const resRef = doc(db, 'assemblies', safeAssemblyId, 'residents_list', u.unit.toLowerCase());
+        return setDoc(resRef, updatedResident, { merge: true });
       });
+
+      try {
+        await Promise.all(syncPromises);
+      } catch (err) {
+        console.error("Erro ao sincronizar presença com o Firestore:", err);
+      }
     }
   };
 
@@ -684,7 +686,7 @@ const App: React.FC = () => {
       sampleUnit={sampleUnit}
       polls={polls}
       onVoteSubmit={handleVoteSubmit}
-      onRegisterAttendance={handleRegisterAttendance}
+      onRegisterAttendance={(units, zoomName) => handleRegisterAttendance(selectedAssemblyId, units, zoomName)}
       hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
       isResidentLink={new URLSearchParams(window.location.search).get('access') === 'resident'}
       isConnected={isConnected}
