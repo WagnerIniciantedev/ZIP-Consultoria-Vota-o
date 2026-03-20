@@ -369,27 +369,49 @@ export const parseCSV = (csvText: string): Resident[] => {
 };
 
 export const exportVotesToCSV = (votes: VoteRecord[], residents: Resident[], poll: Poll) => {
-  const headers = ['Unidade', 'Nome', 'Opção Votada', 'Inadimplente', 'Data/Hora'];
-  const rows = votes.filter(v => v.pollId === poll.id).map(vote => {
+  const headers = ['UNIDADE', 'NOME', 'OPCAO VOTADA', 'INADIMPLENTE', 'DATA/HORA'];
+  const pollVotes = votes.filter(v => v.pollId === poll.id);
+  
+  const rows = pollVotes.map(vote => {
     const r = residents.find(res => res.unit === vote.unit);
     const o = poll.options.find(opt => opt.id === vote.optionId);
-    return [vote.unit, r?.name || '?', o?.text || '?', vote.isDelinquentVote ? 'SIM' : 'NÃO', new Date(vote.timestamp).toLocaleString()].join(',');
+    
+    const unit = (vote.unit || '').toUpperCase();
+    const name = (r?.name || '?').toUpperCase();
+    const option = (o?.text || '?').toUpperCase();
+    const isDelinquent = vote.isDelinquentVote ? 'SIM' : 'NAO';
+    const date = new Date(vote.timestamp).toLocaleString().toUpperCase();
+    
+    return [unit, name, option, isDelinquent, date].join(';');
   });
-  const blob = new Blob([[headers.join(','), ...rows].join('\n')], { type: 'text/csv' });
+
+  const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `resultado_${poll.title}.csv`;
+  link.download = `RESULTADO_${poll.title.toUpperCase().replace(/\s+/g, '_')}.csv`;
   link.click();
 };
 
 export const exportAttendanceCSV = (residents: Resident[], condoName: string) => {
-  const headers = ['Unidade', 'Nome', 'Zoom', 'Entrada'];
-  const rows = residents.filter(r => r.attendanceStatus === 'APPROVED').map(r => [r.unit, r.name, r.zoomName || '', r.checkInTimestamp ? new Date(r.checkInTimestamp).toLocaleString() : '-'].join(','));
-  const blob = new Blob([[headers.join(','), ...rows].join('\n')], { type: 'text/csv' });
+  const headers = ['UNIDADE', 'NOME', 'ZOOM', 'ENTRADA'];
+  const approvedResidents = residents.filter(r => r.attendanceStatus === 'APPROVED');
+  
+  const rows = approvedResidents.map(r => {
+    const unit = (r.unit || '').toUpperCase();
+    const name = (r.name || '').toUpperCase();
+    const zoom = (r.zoomName || '').toUpperCase();
+    const entry = r.checkInTimestamp ? new Date(r.checkInTimestamp).toLocaleString().toUpperCase() : '-';
+    
+    return [unit, name, zoom, entry].join(';');
+  });
+
+  const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `presenca_${condoName}.csv`;
+  link.download = `PRESENCA_${condoName.toUpperCase().replace(/\s+/g, '_')}.csv`;
   link.click();
 };
