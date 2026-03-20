@@ -339,9 +339,6 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                            Reconectando à Unidade <strong>{cachedUnitDisplay}</strong>
                         </p>
                         <div className="mt-6">
-                            <button onClick={handleLogout} className="text-xs text-red-500 underline">
-                                Não é você? Clique aqui.
-                            </button>
                         </div>
                     </>
                 ) : (
@@ -558,14 +555,6 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                     <p className="text-xs text-gray-400 max-w-xs mx-auto">
                         A tela atualizará automaticamente assim que você for aceito. Se a conexão cair, apenas recarregue a página.
                     </p>
-                    <div className="mt-8">
-                        <button 
-                            onClick={handleLogout}
-                            className="text-xs text-red-400 underline hover:text-red-600"
-                        >
-                            Não é você? Sair e tentar novamente.
-                        </button>
-                    </div>
                 </div>
             </Card>
         )}
@@ -579,7 +568,6 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                    <h2 className="text-lg font-bold text-gray-900">Olá, {selectedUnits[0].name.split(' ')[0]}</h2>
                    <p className="text-sm text-gray-500">Unidades: {selectedUnits.map(u => u.unit).join(', ')}</p>
                  </div>
-                 <Button variant="outline" size="sm" onClick={handleLogout} className="h-8 text-xs hover:bg-red-50 hover:text-red-600 hover:border-red-200">Sair</Button>
                </div>
                
                <div className="flex justify-center">

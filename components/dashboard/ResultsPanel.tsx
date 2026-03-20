@@ -245,6 +245,72 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
              )}
          </Card>
        </div>
+
+       <Card title="Lista de Votantes (Tempo Real)">
+          <div className="max-h-96 overflow-y-auto border rounded bg-white text-sm">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Unidade</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Morador</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Opção Escolhida</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Peso</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {pollVotes.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-gray-500 italic">
+                      Nenhum voto registrado para esta enquete ainda.
+                    </td>
+                  </tr>
+                ) : (
+                  [...pollVotes].sort((a, b) => a.unit.localeCompare(b.unit)).map((v, idx) => {
+                    const resident = residents.find(r => r.unit === v.unit);
+                    const opt = poll.options.find(o => o.id === v.optionId);
+                    
+                    let weight = 1;
+                    if (resident && !v.isDelinquentVote) {
+                      if (poll.calculationType === PollCalculationType.FRACTION) {
+                        weight = resident.fraction || 0;
+                      } else if (poll.calculationType === PollCalculationType.HABITE_SE) {
+                        weight = 1 + (resident.hasHabiteSe ? 1 : 0);
+                      }
+                    } else if (v.isDelinquentVote) {
+                      weight = 0;
+                    }
+
+                    return (
+                      <tr key={idx} className={v.isDelinquentVote ? "bg-red-50" : ""}>
+                        <td className="px-4 py-3 font-bold text-gray-900">{v.unit}</td>
+                        <td className="px-4 py-3 text-gray-600">{resident?.name || 'N/A'}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${v.isDelinquentVote ? 'bg-gray-200 text-gray-600' : 'bg-blue-100 text-blue-800'}`}>
+                            {opt?.text || 'N/A'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {v.isDelinquentVote ? (
+                            <Badge color="red">Inadimplente</Badge>
+                          ) : (
+                            <Badge color="green">Válido</Badge>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs">
+                          {weight.toFixed(4)}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-4 text-xs text-gray-500 italic">
+            * Esta lista é atualizada em tempo real conforme os condôminos confirmam seus votos.
+          </div>
+        </Card>
     </div>
   );
 };
