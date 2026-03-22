@@ -1,10 +1,10 @@
 
 import React, { useState } from 'react';
-import { Poll, VoteRecord, Resident, PollCalculationType, User } from '../../types';
-import { Button, Card, Badge } from '../ui';
-import { exportVotesToCSV, addLog } from '../../services/dataService';
+import { Poll, VoteRecord, Resident, PollCalculationType, User, AssemblyType } from '../../types';
+import { Button, Card, Badge, Input } from '../ui';
+import { exportVotesToCSV, addLog, savePolls } from '../../services/dataService';
 import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { ArrowLeft, PlayCircle, PauseCircle, StopCircle, Download, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, PlayCircle, PauseCircle, StopCircle, Download, Eye, EyeOff, Plus } from 'lucide-react';
 
 interface ResultsPanelProps {
   poll: Poll;
@@ -14,6 +14,8 @@ interface ResultsPanelProps {
   onTogglePoll: (id: string) => void;
   onEndPoll: (id: string) => void;
   currentUser: User | null;
+  assemblyType: AssemblyType | null;
+  setPolls: React.Dispatch<React.SetStateAction<Poll[]>>;
 }
 
 export const ResultsPanel: React.FC<ResultsPanelProps> = ({ 
@@ -23,10 +25,14 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
   onBack, 
   onTogglePoll, 
   onEndPoll,
-  currentUser
+  currentUser,
+  assemblyType,
+  setPolls
 }) => {
   const [showDelinquentVotes, setShowDelinquentVotes] = useState(false);
   const [isConfirmingEnd, setIsConfirmingEnd] = useState(false);
+  const [isAddingManual, setIsAddingManual] = useState(false);
+  const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
 
   // --- DATA CALCULATION ---
   const pollVotes = votes.filter(v => v.pollId === poll.id);
@@ -54,6 +60,15 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
     dataMap.set(v.optionId, current + weight);
     totalWeight += weight;
   });
+
+  // Add manual votes if any
+  if (poll.manualVotes) {
+    Object.entries(poll.manualVotes).forEach(([optId, count]) => {
+      const current = dataMap.get(optId) || 0;
+      dataMap.set(optId, current + count);
+      totalWeight += count;
+    });
+  }
 
   const chartData = poll.options.map(opt => {
     const val = dataMap.get(opt.id) || 0;
@@ -86,11 +101,6 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
     }
   };
 
-  const handleClickEnd = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsConfirmingEnd(true);
-  };
-
   const handleConfirmEnd = (e: React.MouseEvent) => {
       e.preventDefault();
       onEndPoll(poll.id);
@@ -99,6 +109,41 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
         addLog(currentUser, 'ENCERRAR_ENQUETE', `Encerrou a enquete: ${poll.title}`);
       }
   }
+
+  const handleSaveManualVotes = () => {
+    const newManualVotes: Record<string, number> = {};
+    Object.entries(manualInputs).forEach(([id, val]) => {
+      const num = parseFloat(val.replace(',', '.'));
+      if (!isNaN(num) && num > 0) {
+        newManualVotes[id] = num;
+      }
+    });
+
+    setPolls(prev => {
+      const updated = prev.map(p => p.id === poll.id ? { ...p, manualVotes: newManualVotes } : p);
+      savePolls(updated);
+      return updated;
+    });
+
+    setIsAddingManual(false);
+    if (currentUser) {
+      addLog(currentUser, 'VOTOS_MANUAIS', `Atualizou votos presenciais para: ${poll.title}`);
+    }
+  };
+
+  const startManualEdit = () => {
+    const initial: Record<string, string> = {};
+    poll.options.forEach(opt => {
+      initial[opt.id] = poll.manualVotes?.[opt.id]?.toString() || '';
+    });
+    setManualInputs(initial);
+    setIsAddingManual(true);
+  };
+
+  const handleClickEnd = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsConfirmingEnd(true);
+  };
 
   return (
     <div className="space-y-6">
@@ -157,6 +202,11 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
              <Button onClick={handleExport} variant="outline" className="flex items-center gap-2">
                <Download size={18} /> Exportar Excel
              </Button>
+             {assemblyType === AssemblyType.HYBRID && (
+               <Button onClick={startManualEdit} variant="primary" className="flex items-center gap-2">
+                 <Plus size={18} /> Votos Presenciais
+               </Button>
+             )}
            </div>
          </div>
        </Card>
@@ -246,7 +296,46 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
          </Card>
        </div>
 
-       <Card title="Lista de Votantes (Tempo Real)">
+       {isAddingManual && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Adicionar Votos Presenciais</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              Insira a quantidade de votos (ou peso) coletados manualmente no presencial para cada opção.
+            </p>
+            
+            <div className="space-y-4 mb-6">
+              {poll.options.map(opt => (
+                <div key={opt.id} className="flex items-center justify-between gap-4">
+                  <label className="text-sm font-medium text-gray-700 truncate flex-1">
+                    {opt.text}
+                  </label>
+                  <div className="w-32">
+                    <Input
+                      type="text"
+                      placeholder="0.0000"
+                      value={manualInputs[opt.id] || ''}
+                      onChange={(e) => setManualInputs(prev => ({ ...prev, [opt.id]: e.target.value }))}
+                      className="text-right"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setIsAddingManual(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSaveManualVotes}>
+                Salvar Votos
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Card title="Lista de Votantes (Tempo Real)">
           <div className="max-h-96 overflow-y-auto border rounded bg-white text-sm">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50 sticky top-0">

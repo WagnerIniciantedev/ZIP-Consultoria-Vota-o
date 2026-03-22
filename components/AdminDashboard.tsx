@@ -14,7 +14,7 @@ import {
   Check
 } from 'lucide-react';
 import { Button, Card } from './ui';
-import { Resident, Poll, VoteRecord, User } from '../types';
+import { Resident, Poll, VoteRecord, User, AssemblyType } from '../types';
 
 // Imported Sub-Panels
 import { SetupPanel } from './dashboard/SetupPanel';
@@ -42,6 +42,7 @@ interface AdminDashboardProps {
   currentUser: User | null;
   selectedAssemblyId?: string;
   setSampleUnit: React.Dispatch<React.SetStateAction<string>>;
+  assemblyType: AssemblyType | null;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -61,10 +62,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onBackToCompany,
   currentUser,
   selectedAssemblyId,
-  setSampleUnit
+  setSampleUnit,
+  assemblyType
 }) => {
   const [activeTab, setActiveTab] = useState<'setup_excel' | 'create_poll' | 'manage_polls' | 'attendance' | 'end_assembly'>('setup_excel');
   const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
+  const [pollToEdit, setPollToEdit] = useState<Poll | null>(null);
   
   // TOUR STATE
   const [isTourOpen, setIsTourOpen] = useState(false);
@@ -252,7 +255,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             <button 
               id="tour-create"
-              onClick={() => { setActiveTab('create_poll'); setSelectedPollId(null); }}
+              onClick={() => { setActiveTab('create_poll'); setSelectedPollId(null); setPollToEdit(null); }}
               className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${activeTab === 'create_poll' ? 'bg-red-50 text-red-700 font-medium' : 'text-gray-600 hover:bg-gray-100'}`}
             >
               <Plus size={20} /> Criar Enquete
@@ -334,8 +337,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {activeTab === 'create_poll' && (
               <PollCreator 
                 setPolls={setPolls}
-                onSuccess={() => setActiveTab('manage_polls')}
+                onSuccess={() => { setActiveTab('manage_polls'); setPollToEdit(null); }}
                 currentUser={currentUser}
+                pollToEdit={pollToEdit}
+                onCancelEdit={() => { setActiveTab('manage_polls'); setPollToEdit(null); }}
               />
             )}
 
@@ -347,6 +352,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 onEndPoll={onEndPoll}
                 onDeletePoll={onDeletePoll}
                 onSelectPoll={(id) => { setSelectedPollId(id); }}
+                onEditPoll={(poll) => { setPollToEdit(poll); setActiveTab('create_poll'); }}
                 currentUser={currentUser}
                 condoName={condoName}
                 selectedAssemblyId={selectedAssemblyId}
@@ -363,6 +369,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  onTogglePoll={onTogglePoll}
                  onEndPoll={onEndPoll}
                  currentUser={currentUser}
+                 assemblyType={assemblyType}
+                 setPolls={setPolls}
               />
             )}
 

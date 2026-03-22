@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, ActiveAssembly, AssemblyRecord, SystemLog } from '../types';
+import { User, ActiveAssembly, AssemblyRecord, SystemLog, AssemblyType } from '../types';
 import { 
   getActiveAssemblies, saveActiveAssemblies, 
   saveUsers,
@@ -32,7 +32,7 @@ interface CompanyDashboardProps {
   currentUser: User | null;
   onLogout: () => void;
   onSelectAssembly: (assemblyId: string, condoName: string) => void;
-  onStartAssembly: (name: string, assemblyId: string, residents: any[]) => void;
+  onStartAssembly: (name: string, assemblyId: string, residents: any[], type: AssemblyType) => void;
   users: User[];
   setUsers: React.Dispatch<React.SetStateAction<User[]>>;
   pastAssemblies: AssemblyRecord[];
@@ -115,6 +115,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   
   // Create Assembly Form
   const [newCondoName, setNewCondoName] = useState('');
+  const [assemblyType, setAssemblyType] = useState<AssemblyType>(AssemblyType.ONLINE);
   const [csvData, setCsvData] = useState<any[]>([]);
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: string | null; type: 'active' | 'history' | 'log' | 'all_logs' }>({
     isOpen: false,
@@ -143,9 +144,10 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     saveActiveAssemblies(updated);
     
     // Initialize the assembly in cloud with residents if provided
-    onStartAssembly(newCondoName.trim(), assemblyId, csvData);
+    onStartAssembly(newCondoName.trim(), assemblyId, csvData, assemblyType);
     
     setNewCondoName('');
+    setAssemblyType(AssemblyType.ONLINE);
     setCsvData([]);
     setActiveTab('assemblies');
     
@@ -368,6 +370,33 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                     onChange={e => setNewCondoName(e.target.value)}
                     className="text-lg py-6"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Tipo de Assembleia</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAssemblyType(AssemblyType.ONLINE)}
+                      className={`p-3 rounded-xl border text-sm font-medium transition-all ${assemblyType === AssemblyType.ONLINE ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      Online
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssemblyType(AssemblyType.PRESENTIAL)}
+                      className={`p-3 rounded-xl border text-sm font-medium transition-all ${assemblyType === AssemblyType.PRESENTIAL ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      Presencial
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssemblyType(AssemblyType.HYBRID)}
+                      className={`p-3 rounded-xl border text-sm font-medium transition-all ${assemblyType === AssemblyType.HYBRID ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      Híbrida
+                    </button>
+                  </div>
                 </div>
 
                 <div>

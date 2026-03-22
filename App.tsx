@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord, SystemLog } from './types';
+import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord, SystemLog, AssemblyType } from './types';
 import { 
   getResidents, saveResidents, 
   getPolls, savePolls, 
@@ -42,6 +42,7 @@ const App: React.FC = () => {
   const [pastAssemblies, setPastAssemblies] = useState<AssemblyRecord[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [isAssemblyActive, setIsAssemblyActive] = useState<boolean | null>(null);
+  const [assemblyType, setAssemblyType] = useState<AssemblyType | null>(null);
   const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
   const [hasPermissionError, setHasPermissionError] = useState<boolean>(false);
@@ -326,12 +327,13 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStartAssembly = async (name: string, assemblyId: string, initialResidents: Resident[] = []) => {
+  const handleStartAssembly = async (name: string, assemblyId: string, initialResidents: Resident[] = [], type: AssemblyType = AssemblyType.ONLINE) => {
     setResidents(initialResidents);
     setPolls([]);
     setVotes([]);
     setCondoName(name);
     setSelectedAssemblyId(assemblyId);
+    setAssemblyType(type);
     saveAssemblyId(assemblyId);
     setIsAssemblyActive(true);
     
@@ -356,7 +358,8 @@ const App: React.FC = () => {
           isActive: true,
           createdAt: Date.now(),
           sampleUnit: sampleUnitValue,
-          residentsCount: initialResidents.length
+          residentsCount: initialResidents.length,
+          type: type
         }, { merge: true });
 
         // If there are initial residents, sync them to the subcollection
@@ -657,7 +660,17 @@ const App: React.FC = () => {
         onLogout={() => { clearSession(); setCurrentUser(null); setCurrentView(AppView.ADMIN_LOGIN); }}
         onGoToVoting={() => setCurrentView(AppView.VOTE_IDENTIFY)}
         onTogglePoll={(id: string) => {
-            const updated = polls.map(p => p.id === id ? {...p, isActive: !p.isActive} : p);
+            const updated = polls.map(p => {
+                if (p.id === id) {
+                    const newIsActive = !p.isActive;
+                    return {
+                        ...p, 
+                        isActive: newIsActive,
+                        hasStarted: p.hasStarted || newIsActive
+                    };
+                }
+                return p;
+            });
             setPolls(updated);
             savePolls(updated);
         }}
@@ -676,6 +689,7 @@ const App: React.FC = () => {
         currentUser={currentUser}
         selectedAssemblyId={selectedAssemblyId}
         setSampleUnit={setSampleUnit}
+        assemblyType={assemblyType}
       />
     );
   }

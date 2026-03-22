@@ -9,11 +9,18 @@ export enum AppView {
   VOTE_SUCCESS = 'VOTE_SUCCESS',
 }
 
+export enum AssemblyType {
+  HYBRID = 'HYBRID',
+  PRESENTIAL = 'PRESENTIAL',
+  ONLINE = 'ONLINE',
+}
+
 export interface ActiveAssembly {
   id: string;
   condoName: string;
   createdAt: number;
   isActive: boolean;
+  type?: AssemblyType;
   status?: 'active' | 'completed';
 }
 
@@ -49,8 +56,10 @@ export interface Poll {
   options: PollOption[];
   isActive: boolean;
   isEnded: boolean;
+  hasStarted?: boolean;
   createdAt: number;
   calculationType: PollCalculationType;
+  manualVotes?: Record<string, number>; // optionId -> count
 }
 
 export interface VoteRecord {

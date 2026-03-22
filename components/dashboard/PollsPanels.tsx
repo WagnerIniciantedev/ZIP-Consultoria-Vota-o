@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Poll, PollCalculationType, User } from '../../types';
 import { Button, Input, Card, Badge } from '../ui';
-import { Trash2, Plus, PlayCircle, PauseCircle, StopCircle, BarChart3, Link as LinkIcon, Copy } from 'lucide-react';
+import { Trash2, Plus, PlayCircle, PauseCircle, StopCircle, BarChart3, Link as LinkIcon, Copy, Edit2 } from 'lucide-react';
 import { savePolls, addLog } from '../../services/dataService'; // Import added
 
 const generateId = () => {
@@ -18,13 +18,15 @@ interface PollCreatorProps {
   setPolls: React.Dispatch<React.SetStateAction<Poll[]>>;
   onSuccess: () => void;
   currentUser: User | null;
+  pollToEdit?: Poll | null;
+  onCancelEdit?: () => void;
 }
 
-export const PollCreator: React.FC<PollCreatorProps> = ({ setPolls, onSuccess, currentUser }) => {
-  const [pollTitle, setPollTitle] = useState('');
-  const [pollDesc, setPollDesc] = useState('');
-  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
-  const [pollType, setPollType] = useState<PollCalculationType>(PollCalculationType.NORMAL);
+export const PollCreator: React.FC<PollCreatorProps> = ({ setPolls, onSuccess, currentUser, pollToEdit, onCancelEdit }) => {
+  const [pollTitle, setPollTitle] = useState(pollToEdit?.title || '');
+  const [pollDesc, setPollDesc] = useState(pollToEdit?.description || '');
+  const [pollOptions, setPollOptions] = useState<string[]>(pollToEdit?.options.map(o => o.text) || ['', '']);
+  const [pollType, setPollType] = useState<PollCalculationType>(pollToEdit?.calculationType || PollCalculationType.NORMAL);
 
   const handleAddOption = () => setPollOptions([...pollOptions, '']);
   
@@ -43,6 +45,26 @@ export const PollCreator: React.FC<PollCreatorProps> = ({ setPolls, onSuccess, c
   const createPoll = () => {
     if (!pollTitle || pollOptions.some(o => !o.trim())) {
       alert("Preencha o título e todas as opções.");
+      return;
+    }
+
+    if (pollToEdit) {
+      setPolls(prev => {
+        const updated = prev.map(p => p.id === pollToEdit.id ? {
+          ...p,
+          title: pollTitle,
+          description: pollDesc,
+          options: pollOptions.map((text, idx) => ({ id: p.options[idx]?.id || `opt-${idx}-${Date.now()}`, text })),
+          calculationType: pollType
+        } : p);
+        savePolls(updated);
+        if (currentUser) {
+          addLog(currentUser, 'EDITAR_ENQUETE', `Editou a enquete: ${pollTitle}`);
+        }
+        return updated;
+      });
+      alert("Enquete atualizada com sucesso!");
+      onSuccess();
       return;
     }
 
@@ -78,7 +100,7 @@ export const PollCreator: React.FC<PollCreatorProps> = ({ setPolls, onSuccess, c
   };
 
   return (
-    <Card title="Criar Nova Enquete" className="min-h-[500px]">
+    <Card title={pollToEdit ? "Editar Enquete" : "Criar Nova Enquete"} className="min-h-[500px]">
       <div className="space-y-6 max-w-2xl">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Título da Assembleia/Votação</label>
@@ -160,10 +182,15 @@ export const PollCreator: React.FC<PollCreatorProps> = ({ setPolls, onSuccess, c
           </button>
         </div>
 
-        <div className="pt-4 border-t">
+        <div className="pt-4 border-t flex gap-3">
           <Button onClick={createPoll} className="w-full sm:w-auto">
-            Criar Enquete
+            {pollToEdit ? "Salvar Alterações" : "Criar Enquete"}
           </Button>
+          {pollToEdit && onCancelEdit && (
+            <Button onClick={onCancelEdit} variant="outline" className="w-full sm:w-auto">
+              Cancelar
+            </Button>
+          )}
         </div>
       </div>
     </Card>
@@ -179,6 +206,7 @@ interface PollListProps {
   onEndPoll: (id: string) => void;
   onDeletePoll: (id: string) => void;
   onSelectPoll: (id: string) => void;
+  onEditPoll: (poll: Poll) => void;
   currentUser: User | null;
   condoName: string;
   selectedAssemblyId?: string;
@@ -190,6 +218,7 @@ export const PollList: React.FC<PollListProps> = ({
   onEndPoll, 
   onDeletePoll, 
   onSelectPoll,
+  onEditPoll,
   currentUser,
   condoName,
   selectedAssemblyId
@@ -280,8 +309,23 @@ export const PollList: React.FC<PollListProps> = ({
                     <p className="text-sm text-gray-500 truncate max-w-md">{poll.description || "Sem descrição"}</p>
                 </div>
 
-                <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end items-center gap-2 flex-wrap">
-                    {!poll.isEnded && !isConfirmingDelete && !isConfirmingEnd ? (
+                    <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end items-center gap-2 flex-wrap">
+                        {!poll.isEnded && !isConfirmingDelete && !isConfirmingEnd && !poll.hasStarted && (
+                          <Button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onEditPoll(poll);
+                            }}
+                            variant="outline"
+                            className="text-sm py-1 px-3 h-8 flex gap-1 items-center border-blue-200 text-blue-600 hover:bg-blue-50"
+                          >
+                            <Edit2 size={14} /> Editar
+                          </Button>
+                        )}
+
+                        {!poll.isEnded && !isConfirmingDelete && !isConfirmingEnd ? (
                       <>
                         <Button 
                           type="button"
