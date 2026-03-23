@@ -1,7 +1,72 @@
 
 import { Resident, Poll, VoteRecord, User, AssemblyRecord } from '../types';
-import { doc, setDoc, deleteDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from './firebase';
+import { doc, setDoc, deleteDoc, getDoc, collection, query, where, getDocs, getDocFromServer } from 'firebase/firestore';
+import { db, auth } from './firebase';
+
+// --- FIRESTORE ERROR HANDLING ---
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
+      providerInfo: auth?.currentUser?.providerData.map((provider: any) => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+// --- CONNECTION TEST ---
+async function testConnection() {
+  if (!db) return;
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if(error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration. The client is offline.");
+    }
+  }
+}
+testConnection();
 
 const STORAGE_KEYS = {
   RESIDENTS: 'condovote_residents',
@@ -53,7 +118,7 @@ const syncToCloud = (key: string, data: any, specificAssemblyId?: string) => {
             const cleanData = JSON.parse(JSON.stringify(data));
             const docRef = doc(db, ASSEMBLIES_COLLECTION, safeKey);
             setDoc(docRef, { [fieldName]: cleanData }, { merge: true })
-               .catch(err => console.error("Erro Firestore Sync:", err));
+               .catch(err => handleFirestoreError(err, OperationType.WRITE, `${ASSEMBLIES_COLLECTION}/${safeKey}`));
         }
     }
 };
@@ -159,7 +224,7 @@ export const saveUsers = (users: User[]) => {
   if (db) {
     const usersRef = doc(db, SYSTEM_COLLECTION, USERS_DOC_ID);
     setDoc(usersRef, { list: users }, { merge: true })
-      .catch(err => console.error("Erro salvar usuários:", err));
+      .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${USERS_DOC_ID}`));
   }
 };
 
@@ -185,7 +250,8 @@ export const saveCondoName = (name: string) => {
   if (name) syncToCloud(STORAGE_KEYS.CONDO_NAME, name);
   if (db && name && name !== 'Modo Administrativo') {
       const globalRef = doc(db, SYSTEM_COLLECTION, GLOBAL_DOC_ID);
-      setDoc(globalRef, { active_condo: name }, { merge: true }).catch(e => console.error(e));
+      setDoc(globalRef, { active_condo: name }, { merge: true })
+        .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${GLOBAL_DOC_ID}`));
   }
 };
 
@@ -233,7 +299,7 @@ export const identifyResident = async (assemblyId: string, unit: string, cpfPart
 
     return { resident, siblings };
   } catch (error) {
-    console.error("Error identifying resident:", error);
+    handleFirestoreError(error, OperationType.GET, `${ASSEMBLIES_COLLECTION}/${safeAssemblyId}/residents_list`);
     return { resident: null, siblings: [] };
   }
 };
@@ -243,7 +309,7 @@ export const saveActiveAssemblies = (assemblies: any[]) => {
   if (db) {
     const ref = doc(db, SYSTEM_COLLECTION, ACTIVE_ASSEMBLIES_DOC_ID);
     setDoc(ref, { list: assemblies }, { merge: true })
-      .catch(err => console.error("Erro salvar assembleias ativas:", err));
+      .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${ACTIVE_ASSEMBLIES_DOC_ID}`));
   }
 };
 
@@ -277,7 +343,7 @@ export const clearAllData = async (specificName?: string) => {
          await deleteDoc(doc(db, ASSEMBLIES_COLLECTION, safeKey));
          await setDoc(doc(db, SYSTEM_COLLECTION, GLOBAL_DOC_ID), { active_condo: 'null' }, { merge: true });
      } catch (e) {
-         console.error("Erro clearing Firestore:", e);
+         handleFirestoreError(e, OperationType.DELETE, `${ASSEMBLIES_COLLECTION}/${safeKey}`);
      }
   }
 };

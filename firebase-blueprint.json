@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "Assembly": {
+      "title": "Assembly",
+      "description": "Data for a specific assembly session",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Condo name" },
+        "polls": { "type": "array", "items": { "type": "object" }, "description": "List of polls" },
+        "votes": { "type": "array", "items": { "type": "object" }, "description": "List of votes" },
+        "residents": { "type": "array", "items": { "type": "object" }, "description": "List of residents" },
+        "isActive": { "type": "boolean", "description": "Whether the assembly is active" },
+        "startTime": { "type": "number", "description": "Start timestamp" },
+        "logs": { "type": "array", "items": { "type": "object" }, "description": "Action logs" }
+      }
+    },
+    "ResidentListItem": {
+      "title": "Resident List Item",
+      "description": "Individual resident record for identification",
+      "type": "object",
+      "properties": {
+        "unit": { "type": "string" },
+        "name": { "type": "string" },
+        "cpf": { "type": "string" },
+        "isDelinquent": { "type": "boolean" },
+        "hasHabiteSe": { "type": "boolean" },
+        "fraction": { "type": "number" }
+      }
+    },
+    "SystemUsers": {
+      "title": "System Users",
+      "description": "List of administrative users",
+      "type": "object",
+      "properties": {
+        "list": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "ActiveAssemblies": {
+      "title": "Active Assemblies",
+      "description": "List of currently active assemblies",
+      "type": "object",
+      "properties": {
+        "list": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "GlobalConfig": {
+      "title": "Global Config",
+      "description": "Global system settings",
+      "type": "object",
+      "properties": {
+        "active_condo": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/assemblies/{assemblyId}": {
+      "schema": "Assembly",
+      "description": "Main assembly document"
+    },
+    "/assemblies/{assemblyId}/residents_list/{unit}": {
+      "schema": "ResidentListItem",
+      "description": "Individual resident records for lookup"
+    },
+    "/system/users": {
+      "schema": "SystemUsers",
+      "description": "Admin user list"
+    },
+    "/system/active_assemblies": {
+      "schema": "ActiveAssemblies",
+      "description": "Active assemblies list"
+    },
+    "/system/global": {
+      "schema": "GlobalConfig",
+      "description": "Global settings"
+    }
+  }
+}

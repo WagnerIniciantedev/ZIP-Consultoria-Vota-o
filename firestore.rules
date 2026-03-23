@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: assemblies
+    // Document ID: {assemblyId} (e.g., condo name or unique ID)
+    // Fields:
+    //   - name: string (required) - Condo name
+    //   - polls: list (optional) - Array of poll objects
+    //   - votes: list (optional) - Array of vote records
+    //   - residents: list (optional) - Array of resident objects
+    //   - isActive: bool (optional) - Assembly status
+    //   - startTime: number (optional) - Start timestamp
+    //   - logs: list (optional) - Action logs
+    //
+    // Subcollection: assemblies/{assemblyId}/residents_list
+    // Document ID: {unit} (e.g., '101a')
+    // Fields:
+    //   - unit: string (required)
+    //   - name: string (required)
+    //   - cpf: string (required)
+    //   - isDelinquent: bool (required)
+    //   - hasHabiteSe: bool (required)
+    //   - fraction: number (required)
+    //
+    // Collection: system
+    // Document ID: users, active_assemblies, global
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == "wagner1jackson@gmail.com" && request.auth.token.email_verified == true);
+    }
+
+    function isResident() {
+      return isAuthenticated(); // Residents use anonymous auth in this app
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // System configuration and user lists
+    match /system/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Assembly data
+    match /assemblies/{assemblyId} {
+      // Residents need to read the assembly data to see polls and status
+      allow read: if isAuthenticated();
+      
+      // Admins can manage everything
+      allow create, delete: if isAdmin();
+      
+      // Updates are tricky: residents need to add votes, but we don't want them
+      // overwriting other data. In the current app structure, votes are an array
+      // in the main document. This is a security risk.
+      // For now, we allow updates if it's an admin OR if it's a resident adding a vote.
+      // NOTE: This is a prototype and should be hardened by moving votes to a subcollection.
+      allow update: if isAdmin() || (isResident() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes']));
+      
+      // Residents list subcollection
+      match /residents_list/{unit} {
+        // Residents need to look up their own record for identification
+        allow get: if isAuthenticated();
+        // Only admins can list or write the residents list
+        allow list: if isAdmin();
+        allow write: if isAdmin();
+      }
+    }
+  }
+}

@@ -26,6 +26,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { CompanyDashboard } from './components/CompanyDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
 import { Button, Input, Card } from './components/ui';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, RefreshCw } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -715,4 +716,12 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+const AppWrapper: React.FC = () => {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+};
+
+export default AppWrapper;
