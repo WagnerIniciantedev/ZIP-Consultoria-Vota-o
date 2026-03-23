@@ -14,7 +14,7 @@ import {
   getMasterSecurityUsers,
   getActiveAssemblies, saveActiveAssemblies,
   addLog,
-  getLogs, saveLogs
+  getLogs, saveLogs, registerAdminUid
 } from './services/dataService';
 import { ActiveAssembly } from './types';
 import { onSnapshot, doc, setDoc, collection } from 'firebase/firestore';
@@ -323,6 +323,11 @@ const App: React.FC = () => {
       setLoginError('');
       setAdminEmail('');
       setAdminPass('');
+
+      // Sincroniza o UID do Firebase com o usuário administrador para as regras do Firestore
+      if (auth?.currentUser) {
+        registerAdminUid(auth.currentUser.uid, validUser.username, validUser.role || 'ADMIN');
+      }
     } else {
       setLoginError('Credenciais inválidas. Verifique usuário e senha.');
     }

@@ -42,6 +42,7 @@ export const UsersManagement: React.FC<UsersProps> = ({
   const [newUserLogin, setNewUserLogin] = useState('');
   const [newUserPass, setNewUserPass] = useState('');
   const [newUserJobTitle, setNewUserJobTitle] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'ADMIN' | 'TI'>('ADMIN');
 
   // Editing State
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -79,7 +80,7 @@ export const UsersManagement: React.FC<UsersProps> = ({
         name: newUserName,
         username: newUserLogin,
         password: newUserPass,
-        role: 'ADMIN', // Default is ADMIN
+        role: newUserRole,
         jobTitle: newUserJobTitle
       };
 
@@ -146,7 +147,8 @@ export const UsersManagement: React.FC<UsersProps> = ({
             name: editForm.name,
             username: isPrivileged ? editForm.username : u.username, // Only privileged changes username
             jobTitle: isPrivileged ? editForm.jobTitle : u.jobTitle,
-            password: editForm.password ? editForm.password : u.password 
+            password: editForm.password ? editForm.password : u.password,
+            role: isTI ? editForm.role : u.role
           };
         }
         return u;
@@ -243,13 +245,37 @@ export const UsersManagement: React.FC<UsersProps> = ({
                   
                   {isPrivileged && (
                     <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cargo (Visível)</label>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1.5">Setor / Função</label>
                         <Input 
                           placeholder="Ex: Gerente"
                           value={editForm.jobTitle}
                           onChange={(e) => setEditForm({...editForm, jobTitle: e.target.value})}
                           className="bg-white text-gray-900"
                         />
+                    </div>
+                  )}
+
+                  {isPrivileged && (
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cargo</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditForm({...editForm, role: 'ADMIN'})}
+                          className={`p-2 rounded-lg border text-xs font-bold transition-all ${editForm.role === 'ADMIN' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                        >
+                          ADMINISTRADOR
+                        </button>
+                        {isTI && (
+                          <button
+                            type="button"
+                            onClick={() => setEditForm({...editForm, role: 'TI'})}
+                            className={`p-2 rounded-lg border text-xs font-bold transition-all ${editForm.role === 'TI' ? 'bg-purple-50 border-purple-500 text-purple-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                          >
+                            T.I. (MASTER)
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -296,13 +322,37 @@ export const UsersManagement: React.FC<UsersProps> = ({
                   
                   {isPrivileged && (
                     <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cargo (Opcional)</label>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1.5">Setor / Função (Opcional)</label>
                         <Input 
                           placeholder="Ex: Gerente"
                           value={newUserJobTitle}
                           onChange={(e) => setNewUserJobTitle(e.target.value)}
                           className="bg-gray-50 focus:bg-white text-gray-900"
                         />
+                    </div>
+                  )}
+
+                  {isPrivileged && (
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cargo</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setNewUserRole('ADMIN')}
+                          className={`p-2 rounded-lg border text-xs font-bold transition-all ${newUserRole === 'ADMIN' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                        >
+                          ADMINISTRADOR
+                        </button>
+                        {isTI && (
+                          <button
+                            type="button"
+                            onClick={() => setNewUserRole('TI')}
+                            className={`p-2 rounded-lg border text-xs font-bold transition-all ${newUserRole === 'TI' ? 'bg-purple-50 border-purple-500 text-purple-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                          >
+                            T.I. (MASTER)
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -368,11 +418,10 @@ export const UsersManagement: React.FC<UsersProps> = ({
                         <div className="truncate">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-bold text-gray-900 text-sm truncate">{user.name}</p>
-                            {isTargetTI ? (
-                               <Badge color="purple">T.I.</Badge>
-                            ) : (
-                               user.jobTitle && <Badge color="gray">{user.jobTitle}</Badge>
-                            )}
+                            <Badge color={user.role === 'TI' ? 'purple' : 'red'}>
+                              {user.role === 'TI' ? 'T.I. (MASTER)' : 'ADMINISTRADOR'}
+                            </Badge>
+                            {user.jobTitle && <Badge color="gray">{user.jobTitle}</Badge>}
                             {isMe && (
                                <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold border border-green-200 flex items-center gap-1">
                                  <CheckCircle2 size={10} /> VOCÊ

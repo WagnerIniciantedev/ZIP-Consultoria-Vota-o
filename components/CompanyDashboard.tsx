@@ -311,12 +311,14 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                   <div className="p-3 bg-red-50 rounded-xl text-red-600">
                     <Building2 size={24} />
                   </div>
-                  <button 
-                    onClick={() => handleDeleteClick(assembly.id, 'active')}
-                    className="text-gray-400 hover:text-red-600 transition-colors"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  {currentUser?.role === 'TI' && (
+                    <button 
+                      onClick={() => handleDeleteClick(assembly.id, 'active')}
+                      className="text-gray-400 hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
                 </div>
                 <h3 className="text-lg font-bold text-gray-900 mb-1">{assembly.condoName}</h3>
                 <div className="flex items-center gap-2 text-xs text-gray-500 mb-6">
@@ -454,7 +456,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         <Building2 size={24} />
                       </div>
                       <div className="flex gap-2">
-                        {currentUser?.username === 'wagner.silva' && (
+                        {currentUser?.role === 'TI' && (
                           <button 
                             onClick={() => setDeleteModal({ isOpen: true, id: assembly.id, type: 'history' })}
                             className="p-2 text-gray-400 hover:text-red-600 transition-colors"
@@ -606,7 +608,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                 <h2 className="text-xl font-bold text-gray-800">Histórico Geral de Movimentações</h2>
                 <Badge color="blue">{logs.length} Registros</Badge>
               </div>
-              {currentUser?.username === 'wagner.silva' && logs.length > 0 && (
+              {currentUser?.role === 'TI' && logs.length > 0 && (
                 <Button 
                   onClick={() => handleDeleteClick(null, 'all_logs')}
                   variant="outline"
@@ -625,7 +627,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                       <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Usuário</th>
                       <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Ação</th>
                       <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Detalhes</th>
-                      {currentUser?.username === 'wagner.silva' && (
+                      {currentUser?.role === 'TI' && (
                         <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">Ações</th>
                       )}
                     </tr>
@@ -654,7 +656,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         <td className="px-6 py-4 text-sm text-gray-600">
                           {log.details}
                         </td>
-                        {currentUser?.username === 'wagner.silva' && (
+                        {currentUser?.role === 'TI' && (
                           <td className="px-6 py-4 text-right">
                             <button 
                               onClick={() => handleDeleteClick(log.id, 'log')}

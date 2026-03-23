@@ -219,6 +219,23 @@ export const addLog = (user: User, action: string, details?: string) => {
   saveLogs(updatedLogs);
 };
 
+export const registerAdminUid = async (uid: string, username: string, role: 'TI' | 'ADMIN' = 'ADMIN') => {
+  if (db) {
+    const adminRef = doc(db, SYSTEM_COLLECTION, 'authorized_admins', uid);
+    try {
+      await setDoc(adminRef, { 
+        username, 
+        role,
+        authorizedAt: Date.now(),
+        lastLogin: Date.now()
+      }, { merge: true });
+      console.log(`✅ UID do administrador (${role}) registrado no Firestore`);
+    } catch (err) {
+      console.warn("⚠️ Falha ao registrar UID do administrador:", err);
+    }
+  }
+};
+
 export const saveUsers = async (users: User[]) => {
   localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
   if (db) {
