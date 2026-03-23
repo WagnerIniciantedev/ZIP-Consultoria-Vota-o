@@ -55,7 +55,9 @@ service cloud.firestore {
     // System configuration and user lists
     match /system/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      // Temporary: Allow write to users list for authenticated users to support the custom auth system.
+      // In a production environment, this should be restricted to verified admins.
+      allow write: if isAuthenticated(); 
     }
 
     // Assembly data

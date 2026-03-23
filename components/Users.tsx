@@ -55,13 +55,14 @@ export const UsersManagement: React.FC<UsersProps> = ({
 
   // Deletion Confirmation State
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const isPrivileged = currentUser?.role === 'TI' || currentUser?.role === 'ADMIN';
   const isTI = currentUser?.role === 'TI';
 
   // --- Handlers ---
 
-  const handleCreateUser = () => {
+  const handleCreateUser = async () => {
     if (!newUserName || !newUserLogin || !newUserPass) {
       alert("Preencha todos os campos obrigatórios.");
       return;
@@ -71,24 +72,31 @@ export const UsersManagement: React.FC<UsersProps> = ({
       return;
     }
 
-    const newUser: User = {
-      id: generateId(),
-      name: newUserName,
-      username: newUserLogin,
-      password: newUserPass,
-      role: 'ADMIN', // Default is ADMIN
-      jobTitle: newUserJobTitle
-    };
+    setIsSaving(true);
+    try {
+      const newUser: User = {
+        id: generateId(),
+        name: newUserName,
+        username: newUserLogin,
+        password: newUserPass,
+        role: 'ADMIN', // Default is ADMIN
+        jobTitle: newUserJobTitle
+      };
 
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
-    saveUsers(updatedUsers); // EXPLICIT SAVE
-    
-    // Reset form
-    setNewUserName('');
-    setNewUserLogin('');
-    setNewUserPass('');
-    setNewUserJobTitle('');
+      const updatedUsers = [...users, newUser];
+      setUsers(updatedUsers);
+      await saveUsers(updatedUsers); // EXPLICIT SAVE
+      
+      alert("Usuário criado com sucesso e salvo no banco de dados!");
+      
+      // Reset form
+      setNewUserName('');
+      setNewUserLogin('');
+      setNewUserPass('');
+      setNewUserJobTitle('');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleStartEdit = (user: User, e?: React.MouseEvent) => {
@@ -114,7 +122,7 @@ export const UsersManagement: React.FC<UsersProps> = ({
     setEditForm({ name: '', username: '', password: '', role: 'ADMIN', jobTitle: '' });
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingUser) return;
     if (!editForm.name) {
       alert("Nome é obrigatório");
@@ -129,23 +137,31 @@ export const UsersManagement: React.FC<UsersProps> = ({
       }
     }
 
-    const updatedUsers = users.map(u => {
-      if (u.id === editingUser.id) {
-        return {
-          ...u,
-          name: editForm.name,
-          username: isPrivileged ? editForm.username : u.username, // Only privileged changes username
-          jobTitle: isPrivileged ? editForm.jobTitle : u.jobTitle,
-          password: editForm.password ? editForm.password : u.password 
-        };
-      }
-      return u;
-    });
+    setIsSaving(true);
+    try {
+      const updatedUsers = users.map(u => {
+        if (u.id === editingUser.id) {
+          return {
+            ...u,
+            name: editForm.name,
+            username: isPrivileged ? editForm.username : u.username, // Only privileged changes username
+            jobTitle: isPrivileged ? editForm.jobTitle : u.jobTitle,
+            password: editForm.password ? editForm.password : u.password 
+          };
+        }
+        return u;
+      });
 
-    setUsers(updatedUsers);
-    saveUsers(updatedUsers); // EXPLICIT SAVE
+      setUsers(updatedUsers);
+      await saveUsers(updatedUsers); // EXPLICIT SAVE
 
-    handleCancelEdit();
+      alert("Alterações salvas com sucesso no banco de dados!");
+      handleCancelEdit();
+    } catch (error) {
+      alert("Erro ao salvar no banco de dados. Verifique sua conexão ou permissões.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // INLINE DELETE HANDLER (No Alerts)
@@ -238,11 +254,11 @@ export const UsersManagement: React.FC<UsersProps> = ({
                   )}
 
                   <div className="flex gap-2 pt-4">
-                      <Button onClick={handleCancelEdit} variant="outline" className="flex-1 text-sm">
+                      <Button onClick={handleCancelEdit} variant="outline" className="flex-1 text-sm" disabled={isSaving}>
                         <X size={16} className="mr-1" /> Cancelar
                       </Button>
-                      <Button onClick={handleSaveEdit} className="flex-1 bg-blue-600 hover:bg-blue-700 text-sm">
-                        <Save size={16} className="mr-1" /> Salvar
+                      <Button onClick={handleSaveEdit} className="flex-1 bg-blue-600 hover:bg-blue-700 text-sm" disabled={isSaving}>
+                        {isSaving ? <span className="animate-pulse">Salvando...</span> : <><Save size={16} className="mr-1" /> Salvar</>}
                       </Button>
                   </div>
                 </div>
@@ -291,8 +307,8 @@ export const UsersManagement: React.FC<UsersProps> = ({
                   )}
 
                   <div className="pt-4">
-                    <Button onClick={handleCreateUser} className="w-full py-3 bg-red-600 hover:bg-red-700 text-white shadow-md transition-all active:scale-[0.98]">
-                      <Plus size={18} className="mr-2" /> Cadastrar Usuário
+                    <Button onClick={handleCreateUser} disabled={isSaving} className="w-full py-3 bg-red-600 hover:bg-red-700 text-white shadow-md transition-all active:scale-[0.98] disabled:opacity-50">
+                      {isSaving ? <span className="animate-pulse">Cadastrando...</span> : <><Plus size={18} className="mr-2" /> Cadastrar Usuário</>}
                     </Button>
                   </div>
                 </div>

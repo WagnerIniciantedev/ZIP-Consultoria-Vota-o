@@ -219,12 +219,17 @@ export const addLog = (user: User, action: string, details?: string) => {
   saveLogs(updatedLogs);
 };
 
-export const saveUsers = (users: User[]) => {
+export const saveUsers = async (users: User[]) => {
   localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
   if (db) {
     const usersRef = doc(db, SYSTEM_COLLECTION, USERS_DOC_ID);
-    setDoc(usersRef, { list: users }, { merge: true })
-      .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${USERS_DOC_ID}`));
+    try {
+      await setDoc(usersRef, { list: users }, { merge: true });
+      console.log("✅ Usuários sincronizados com Firestore");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${USERS_DOC_ID}`);
+      throw err; // Re-throw to handle in UI
+    }
   }
 };
 
