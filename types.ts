@@ -42,6 +42,8 @@ export interface Resident {
   zoomName?: string;    // Name used in the meeting
   attendanceStatus?: AttendanceStatus; // Check-in status
   checkInTimestamp?: number; // When admin approved
+  proxyCount?: number;       // Column G: Quantity of proxies
+  proxyUnits?: string;       // Column H: Units in proxy
 }
 
 export interface PollOption {

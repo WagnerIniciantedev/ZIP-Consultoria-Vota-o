@@ -4,8 +4,7 @@ import { User, ActiveAssembly, AssemblyRecord, SystemLog, AssemblyType } from '.
 import { 
   getActiveAssemblies, saveActiveAssemblies, 
   saveUsers,
-  parseCSV,
-  exportVotesToCSV
+  parseCSV
 } from '../services/dataService';
 import { 
   LayoutDashboard, 
@@ -19,14 +18,17 @@ import {
   FileSpreadsheet,
   CheckCircle2,
   Clock,
-  Download,
   Menu,
   X,
   Share2,
-  Check
+  Check,
+  Printer
 } from 'lucide-react';
 import { Button, Input, Card, Badge } from './ui';
 import { UsersManagement } from './Users';
+import { ReportDocument } from './dashboard/ReportDocument';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 interface CompanyDashboardProps {
   currentUser: User | null;
@@ -122,6 +124,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     id: null,
     type: 'active'
   });
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   useEffect(() => {
     setAssemblies(getActiveAssemblies());
@@ -185,6 +188,46 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     }
     
     setDeleteModal({ isOpen: false, id: null, type: 'active' });
+  };
+
+  const handleDownloadPDF = async (condoName: string) => {
+    const element = document.getElementById('report-content');
+    if (!element) return;
+
+    setIsGeneratingPDF(true);
+    try {
+      const canvas = await html2canvas(element, {
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      } as any);
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgProps = (pdf as any).getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      
+      let heightLeft = pdfHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
+      heightLeft -= pdf.internal.pageSize.getHeight();
+
+      while (heightLeft >= 0) {
+        position = heightLeft - pdfHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
+        heightLeft -= pdf.internal.pageSize.getHeight();
+      }
+
+      pdf.save(`Relatorio_${condoName.replace(/\s+/g, '_')}_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Erro ao gerar PDF. Tente novamente.');
+    } finally {
+      setIsGeneratingPDF(false);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -495,105 +538,37 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
               </div>
             ) : (
               <div className="space-y-6">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-8">
                   <Button variant="outline" size="sm" onClick={() => setSelectedReportId(null)}>
                     ← Voltar para a lista
                   </Button>
-                  <h2 className="text-xl font-bold text-gray-900">
-                    Relatório: {pastAssemblies.find(a => a.id === selectedReportId)?.condoName}
-                  </h2>
-                  <div className="w-24"></div>
+                  <div className="flex gap-3">
+                    <Button 
+                      onClick={() => handleDownloadPDF(pastAssemblies.find(a => a.id === selectedReportId)?.condoName || 'Assembleia')}
+                      className="bg-red-600 hover:bg-red-700 text-white flex items-center gap-2"
+                      disabled={isGeneratingPDF}
+                    >
+                      {isGeneratingPDF ? (
+                        <><Clock className="animate-spin" size={18} /> Gerando...</>
+                      ) : (
+                        <><Printer size={18} /> Baixar PDF</>
+                      )}
+                    </Button>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4">
-                  {pastAssemblies.find(a => a.id === selectedReportId)?.polls.map(poll => {
-                    const assembly = pastAssemblies.find(a => a.id === selectedReportId)!;
-                    return (
-                      <Card key={poll.id} className="p-6">
-                        <div className="flex justify-between items-start mb-4">
-                          <div>
-                            <h3 className="text-lg font-bold text-gray-900">{poll.title}</h3>
-                            <p className="text-sm text-gray-500">{poll.description}</p>
-                          </div>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => exportVotesToCSV(assembly.votes, assembly.residentsSnapshot, poll)}
-                            className="flex items-center gap-2"
-                          >
-                            <Download size={16} /> Exportar CSV
-                          </Button>
-                        </div>
-
-                        <div className="space-y-3">
-                          {poll.options.map(option => {
-                            const votes = assembly.votes.filter(v => v.pollId === poll.id && v.optionId === option.id);
-                            const totalVotes = assembly.votes.filter(v => v.pollId === poll.id).length;
-                            const percentage = totalVotes > 0 ? (votes.length / totalVotes) * 100 : 0;
-
-                            return (
-                              <div key={option.id} className="space-y-1">
-                                <div className="flex justify-between text-sm">
-                                  <span className="font-medium text-gray-700">{option.text}</span>
-                                  <span className="text-gray-500">{votes.length} votos ({percentage.toFixed(1)}%)</span>
-                                </div>
-                                <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                                  <div 
-                                    className="bg-red-600 h-full transition-all duration-500" 
-                                    style={{ width: `${percentage}%` }}
-                                  ></div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </Card>
-                    );
-                  })}
-                </div>
-
-                {/* ASSEMBLY SPECIFIC LOGS */}
-                {pastAssemblies.find(a => a.id === selectedReportId)?.logs && (
-                  <div className="mt-8">
-                    <h3 className="text-lg font-bold text-gray-900 mb-4">Movimentações desta Assembleia</h3>
-                    <Card className="p-0 overflow-hidden">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                          <thead className="bg-gray-50 border-b border-gray-100">
-                            <tr>
-                              <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Data/Hora</th>
-                              <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Usuário</th>
-                              <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Ação</th>
-                              <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Detalhes</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-100">
-                            {pastAssemblies.find(a => a.id === selectedReportId)?.logs?.slice().reverse().map((log) => (
-                              <tr key={log.id} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-6 py-4 text-sm text-gray-500">
-                                  {new Date(log.timestamp).toLocaleString('pt-BR')}
-                                </td>
-                                <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                                  {log.userName}
-                                </td>
-                                <td className="px-6 py-4 text-sm">
-                                  <Badge color={
-                                    log.action.includes('LOGIN') ? 'green' : 
-                                    log.action.includes('ERRO') ? 'red' : 
-                                    log.action.includes('DELETE') ? 'red' : 'blue'
-                                  }>
-                                    {log.action}
-                                  </Badge>
-                                </td>
-                                <td className="px-6 py-4 text-sm text-gray-600">
-                                  {log.details}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </Card>
+                {pastAssemblies.find(a => a.id === selectedReportId) && (
+                  <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
+                    <div className="p-8 lg:p-12">
+                      <ReportDocument 
+                        condoName={pastAssemblies.find(a => a.id === selectedReportId)!.condoName}
+                        date={pastAssemblies.find(a => a.id === selectedReportId)!.date}
+                        polls={pastAssemblies.find(a => a.id === selectedReportId)!.polls}
+                        votes={pastAssemblies.find(a => a.id === selectedReportId)!.votes}
+                        residents={pastAssemblies.find(a => a.id === selectedReportId)!.residentsSnapshot}
+                        logs={pastAssemblies.find(a => a.id === selectedReportId)!.logs}
+                      />
+                    </div>
                   </div>
                 )}
               </div>

@@ -94,10 +94,8 @@ const ACTIVE_ASSEMBLIES_DOC_ID = 'active_assemblies';
 
 const DEFAULT_USERS: User[] = [
   { id: '1', name: 'Administrador', username: 'admin', password: 'admin', role: 'ADMIN' },
-  { id: '2', name: 'Wagner Silva', username: 'wagner.silva', password: 'wagner21', role: 'ADMIN' },
   { id: '3', name: 'Fillype Sampaio', username: 'fillype.sampaio', password: 'fellypi123', role: 'ADMIN', jobTitle: 'Administrador' },
-  { id: '4', name: 'Zeferino Batista', username: 'zeferino.batista', password: 'zeferino123', role: 'ADMIN', jobTitle: 'Administrador' },
-  { id: '5', name: 'Wagner Lima', username: 'wagner.lima', password: 'wagner21', role: 'TI' }
+  { id: '4', name: 'Zeferino Batista', username: 'zeferino.batista', password: 'zeferino123', role: 'ADMIN', jobTitle: 'Administrador' }
 ];
 
 const syncToCloud = (key: string, data: any, specificAssemblyId?: string) => {
@@ -449,7 +447,9 @@ export const parseCSV = (csvText: string): Resident[] => {
         hasHabiteSe: (cols[4] || '').toUpperCase().trim() === 'SIM', 
         fraction: parseFloat((cols[5] || '1').replace(',', '.')) || 1.0,
         cpf: (cols[0] || '').replace(/\D/g, ''), 
-        attendanceStatus: 'NONE' 
+        attendanceStatus: 'NONE',
+        proxyCount: parseInt((cols[6] || '0').trim(), 10) || 0,
+        proxyUnits: (cols[7] || '').trim()
       });
     }
   }

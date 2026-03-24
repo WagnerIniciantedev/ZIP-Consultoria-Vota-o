@@ -54,6 +54,11 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
       } else if (poll.calculationType === PollCalculationType.HABITE_SE) {
         weight = 1 + (resident.hasHabiteSe ? 1 : 0);
       }
+      
+      // Add proxy count to weight
+      if (resident.proxyCount && resident.proxyCount > 0) {
+        weight += resident.proxyCount;
+      }
     }
 
     const current = dataMap.get(v.optionId) || 0;

@@ -125,9 +125,9 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
 
   const handleDownloadTemplate = () => {
     // CSV Template with Header and one example row
-    const headers = "CPF;Unidade;Nome;Inadimplente;HabiteSe;Fracao";
-    const example1 = "12345678900;101;João Silva;Não;Sim;0,0150";
-    const example2 = "98765432100;202;Maria Oliveira;Sim;Sim;0,0155";
+    const headers = "CPF;Unidade;Nome;Inadimplente;HabiteSe;Fracao;ProcuracaoCount;ProcuracaoUnits";
+    const example1 = "12345678900;101;João Silva;Não;Sim;0,0150;2;102,103";
+    const example2 = "98765432100;202;Maria Oliveira;Sim;Sim;0,0155;0;";
     
     const csvContent = `${headers}\n${example1}\n${example2}`;
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -244,23 +244,29 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                             <FileSpreadsheet size={16} /> Estrutura Obrigatória das Colunas
                         </h4>
                         <div className="bg-white rounded border border-blue-100 overflow-hidden text-xs shadow-sm">
-                            <div className="grid grid-cols-6 bg-blue-100 p-2 font-bold text-blue-800 border-b border-blue-200">
+                            <div className="grid grid-cols-8 bg-blue-100 p-2 font-bold text-blue-800 border-b border-blue-200">
                                 <div>A (CPF)</div>
                                 <div>B (Unid)</div>
                                 <div>C (Nome)</div>
                                 <div>D (Inad.)</div>
                                 <div>E (Habite)</div>
                                 <div>F (Frac)</div>
+                                <div>G (Proc)</div>
+                                <div>H (Unid.P)</div>
                             </div>
-                            <div className="grid grid-cols-6 p-2 text-gray-600 border-b border-gray-100 font-mono">
+                            <div className="grid grid-cols-8 p-2 text-gray-600 border-b border-gray-100 font-mono">
                                 <div className="truncate">123456...</div>
                                 <div>101</div>
                                 <div className="truncate">João Silva</div>
                                 <div>Não</div>
                                 <div>Sim</div>
                                 <div>0,0125</div>
+                                <div>2</div>
+                                <div className="truncate">102,103</div>
                             </div>
-                            <div className="grid grid-cols-6 p-2 text-gray-400 font-mono italic">
+                            <div className="grid grid-cols-8 p-2 text-gray-400 font-mono italic">
+                                <div>...</div>
+                                <div>...</div>
                                 <div>...</div>
                                 <div>...</div>
                                 <div>...</div>
@@ -291,6 +297,8 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                             <li><strong>Col D (Inadimplente):</strong> Digite "Sim" ou "Não".</li>
                             <li><strong>Col E (Habite-se):</strong> Digite "Sim" ou "Não" (Opcional).</li>
                             <li><strong>Col F (Fração):</strong> Use vírgula para decimais (Ex: 0,0235).</li>
+                            <li><strong>Col G (Procuração):</strong> Quantidade de procurações (Ex: 2).</li>
+                            <li><strong>Col H (Unidades Proc.):</strong> Unidades das procurações separadas por vírgula (Ex: 102, 103).</li>
                         </ul>
                     </div>
                 </div>
