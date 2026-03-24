@@ -12,6 +12,7 @@ interface ReportDocumentProps {
   residents: Resident[];
   logs?: SystemLog[];
   isForPDF?: boolean;
+  showDelinquents?: boolean;
 }
 
 const COLORS = ['#DC2626', '#EA580C', '#D97706', '#65A30D', '#059669', '#2563EB', '#7C3AED', '#DB2777'];
@@ -23,7 +24,8 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
   votes,
   residents,
   logs,
-  isForPDF = false
+  isForPDF = false,
+  showDelinquents = true
 }) => {
   return (
     <div id="report-content" className={`bg-white ${isForPDF ? 'p-10 w-[800px]' : 'p-0'}`}>
@@ -33,7 +35,7 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
           <img 
             src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
             alt="ZIP Logo" 
-            className="h-24 w-auto mb-4 brightness-0" 
+            className="h-32 w-auto mb-4 brightness-0" 
             referrerPolicy="no-referrer"
           />
           <h1 className="text-2xl font-bold text-gray-900 uppercase tracking-tight">Relatório de Assembleia</h1>
@@ -65,7 +67,12 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
       {/* Polls Results */}
       <div className="space-y-12">
         {polls.map((poll, index) => {
-          const pollVotes = votes.filter(v => v.pollId === poll.id);
+          let pollVotes = votes.filter(v => v.pollId === poll.id);
+          
+          if (!showDelinquents) {
+            pollVotes = pollVotes.filter(v => !v.isDelinquentVote);
+          }
+
           const validVotes = pollVotes.filter(v => !v.isDelinquentVote);
           
           const dataMap = new Map<string, number>();
@@ -170,8 +177,11 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                       <tr>
                         <th className="px-4 py-2 font-bold text-gray-600">Unidade</th>
                         <th className="px-4 py-2 font-bold text-gray-600">Morador</th>
+                        <th className="px-4 py-2 font-bold text-gray-600">Nome Zoom</th>
                         <th className="px-4 py-2 font-bold text-gray-600">Opção</th>
-                        <th className="px-4 py-2 font-bold text-gray-600">Peso</th>
+                        {poll.calculationType !== PollCalculationType.NORMAL && (
+                          <th className="px-4 py-2 font-bold text-gray-600">Peso</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -189,12 +199,15 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                           <tr key={idx} className={v.isDelinquentVote ? 'bg-red-50' : ''}>
                             <td className="px-4 py-2 font-bold">{v.unit}</td>
                             <td className="px-4 py-2">{resident?.name || 'N/A'}</td>
+                            <td className="px-4 py-2 italic">{v.zoomName || '-'}</td>
                             <td className="px-4 py-2">
                               <span className={`px-2 py-0.5 rounded-full ${v.isDelinquentVote ? 'bg-gray-200 text-gray-600' : 'bg-red-50 text-red-700'}`}>
                                 {opt?.text || 'N/A'}
                               </span>
                             </td>
-                            <td className="px-4 py-2 font-mono">{weight.toFixed(4)}</td>
+                            {poll.calculationType !== PollCalculationType.NORMAL && (
+                              <td className="px-4 py-2 font-mono">{weight.toFixed(4)}</td>
+                            )}
                           </tr>
                         );
                       })}

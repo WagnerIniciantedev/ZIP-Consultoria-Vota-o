@@ -347,9 +347,12 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Unidade</th>
                   <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Morador</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nome Zoom</th>
                   <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Opção Escolhida</th>
                   <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Peso</th>
+                  {poll.calculationType !== PollCalculationType.NORMAL && (
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Peso</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -379,6 +382,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                       <tr key={idx} className={v.isDelinquentVote ? "bg-red-50" : ""}>
                         <td className="px-4 py-3 font-bold text-gray-900">{v.unit}</td>
                         <td className="px-4 py-3 text-gray-600">{resident?.name || 'N/A'}</td>
+                        <td className="px-4 py-3 text-gray-600 italic">{v.zoomName || '-'}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${v.isDelinquentVote ? 'bg-gray-200 text-gray-600' : 'bg-blue-100 text-blue-800'}`}>
                             {opt?.text || 'N/A'}
@@ -391,9 +395,11 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                             <Badge color="green">Válido</Badge>
                           )}
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs">
-                          {weight.toFixed(4)}
-                        </td>
+                        {poll.calculationType !== PollCalculationType.NORMAL && (
+                          <td className="px-4 py-3 font-mono text-xs">
+                            {weight.toFixed(4)}
+                          </td>
+                        )}
                       </tr>
                     );
                   })

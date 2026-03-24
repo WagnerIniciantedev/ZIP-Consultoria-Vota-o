@@ -10,7 +10,7 @@ interface ResidentVotingProps {
   assemblyId: string;
   sampleUnit?: string;
   polls: Poll[];
-  onVoteSubmit: (pollId: string, unit: string, optionId: string, isDelinquent: boolean) => void;
+  onVoteSubmit: (pollId: string, unit: string, optionId: string, isDelinquent: boolean, zoomName?: string) => void;
   onRegisterAttendance: (units: Resident[], zoomName: string) => void;
   hasVoted: (pollId: string, unit: string) => boolean;
   onBack: () => void;
@@ -297,7 +297,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
       let voteCount = 0;
       selectedUnits.forEach(u => {
           if (!hasVoted(selectedPoll.id, u.unit)) {
-             onVoteSubmit(selectedPoll.id, u.unit, selectedOption, u.isDelinquent);
+             onVoteSubmit(selectedPoll.id, u.unit, selectedOption, u.isDelinquent, zoomNameInput);
              voteCount++;
           }
       });

@@ -447,10 +447,10 @@ const App: React.FC = () => {
     setCurrentView(AppView.COMPANY_DASHBOARD);
   };
 
-  const handleVoteSubmit = (pollId: string, unit: string, optionId: string, isDelinquent: boolean) => {
+  const handleVoteSubmit = (pollId: string, unit: string, optionId: string, isDelinquent: boolean, zoomName?: string) => {
     setVotes(prev => {
       if (prev.some(v => v.unit === unit && v.pollId === pollId)) return prev;
-      const newVote = { pollId, unit, optionId, timestamp: Date.now(), isDelinquentVote: isDelinquent };
+      const newVote = { pollId, unit, optionId, timestamp: Date.now(), isDelinquentVote: isDelinquent, zoomName };
       const updated = [...prev, newVote];
       saveVotes(updated);
       return updated;
@@ -511,7 +511,7 @@ const App: React.FC = () => {
               <form onSubmit={handleAdminLogin} className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1 ml-1">Usuário Administrativo</label>
-                  <Input type="text" placeholder="usuário" value={adminEmail} onChange={e => setAdminEmail(e.target.value)} />
+                  <Input type="text" placeholder="Digite seu usuário" value={adminEmail} onChange={e => setAdminEmail(e.target.value)} />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1 ml-1">Senha</label>

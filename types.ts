@@ -70,6 +70,7 @@ export interface VoteRecord {
   optionId: string;
   timestamp: number;
   isDelinquentVote: boolean;
+  zoomName?: string; // Name used in the platform
 }
 
 export interface User {

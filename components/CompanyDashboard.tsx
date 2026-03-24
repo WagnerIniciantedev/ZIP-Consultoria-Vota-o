@@ -125,6 +125,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     type: 'active'
   });
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [showDelinquentsInReport, setShowDelinquentsInReport] = useState(true);
 
   useEffect(() => {
     setAssemblies(getActiveAssemblies());
@@ -542,7 +543,16 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                   <Button variant="outline" size="sm" onClick={() => setSelectedReportId(null)}>
                     ← Voltar para a lista
                   </Button>
-                  <div className="flex gap-3">
+                  <div className="flex gap-3 items-center">
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-600 cursor-pointer bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
+                      <input 
+                        type="checkbox" 
+                        checked={showDelinquentsInReport} 
+                        onChange={(e) => setShowDelinquentsInReport(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                      />
+                      <span>Mostrar Inadimplentes</span>
+                    </label>
                     <Button 
                       onClick={() => handleDownloadPDF(pastAssemblies.find(a => a.id === selectedReportId)?.condoName || 'Assembleia')}
                       className="bg-red-600 hover:bg-red-700 text-white flex items-center gap-2"
@@ -567,6 +577,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         votes={pastAssemblies.find(a => a.id === selectedReportId)!.votes}
                         residents={pastAssemblies.find(a => a.id === selectedReportId)!.residentsSnapshot}
                         logs={pastAssemblies.find(a => a.id === selectedReportId)!.logs}
+                        showDelinquents={showDelinquentsInReport}
                       />
                     </div>
                   </div>
