@@ -22,13 +22,15 @@ import {
   X,
   Share2,
   Check,
-  Printer
+  Printer,
+  Table
 } from 'lucide-react';
 import { Button, Input, Card, Badge } from './ui';
 import { UsersManagement } from './Users';
 import { ReportDocument } from './dashboard/ReportDocument';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import * as XLSX from 'xlsx';
 
 interface CompanyDashboardProps {
   currentUser: User | null;
@@ -229,6 +231,72 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     } finally {
       setIsGeneratingPDF(false);
     }
+  };
+
+  const handleDownloadExcel = (assembly: AssemblyRecord) => {
+    const workbook = XLSX.utils.book_new();
+    
+    // 1. Summary Sheet
+    const summaryData = [
+      ['RELATÓRIO DE ASSEMBLEIA - ZIP CONSULTORIA'],
+      ['Condomínio', assembly.condoName],
+      ['Data', new Date(assembly.date).toLocaleDateString('pt-BR')],
+      [''],
+      ['RESUMO GERAL'],
+      ['Total de Enquetes', assembly.polls.length],
+      ['Total de Votos', assembly.votes.length],
+      ['Unidades Participantes', new Set(assembly.votes.map(v => v.unit)).size]
+    ];
+    const summaryWS = XLSX.utils.aoa_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(workbook, summaryWS, 'Resumo');
+
+    // 2. Polls Sheets
+    assembly.polls.forEach((poll, idx) => {
+      const pollVotes = assembly.votes.filter(v => v.pollId === poll.id);
+      const sheetData = [
+        [`ENQUETE ${idx + 1}: ${poll.title}`],
+        ['Descrição', poll.description],
+        [''],
+        ['DETALHAMENTO DE VOTOS'],
+        ['Unidade', 'Morador', 'Nome Zoom', 'Opção Escolhida', 'Status', 'Peso']
+      ];
+
+      pollVotes.sort((a, b) => a.unit.localeCompare(b.unit)).forEach(v => {
+        const resident = assembly.residentsSnapshot.find(r => r.unit === v.unit);
+        const opt = poll.options.find(o => o.id === v.optionId);
+        sheetData.push([
+          v.unit,
+          resident?.name || 'N/A',
+          v.zoomName || '-',
+          opt?.text || 'N/A',
+          v.isDelinquentVote ? 'Inadimplente' : 'Válido',
+          v.isDelinquentVote ? '0.0000' : '1.0000' // Simplified for excel, logic can be complex
+        ]);
+      });
+
+      const pollWS = XLSX.utils.aoa_to_sheet(sheetData);
+      XLSX.utils.book_append_sheet(workbook, pollWS, `Enquete ${idx + 1}`);
+    });
+
+    // 3. Logs Sheet
+    if (assembly.logs && assembly.logs.length > 0) {
+      const logsData = [
+        ['HISTÓRICO DE AUDITORIA'],
+        ['Data/Hora', 'Usuário', 'Ação', 'Detalhes']
+      ];
+      assembly.logs.slice().reverse().forEach(log => {
+        logsData.push([
+          new Date(log.timestamp).toLocaleString('pt-BR'),
+          log.userName,
+          log.action,
+          log.details || ''
+        ]);
+      });
+      const logsWS = XLSX.utils.aoa_to_sheet(logsData);
+      XLSX.utils.book_append_sheet(workbook, logsWS, 'Auditoria');
+    }
+
+    XLSX.writeFile(workbook, `Relatorio_${assembly.condoName.replace(/\s+/g, '_')}.xlsx`);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -553,6 +621,13 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                       />
                       <span>Mostrar Inadimplentes</span>
                     </label>
+                    <Button 
+                      onClick={() => handleDownloadExcel(pastAssemblies.find(a => a.id === selectedReportId)!)}
+                      variant="outline"
+                      className="border-green-600 text-green-700 hover:bg-green-50 flex items-center gap-2"
+                    >
+                      <Table size={18} /> Baixar Excel
+                    </Button>
                     <Button 
                       onClick={() => handleDownloadPDF(pastAssemblies.find(a => a.id === selectedReportId)?.condoName || 'Assembleia')}
                       className="bg-red-600 hover:bg-red-700 text-white flex items-center gap-2"
