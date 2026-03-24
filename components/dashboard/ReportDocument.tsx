@@ -31,23 +31,15 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
   const quorumPercent = totalUnits > 0 ? ((participatingUnits / totalUnits) * 100).toFixed(1) : 0;
 
   return (
-    <div id="report-content" className={`bg-white font-sans ${isForPDF ? 'p-12 w-[800px]' : 'p-0'}`}>
+    <div id="report-content" className={`bg-white font-sans ${isForPDF ? 'p-16 w-[794px]' : 'p-0'}`}>
       {/* Official Document Header */}
       <div className="relative mb-12">
-        <div className="absolute top-0 right-0 opacity-10 pointer-events-none">
-          <img 
-            src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
-            alt="" 
-            className="h-48 w-auto grayscale" 
-          />
-        </div>
-        
         <div className="flex justify-between items-end border-b-4 border-gray-900 pb-8">
           <div>
             <img 
               src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
               alt="ZIP Logo" 
-              className="h-24 w-auto mb-6 brightness-0" 
+              className="h-28 w-auto mb-6" 
               referrerPolicy="no-referrer"
             />
             <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tighter leading-none mb-2">Relatório Oficial de Assembleia</h1>
@@ -57,8 +49,8 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
             </div>
           </div>
           <div className="text-right">
-            <div className="bg-gray-900 text-white px-4 py-2 mb-4 inline-block">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em]">Documento de Auditoria</p>
+            <div className="bg-red-600 text-white px-6 py-3 mb-4 inline-block">
+              <p className="text-sm font-black uppercase tracking-[0.2em]">Documento de Auditoria</p>
             </div>
             <p className="text-sm font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Data da Sessão</p>
             <p className="text-xl font-black text-gray-900">{new Date(date).toLocaleDateString('pt-BR')}</p>
@@ -304,16 +296,16 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
 
       {/* Footer */}
       <div className="mt-24 pt-12 border-t-4 border-gray-900 flex justify-between items-start">
-        <div className="max-w-xs">
-          <p className="text-xs font-black text-gray-900 uppercase tracking-widest mb-2">ZIP CONSULTORIA</p>
+        <div className="max-w-md">
+          <p className="text-xs font-black text-gray-900 uppercase tracking-widest mb-2">ZIP CONSULTORIA E ASSESSORIA CONDOMINIAL</p>
           <p className="text-[10px] text-gray-500 leading-relaxed">
-            Este documento é um registro oficial e inalterável das deliberações realizadas via sistema Condovote. 
-            A autenticidade deste relatório pode ser verificada junto à administração.
+            Este documento é um registro oficial das deliberações realizadas via sistema Condovote. 
+            A autenticidade deste relatório pode ser verificada junto à administração do condomínio.
           </p>
         </div>
         <div className="text-right">
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Certificação Digital</p>
-          <p className="text-[10px] font-mono text-gray-900">ID: {Math.random().toString(36).substring(2, 15).toUpperCase()}</p>
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Sistema Condovote</p>
+          <p className="text-[10px] text-gray-900">Gerado em: {new Date().toLocaleString('pt-BR')}</p>
         </div>
       </div>
     </div>
