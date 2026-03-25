@@ -168,14 +168,26 @@ const App: React.FC = () => {
         }
 
         const safetyUsers = getMasterSecurityUsers();
-        const mergedMap = new Map();
+        const usernameMap = new Map();
         
         // Add safety users first (as baseline)
-        safetyUsers.forEach((u: User) => mergedMap.set(u.username.toLowerCase(), u));
+        safetyUsers.forEach((u: User) => usernameMap.set(u.username.toLowerCase(), u));
         // Overlay cloud users (database changes will win)
-        cloudUsers.forEach((u: User) => mergedMap.set(u.username.toLowerCase(), u));
+        cloudUsers.forEach((u: User) => usernameMap.set(u.username.toLowerCase(), u));
         
-        const finalUsersList = Array.from(mergedMap.values());
+        const mergedUsers = Array.from(usernameMap.values());
+        
+        // Final pass to ensure unique IDs for React keys (prevents warnings if IDs conflict across different usernames)
+        const idSet = new Set();
+        const finalUsersList = mergedUsers.map(u => {
+            if (idSet.has(u.id)) {
+                // If ID is already taken, create a unique one for this session
+                return { ...u, id: `${u.id}_${Math.random().toString(36).substr(2, 5)}` };
+            }
+            idSet.add(u.id);
+            return u;
+        });
+        
         setUsers(finalUsersList);
         localStorage.setItem('condovote_users', JSON.stringify(finalUsersList));
 

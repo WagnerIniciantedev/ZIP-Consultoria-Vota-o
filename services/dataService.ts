@@ -236,10 +236,11 @@ export const addLog = (user: User, action: string, details?: string) => {
 
 export const registerAdminUid = async (uid: string, username: string, role: 'TI' | 'ADMIN' = 'ADMIN') => {
   if (db) {
-    const adminRef = doc(db, SYSTEM_COLLECTION, 'authorized_admins', uid);
+    // Agora 'authorized_admins' é uma coleção de nível superior para evitar erros de segmentos ímpares
+    const adminRef = doc(db, 'authorized_admins', uid);
     try {
       await setDoc(adminRef, { 
-        username, 
+        username: username.toLowerCase(), 
         role,
         authorizedAt: Date.now(),
         lastLogin: Date.now()
@@ -254,14 +255,14 @@ export const registerAdminUid = async (uid: string, username: string, role: 'TI'
 export const cleanupAnonymousAdmins = async (currentUid: string) => {
   if (db) {
     try {
-      const adminsRef = collection(db, SYSTEM_COLLECTION, 'authorized_admins');
+      const adminsRef = collection(db, 'authorized_admins');
       const querySnap = await getDocs(adminsRef);
       
       const deletePromises: Promise<void>[] = [];
       querySnap.forEach((docSnap: any) => {
         // Delete all anonymous admin records except the current one
         if (docSnap.id !== currentUid) {
-          deletePromises.push(deleteDoc(doc(db, SYSTEM_COLLECTION, 'authorized_admins', docSnap.id)));
+          deletePromises.push(deleteDoc(doc(db, 'authorized_admins', docSnap.id)));
         }
       });
       
@@ -295,7 +296,7 @@ export const saveUsers = async (users: User[]) => {
 };
 
 /**
- * Exclui um usuário completamente do sistema, incluindo referências de UID autorizados
+ * Exclui um usuário completamente do sistema, incluindo referências de UID autorizados e logs
  */
 export const deleteUserCompletely = async (userId: string, username: string, allUsers: User[]) => {
   // 1. Atualiza a lista local e no Firestore (documento de usuários)
@@ -305,22 +306,30 @@ export const deleteUserCompletely = async (userId: string, username: string, all
   // 2. Limpa o UID autorizado no Firestore se existir
   if (db) {
     try {
-      const adminsRef = collection(db, SYSTEM_COLLECTION, 'authorized_admins');
+      const adminsRef = collection(db, 'authorized_admins');
       // Buscamos pelo username (sem o domínio se for o caso, mas aqui usamos o username completo salvo)
       const q = query(adminsRef, where("username", "==", username.split('@')[0].toLowerCase()));
       const querySnap = await getDocs(q);
       
       const deletePromises: Promise<void>[] = [];
       querySnap.forEach((docSnap) => {
-        deletePromises.push(deleteDoc(doc(db, SYSTEM_COLLECTION, 'authorized_admins', docSnap.id)));
+        deletePromises.push(deleteDoc(doc(db, 'authorized_admins', docSnap.id)));
       });
       
       if (deletePromises.length > 0) {
         await Promise.all(deletePromises);
         console.log(`🧹 Removidos ${deletePromises.length} registros de UID autorizados para o usuário ${username}`);
       }
+
+      // 3. Limpa logs globais associados a este usuário
+      const logs = getLogs();
+      const filteredLogs = logs.filter(l => l.userId !== userId);
+      if (filteredLogs.length !== logs.length) {
+        await saveLogs(filteredLogs);
+        console.log(`🧹 Removidos ${logs.length - filteredLogs.length} registros de log para o usuário ${username}`);
+      }
     } catch (err) {
-      console.warn("⚠️ Falha ao limpar UID autorizado do usuário excluído:", err);
+      console.warn("⚠️ Falha ao limpar dados do usuário excluído:", err);
     }
   }
   

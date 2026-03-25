@@ -17,25 +17,18 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isMasterAdmin() {
-      return isAuthenticated() && 
-        (request.auth.token.email == "wagner1jackson@gmail.com" && 
-         request.auth.token.email_verified == true);
-    }
-
     function getAdminData() {
-      return get(/databases/$(database)/documents/system/authorized_admins/$(request.auth.uid)).data;
+      return get(/databases/$(database)/documents/authorized_admins/$(request.auth.uid)).data;
     }
 
     function isAdmin() {
       return isAuthenticated() && 
-        (isMasterAdmin() || 
-         (exists(/databases/$(database)/documents/system/authorized_admins/$(request.auth.uid)) &&
-          (getAdminData().role == 'ADMIN' || getAdminData().role == 'TI' || getAdminData().role == 'MASTER')));
+        exists(/databases/$(database)/documents/authorized_admins/$(request.auth.uid)) &&
+        (getAdminData().role == 'ADMIN' || getAdminData().role == 'TI' || getAdminData().role == 'MASTER');
     }
 
     function isTI() {
-      return isAdmin() && (isMasterAdmin() || getAdminData().role == 'TI' || getAdminData().role == 'MASTER');
+      return isAdmin() && (getAdminData().role == 'TI' || getAdminData().role == 'MASTER');
     }
 
     // System configuration and user lists
@@ -44,22 +37,20 @@ service cloud.firestore {
       
       // Allow admins to write system docs
       allow write: if isAdmin();
+    }
 
-      // Special rule for authorizing admins
-      match /authorized_admins/{uid} {
-        allow read: if isAuthenticated();
-        // Allow an admin to authorize another, or the master admin to authorize themselves
-        // Also allow bootstrap for known usernames if authenticated
-        allow write: if isAdmin() || 
-          (isAuthenticated() && request.auth.uid == uid && 
-           (isMasterAdmin() || 
-            request.resource.data.username.lower() in [
-              'admin', 'admin@zipconsultoria.com',
-              'fillype.sampaio', 'fillype.sampaio@zipconsultoria.com',
-              'zeferino.batista', 'zeferino.batista@zipconsultoria.com',
-              'wagner.jackson', 'wagner.jackson@zipconsultoria.com'
-            ]));
-      }
+    // Special rule for authorizing admins
+    match /authorized_admins/{uid} {
+      allow read: if isAuthenticated();
+      // Allow an admin to authorize another, or the bootstrap for known usernames if authenticated
+      allow write: if isAdmin() || 
+        (isAuthenticated() && request.auth.uid == uid && 
+          request.resource.data.username.lower() in [
+            'admin', 'admin@zipconsultoria.com',
+            'fillype.sampaio', 'fillype.sampaio@zipconsultoria.com',
+            'zeferino.batista', 'zeferino.batista@zipconsultoria.com',
+            'wagner.jackson', 'wagner.jackson@zipconsultoria.com'
+          ]);
     }
 
     // Connection test collection
