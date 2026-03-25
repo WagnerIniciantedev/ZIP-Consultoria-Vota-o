@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Poll, PollCalculationType, User } from '../../types';
 import { Button, Input, Card, Badge } from '../ui';
 import { Trash2, Plus, PlayCircle, PauseCircle, StopCircle, BarChart3, Link as LinkIcon, Copy, Edit2 } from 'lucide-react';
-import { savePolls, addLog } from '../../services/dataService'; // Import added
+import { savePolls, addLog, cleanText } from '../../services/dataService'; // Import updated
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -297,7 +297,7 @@ export const PollList: React.FC<PollListProps> = ({
                   onClick={() => onSelectPoll(poll.id)}
                 >
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-bold text-lg text-gray-900">{poll.title}</h3>
+                      <h3 className="font-bold text-lg text-gray-900">{cleanText(poll.title)}</h3>
                       {poll.isActive ? (
                         <Badge color="green">Ativa</Badge>
                       ) : poll.isEnded ? (
@@ -306,7 +306,7 @@ export const PollList: React.FC<PollListProps> = ({
                         <Badge color="yellow">Pausada / Rascunho</Badge>
                       )}
                     </div>
-                    <p className="text-sm text-gray-500 truncate max-w-md">{poll.description || "Sem descrição"}</p>
+                    <p className="text-sm text-gray-500 truncate max-w-md">{cleanText(poll.description) || "Sem descrição"}</p>
                 </div>
 
                     <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end items-center gap-2 flex-wrap">

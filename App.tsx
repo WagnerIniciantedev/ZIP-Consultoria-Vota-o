@@ -14,7 +14,8 @@ import {
   getMasterSecurityUsers,
   getActiveAssemblies, saveActiveAssemblies,
   addLog,
-  getLogs, saveLogs, registerAdminUid
+  getLogs, saveLogs, registerAdminUid, setAdminStatus,
+  testConnection
 } from './services/dataService';
 import { ActiveAssembly } from './types';
 import { onSnapshot, doc, setDoc, collection } from 'firebase/firestore';
@@ -127,13 +128,18 @@ const App: React.FC = () => {
     // Authenticate Anonymously
     if (auth) {
         signInAnonymously(auth)
-          .then(() => setIsAuthReady(true))
+          .then(() => {
+            setIsAuthReady(true);
+            testConnection();
+          })
           .catch(e => {
             console.warn("Firebase Auth Error:", e);
             setIsAuthReady(true);
+            testConnection();
           });
     } else {
         setIsAuthReady(true);
+        testConnection();
     }
 
     return () => {
@@ -146,6 +152,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!db || !isAuthReady) return;
     setIsConnected(true);
+
+    // Update admin status in dataService
+    const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'TI';
+    setAdminStatus(isAdmin);
 
     const usersRef = doc(db, 'system', 'users');
     const unsubUsers = onSnapshot(usersRef, (docSnapshot) => {
@@ -169,13 +179,18 @@ const App: React.FC = () => {
         setUsers(finalUsersList);
         localStorage.setItem('condovote_users', JSON.stringify(finalUsersList));
 
-        // Check if we need to sync back to cloud (if cloud is empty or missing safety users)
-        const missingInCloud = safetyUsers.some(su => !cloudUsers.some(cu => cu.username.toLowerCase() === su.username.toLowerCase()));
-
-        if (!docSnapshot.exists() || cloudUsers.length === 0 || missingInCloud) {
-            setDoc(usersRef, { list: finalUsersList }, { merge: true })
-                .catch(e => console.error("Erro sincronizando usuários no Firestore:", e));
+        // Só sincroniza de volta se o documento NÃO existir (primeira vez)
+        if (!docSnapshot.exists() && isAdmin) {
+            setDoc(usersRef, { 
+                list: finalUsersList,
+                lastUpdated: Date.now(),
+                updatedBy: 'system_init'
+            })
+                .catch(e => console.error("Erro inicializando usuários no Firestore:", e));
         }
+    }, (error) => {
+        console.error("[App] Users Listener Error:", error);
+        // Don't set hasPermissionError here as we have fallback users
     });
 
     const globalRef = doc(db, 'system', 'global');
@@ -185,13 +200,15 @@ const App: React.FC = () => {
         if (val && val !== 'null' && currentView === AppView.ADMIN_LOGIN) {
             setCondoName(val);
         }
+    }, (error) => {
+        console.error("[App] Global Listener Error:", error);
     });
 
     return () => {
         unsubUsers();
         unsubGlobal();
     };
-  }, [currentView, isAuthReady]);
+  }, [currentView, isAuthReady, currentUser]);
 
   // --- 2. LOGS LISTENER (Global) ---
   useEffect(() => {
@@ -205,6 +222,8 @@ const App: React.FC = () => {
           saveLogs(data.list);
         }
       }
+    }, (error) => {
+      console.error("[App] Logs Listener Error:", error);
     });
     return () => unsubLogs();
   }, [isAuthReady]);
@@ -299,8 +318,13 @@ const App: React.FC = () => {
     e.preventDefault();
     
     // Normalização dos inputs para evitar erros de digitação (espaços ou maiúsculas)
-    const normalizedEmail = adminEmail.trim().toLowerCase();
+    let normalizedEmail = adminEmail.trim().toLowerCase();
     const cleanPass = adminPass.trim();
+
+    // Se o usuário não digitou o @zipconsultoria.com, adicionamos automaticamente para a busca
+    if (normalizedEmail && !normalizedEmail.includes('@')) {
+      normalizedEmail = `${normalizedEmail}@zipconsultoria.com`;
+    }
 
     // 1. Busca na lista de usuários carregados (Estado)
     let validUser = users.find(u => 
@@ -326,7 +350,9 @@ const App: React.FC = () => {
 
       // Sincroniza o UID do Firebase com o usuário administrador para as regras do Firestore
       if (auth?.currentUser) {
-        registerAdminUid(auth.currentUser.uid, validUser.username, validUser.role || 'ADMIN');
+        // Removemos o domínio para bater com a lista de bootstrap nas regras do Firestore
+        const usernameToRegister = validUser.username.split('@')[0].toLowerCase();
+        registerAdminUid(auth.currentUser.uid, usernameToRegister, validUser.role || 'ADMIN');
       }
     } else {
       setLoginError('Credenciais inválidas. Verifique usuário e senha.');
@@ -421,8 +447,23 @@ const App: React.FC = () => {
         const safeKey = selectedAssemblyId.replace(/[^a-zA-Z0-9]/g, '_');
         const assemblyRef = doc(db, 'assemblies', safeKey);
         try {
+          const { writeBatch, collection, getDocs } = await import('firebase/firestore');
+          
           await setDoc(assemblyRef, { isActive: false }, { merge: true });
           
+          // CLEANUP: Delete anonymous residents and votes from Firestore to not overload the DB
+          // as requested by the user.
+          const residentsRef = collection(db, 'assemblies', safeKey, 'residents_list');
+          const votesRef = collection(db, 'assemblies', safeKey, 'votes');
+          
+          const residentsSnap = await getDocs(residentsRef);
+          const votesSnap = await getDocs(votesRef);
+          
+          const batch = writeBatch(db);
+          residentsSnap.forEach(doc => batch.delete(doc.ref));
+          votesSnap.forEach(doc => batch.delete(doc.ref));
+          await batch.commit();
+
           // Also reset global pointer if this was the active one
           const globalRef = doc(db, 'system', 'global');
           await setDoc(globalRef, { active_condo: 'null' }, { merge: true });
@@ -527,7 +568,7 @@ const App: React.FC = () => {
                   <label htmlFor="remember-me" className="ml-2 text-sm font-medium text-gray-700 cursor-pointer">Permanecer conectado</label>
                 </div>
                 {loginError && <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-red-600 text-sm font-medium animate-bounce">{loginError}</div>}
-                <Button type="submit" className="w-full bg-[#E60000] hover:bg-red-700 text-white font-bold py-3.5 shadow-lg active:scale-95 transition-all">ENTRAR</Button>
+                <Button type="submit" className="w-full bg-[#E60000] hover:bg-red-700 text-white font-bold py-3.5 shadow-lg active:scale-95 transition-all text-sm">ENTRAR</Button>
               </form>
 
               <div className="mt-8 relative">
@@ -684,6 +725,11 @@ const App: React.FC = () => {
             const updated = polls.map(p => p.id === id ? {...p, isActive: false, isEnded: true} : p);
             setPolls(updated);
             savePolls(updated);
+            
+            // Limpeza de administradores anônimos antigos para evitar sobrecarga
+            if (auth?.currentUser) {
+              import('./services/dataService').then(m => m.cleanupAnonymousAdmins(auth.currentUser.uid));
+            }
         }}
         onDeletePoll={(id: string) => {
             const updated = polls.filter(p => p.id !== id);

@@ -17,17 +17,25 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isTI() {
+    function isMasterAdmin() {
       return isAuthenticated() && 
-        exists(/databases/$(database)/documents/system/authorized_admins/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/system/authorized_admins/$(request.auth.uid)).data.role == 'TI';
+        (request.auth.token.email == "wagner1jackson@gmail.com" && 
+         request.auth.token.email_verified == true);
+    }
+
+    function getAdminData() {
+      return get(/databases/$(database)/documents/system/authorized_admins/$(request.auth.uid)).data;
     }
 
     function isAdmin() {
       return isAuthenticated() && 
-        exists(/databases/$(database)/documents/system/authorized_admins/$(request.auth.uid)) &&
-        (get(/databases/$(database)/documents/system/authorized_admins/$(request.auth.uid)).data.role == 'ADMIN' || 
-         get(/databases/$(database)/documents/system/authorized_admins/$(request.auth.uid)).data.role == 'TI');
+        (isMasterAdmin() || 
+         (exists(/databases/$(database)/documents/system/authorized_admins/$(request.auth.uid)) &&
+          (getAdminData().role == 'ADMIN' || getAdminData().role == 'TI' || getAdminData().role == 'MASTER')));
+    }
+
+    function isTI() {
+      return isAdmin() && (isMasterAdmin() || getAdminData().role == 'TI' || getAdminData().role == 'MASTER');
     }
 
     // System configuration and user lists
@@ -41,10 +49,22 @@ service cloud.firestore {
       match /authorized_admins/{uid} {
         allow read: if isAuthenticated();
         // Allow an admin to authorize another, or the master admin to authorize themselves
+        // Also allow bootstrap for known usernames if authenticated
         allow write: if isAdmin() || 
           (isAuthenticated() && request.auth.uid == uid && 
-           request.auth.token.email == "wagner1jackson@gmail.com" && request.auth.token.email_verified == true);
+           (isMasterAdmin() || 
+            request.resource.data.username.lower() in [
+              'admin', 'admin@zipconsultoria.com',
+              'fillype.sampaio', 'fillype.sampaio@zipconsultoria.com',
+              'zeferino.batista', 'zeferino.batista@zipconsultoria.com',
+              'wagner.jackson', 'wagner.jackson@zipconsultoria.com'
+            ]));
       }
+    }
+
+    // Connection test collection
+    match /test/{docId} {
+      allow read: if true;
     }
 
     // Assembly data
@@ -54,11 +74,12 @@ service cloud.firestore {
       // Only TI can delete assemblies
       allow delete: if isTI();
       
-      allow update: if isAdmin() || (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes']));
+      allow update: if isAdmin();
       
-      match /residents_list/{unit} {
-        allow get: if isAuthenticated();
-        allow list, write: if isAdmin();
+      // Subcollections for residents and votes
+      match /{subcollection}/{docId} {
+        allow read: if isAuthenticated();
+        allow write: if isAdmin();
       }
     }
   }

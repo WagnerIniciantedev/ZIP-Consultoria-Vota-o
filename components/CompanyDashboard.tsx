@@ -3,8 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { User, ActiveAssembly, AssemblyRecord, SystemLog, AssemblyType } from '../types';
 import { 
   getActiveAssemblies, saveActiveAssemblies, 
-  saveUsers,
-  parseCSV
+  deleteUserCompletely,
+  parseCSV,
+  cleanText
 } from '../services/dataService';
 import { 
   LayoutDashboard, 
@@ -250,7 +251,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     // 1. Summary Sheet
     const summaryData = [
       ['RELATÓRIO DE ASSEMBLEIA - ZIP CONSULTORIA'],
-      ['Condomínio', assembly.condoName],
+      ['Condomínio', cleanText(assembly.condoName)],
       ['Data', new Date(assembly.date).toLocaleDateString('pt-BR')],
       [''],
       ['RESUMO GERAL'],
@@ -265,8 +266,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     assembly.polls.forEach((poll, idx) => {
       const pollVotes = assembly.votes.filter(v => v.pollId === poll.id);
       const sheetData = [
-        [`ENQUETE ${idx + 1}: ${poll.title}`],
-        ['Descrição', poll.description],
+        [`ENQUETE ${idx + 1}: ${cleanText(poll.title)}`],
+        ['Descrição', cleanText(poll.description)],
         [''],
         ['DETALHAMENTO DE VOTOS'],
         ['Unidade', 'Morador', 'Nome Zoom', 'Opção Escolhida', 'Status', 'Peso']
@@ -276,10 +277,10 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         const resident = assembly.residentsSnapshot.find(r => r.unit === v.unit);
         const opt = poll.options.find(o => o.id === v.optionId);
         sheetData.push([
-          v.unit,
-          resident?.name || 'N/A',
-          v.zoomName || '-',
-          opt?.text || 'N/A',
+          cleanText(v.unit),
+          cleanText(resident?.name || 'N/A'),
+          cleanText(v.zoomName || '-'),
+          cleanText(opt?.text || 'N/A'),
           v.isDelinquentVote ? 'Inadimplente' : 'Válido',
           v.isDelinquentVote ? '0.0000' : '1.0000' // Simplified for excel, logic can be complex
         ]);
@@ -298,9 +299,9 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       assembly.logs.slice().reverse().forEach(log => {
         logsData.push([
           new Date(log.timestamp).toLocaleString('pt-BR'),
-          log.userName,
-          log.action,
-          log.details || ''
+          cleanText(log.userName),
+          cleanText(log.action),
+          cleanText(log.details || '')
         ]);
       });
       const logsWS = XLSX.utils.aoa_to_sheet(logsData);
@@ -560,10 +561,12 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
             users={users} 
             setUsers={setUsers} 
             currentUser={currentUser} 
-            onDeleteUser={(id: string) => {
-              const updated = users.filter(u => u.id !== id);
-              setUsers(updated);
-              saveUsers(updated);
+            onDeleteUser={async (id: string) => {
+              const userToDelete = users.find(u => u.id === id);
+              if (userToDelete) {
+                const updated = await deleteUserCompletely(id, userToDelete.username, users);
+                setUsers(updated);
+              }
             }} 
           />
         )}
@@ -711,7 +714,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                           {new Date(log.timestamp).toLocaleString('pt-BR')}
                         </td>
                         <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                          {log.userName}
+                          {cleanText(log.userName)}
                           <div className="text-[10px] text-gray-400 font-normal uppercase tracking-tighter">
                             {log.assemblyId !== 'setup' ? log.assemblyId : 'Sistema'}
                           </div>
@@ -726,7 +729,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                           </Badge>
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-600">
-                          {log.details}
+                          {cleanText(log.details)}
                         </td>
                         {currentUser?.role === 'TI' && (
                           <td className="px-6 py-4 text-right">

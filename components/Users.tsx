@@ -20,7 +20,7 @@ interface UsersProps {
   users: User[];
   setUsers: React.Dispatch<React.SetStateAction<User[]>>;
   currentUser: User | null;
-  onDeleteUser: (id: string) => void;
+  onDeleteUser: (id: string) => Promise<void>;
 }
 
 // Helper to generate ID
@@ -173,16 +173,24 @@ export const UsersManagement: React.FC<UsersProps> = ({
     setDeleteConfirmId(userId);
   };
 
-  const handleConfirmDelete = (userId: string, e: React.MouseEvent) => {
+  const handleConfirmDelete = async (userId: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     
-    console.log("Excluindo usuário:", userId);
-    onDeleteUser(userId);
-    
-    setDeleteConfirmId(null);
-    if (editingUser?.id === userId) {
-      handleCancelEdit();
+    setIsSaving(true);
+    try {
+      console.log("Excluindo usuário:", userId);
+      await onDeleteUser(userId);
+      
+      setDeleteConfirmId(null);
+      if (editingUser?.id === userId) {
+        handleCancelEdit();
+      }
+      alert("Usuário excluído com sucesso de todos os registros.");
+    } catch (error) {
+      alert("Erro ao excluir usuário. Verifique sua conexão.");
+    } finally {
+      setIsSaving(false);
     }
   };
 

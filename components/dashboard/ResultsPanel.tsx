@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Poll, VoteRecord, Resident, PollCalculationType, User, AssemblyType } from '../../types';
 import { Button, Card, Badge, Input } from '../ui';
-import { exportVotesToCSV, addLog, savePolls } from '../../services/dataService';
+import { exportVotesToCSV, addLog, savePolls, cleanText } from '../../services/dataService';
 import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { ArrowLeft, PlayCircle, PauseCircle, StopCircle, Download, Eye, EyeOff, Plus } from 'lucide-react';
 
@@ -78,7 +78,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
   const chartData = poll.options.map(opt => {
     const val = dataMap.get(opt.id) || 0;
     return {
-      name: opt.text,
+      name: cleanText(opt.text),
       votos: Number(val.toFixed(4)), 
       percent: totalWeight > 0 ? ((val / totalWeight) * 100).toFixed(1) : 0
     };
@@ -156,14 +156,14 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
         <Button variant="outline" onClick={onBack} className="flex items-center gap-2">
           <ArrowLeft size={16} /> Voltar para Lista
         </Button>
-        <h2 className="text-xl font-bold text-gray-900">Resultados: {poll.title}</h2>
+        <h2 className="text-xl font-bold text-gray-900">Resultados: {cleanText(poll.title)}</h2>
       </div>
 
       <Card title="Status da Votação">
          <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
            <div>
              <div className="flex items-center gap-2">
-               <p className="text-sm text-gray-500">{poll.description}</p>
+               <p className="text-sm text-gray-500">{cleanText(poll.description)}</p>
                <Badge color="gray">{getCalculationLabel(poll.calculationType)}</Badge>
              </div>
              <div className="mt-2">
@@ -380,12 +380,12 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
 
                     return (
                       <tr key={idx} className={v.isDelinquentVote ? "bg-red-50" : ""}>
-                        <td className="px-4 py-3 font-bold text-gray-900">{v.unit}</td>
-                        <td className="px-4 py-3 text-gray-600">{resident?.name || 'N/A'}</td>
-                        <td className="px-4 py-3 text-gray-600 italic">{v.zoomName || '-'}</td>
+                        <td className="px-4 py-3 font-bold text-gray-900">{cleanText(v.unit)}</td>
+                        <td className="px-4 py-3 text-gray-600">{cleanText(resident?.name || 'N/A')}</td>
+                        <td className="px-4 py-3 text-gray-600 italic">{cleanText(v.zoomName || '-')}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${v.isDelinquentVote ? 'bg-gray-200 text-gray-600' : 'bg-blue-100 text-blue-800'}`}>
-                            {opt?.text || 'N/A'}
+                            {cleanText(opt?.text || 'N/A')}
                           </span>
                         </td>
                         <td className="px-4 py-3">

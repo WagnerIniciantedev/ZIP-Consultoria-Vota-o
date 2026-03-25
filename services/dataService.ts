@@ -56,17 +56,21 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 
 // --- CONNECTION TEST ---
-async function testConnection() {
+export async function testConnection() {
   if (!db) return;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
+    console.log("✅ Conexão com Firestore verificada!");
   } catch (error) {
     if(error instanceof Error && error.message.includes('the client is offline')) {
       console.error("Please check your Firebase configuration. The client is offline.");
+    } else {
+      // Log other errors but don't throw to avoid crashing startup
+      console.warn("⚠️ Firestore Connection Test Warning:", error);
     }
   }
 }
-testConnection();
+// testConnection(); // Removed top-level call to prevent potential startup issues
 
 const STORAGE_KEYS = {
   RESIDENTS: 'condovote_residents',
@@ -93,13 +97,20 @@ const USERS_DOC_ID = 'users';
 const ACTIVE_ASSEMBLIES_DOC_ID = 'active_assemblies';
 
 const DEFAULT_USERS: User[] = [
-  { id: '1', name: 'Administrador', username: 'admin', password: 'admin', role: 'ADMIN' },
-  { id: '3', name: 'Fillype Sampaio', username: 'fillype.sampaio', password: 'fellypi123', role: 'ADMIN', jobTitle: 'Administrador' },
-  { id: '4', name: 'Zeferino Batista', username: 'zeferino.batista', password: 'zeferino123', role: 'ADMIN', jobTitle: 'Administrador' }
+  { id: '1', name: 'Administrador', username: 'admin@zipconsultoria.com', password: 'admin', role: 'ADMIN' },
+  { id: '2', name: 'Wagner Jackson', username: 'wagner.jackson@zipconsultoria.com', password: 'wagner123', role: 'TI', jobTitle: 'Desenvolvedor' },
+  { id: '3', name: 'Fillype Sampaio', username: 'fillype.sampaio@zipconsultoria.com', password: 'fellypi123', role: 'ADMIN', jobTitle: 'Administrador' },
+  { id: '4', name: 'Zeferino Batista', username: 'zeferino.batista@zipconsultoria.com', password: 'zeferino123', role: 'ADMIN', jobTitle: 'Administrador' }
 ];
 
+let isAdminUser = false;
+
+export const setAdminStatus = (status: boolean) => {
+  isAdminUser = status;
+};
+
 const syncToCloud = (key: string, data: any, specificAssemblyId?: string) => {
-    if (db) {
+    if (db && isAdminUser) {
         const assemblyId = specificAssemblyId || localStorage.getItem(STORAGE_KEYS.ASSEMBLY_ID) || localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
         const safeKey = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
         
@@ -119,6 +130,12 @@ const syncToCloud = (key: string, data: any, specificAssemblyId?: string) => {
                .catch(err => handleFirestoreError(err, OperationType.WRITE, `${ASSEMBLIES_COLLECTION}/${safeKey}`));
         }
     }
+};
+
+export const cleanText = (text: string | undefined | null) => {
+  if (!text) return "";
+  // Remove "Certificado Digital" case-insensitive
+  return text.replace(/Certificado Digital/gi, "").trim();
 };
 
 export const saveSession = (user: User, remember: boolean = true) => {
@@ -234,32 +251,90 @@ export const registerAdminUid = async (uid: string, username: string, role: 'TI'
   }
 };
 
+export const cleanupAnonymousAdmins = async (currentUid: string) => {
+  if (db) {
+    try {
+      const adminsRef = collection(db, SYSTEM_COLLECTION, 'authorized_admins');
+      const querySnap = await getDocs(adminsRef);
+      
+      const deletePromises: Promise<void>[] = [];
+      querySnap.forEach((docSnap: any) => {
+        // Delete all anonymous admin records except the current one
+        if (docSnap.id !== currentUid) {
+          deletePromises.push(deleteDoc(doc(db, SYSTEM_COLLECTION, 'authorized_admins', docSnap.id)));
+        }
+      });
+      
+      if (deletePromises.length > 0) {
+        await Promise.all(deletePromises);
+        console.log(`🧹 Limpeza concluída: ${deletePromises.length} registros de administradores anônimos removidos.`);
+      }
+    } catch (err) {
+      console.warn("⚠️ Falha ao limpar administradores anônimos:", err);
+    }
+  }
+};
+
 export const saveUsers = async (users: User[]) => {
   localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
   if (db) {
     const usersRef = doc(db, SYSTEM_COLLECTION, USERS_DOC_ID);
     try {
-      await setDoc(usersRef, { list: users }, { merge: true });
+      // Usamos merge: false para garantir que a lista seja exatamente o que passamos (substituição total)
+      await setDoc(usersRef, { 
+        list: users,
+        lastUpdated: Date.now(),
+        updatedBy: getSession()?.username || 'system'
+      });
       console.log("✅ Usuários sincronizados com Firestore");
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${USERS_DOC_ID}`);
-      throw err; // Re-throw to handle in UI
+      throw err;
     }
   }
 };
 
+/**
+ * Exclui um usuário completamente do sistema, incluindo referências de UID autorizados
+ */
+export const deleteUserCompletely = async (userId: string, username: string, allUsers: User[]) => {
+  // 1. Atualiza a lista local e no Firestore (documento de usuários)
+  const updatedUsers = allUsers.filter(u => u.id !== userId);
+  await saveUsers(updatedUsers);
+
+  // 2. Limpa o UID autorizado no Firestore se existir
+  if (db) {
+    try {
+      const adminsRef = collection(db, SYSTEM_COLLECTION, 'authorized_admins');
+      // Buscamos pelo username (sem o domínio se for o caso, mas aqui usamos o username completo salvo)
+      const q = query(adminsRef, where("username", "==", username.split('@')[0].toLowerCase()));
+      const querySnap = await getDocs(q);
+      
+      const deletePromises: Promise<void>[] = [];
+      querySnap.forEach((docSnap) => {
+        deletePromises.push(deleteDoc(doc(db, SYSTEM_COLLECTION, 'authorized_admins', docSnap.id)));
+      });
+      
+      if (deletePromises.length > 0) {
+        await Promise.all(deletePromises);
+        console.log(`🧹 Removidos ${deletePromises.length} registros de UID autorizados para o usuário ${username}`);
+      }
+    } catch (err) {
+      console.warn("⚠️ Falha ao limpar UID autorizado do usuário excluído:", err);
+    }
+  }
+  
+  return updatedUsers;
+};
+
 export const getUsers = (): User[] => {
   const data = localStorage.getItem(STORAGE_KEYS.USERS);
-  let userList: User[] = data ? JSON.parse(data) : [];
+  if (data) {
+    return JSON.parse(data);
+  }
   
-  // Garantir que os usuários TI mestre sempre existam na lista
-  DEFAULT_USERS.forEach(defUser => {
-    if (!userList.some(u => u.username.toLowerCase() === defUser.username.toLowerCase())) {
-        userList.push(defUser);
-    }
-  });
-
-  return userList;
+  // Se não houver nada no localStorage, usamos os padrões (primeira inicialização)
+  return DEFAULT_USERS;
 };
 
 // Helper para exportar a lista mestre em caso de falha crítica
@@ -267,8 +342,8 @@ export const getMasterSecurityUsers = () => DEFAULT_USERS;
 
 export const saveCondoName = (name: string) => {
   localStorage.setItem(STORAGE_KEYS.CONDO_NAME, name);
-  if (name) syncToCloud(STORAGE_KEYS.CONDO_NAME, name);
-  if (db && name && name !== 'Modo Administrativo') {
+  if (name && isAdminUser) syncToCloud(STORAGE_KEYS.CONDO_NAME, name);
+  if (db && name && name !== 'Modo Administrativo' && isAdminUser) {
       const globalRef = doc(db, SYSTEM_COLLECTION, GLOBAL_DOC_ID);
       setDoc(globalRef, { active_condo: name }, { merge: true })
         .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${GLOBAL_DOC_ID}`));
