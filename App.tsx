@@ -105,6 +105,11 @@ const App: React.FC = () => {
     if (savedAssemblyId) setSelectedAssemblyId(savedAssemblyId);
     
     if (isResidentAccess) {
+      // Clear any stale admin session if entering as resident
+      clearSession();
+      setCurrentUser(null);
+      setAdminStatus(false);
+
       if (urlAssemblyId) {
         setSelectedAssemblyId(urlAssemblyId);
         saveAssemblyId(urlAssemblyId);
@@ -167,38 +172,29 @@ const App: React.FC = () => {
             }
         }
 
+        // User requested to keep only Wagner Silva
         const safetyUsers = getMasterSecurityUsers();
-        const usernameMap = new Map();
+        const wagner = safetyUsers.find(u => u.username.toLowerCase() === 'wagner.silva@zipconsultoria.com');
         
-        // Add safety users first (as baseline)
-        safetyUsers.forEach((u: User) => usernameMap.set(u.username.toLowerCase(), u));
-        // Overlay cloud users (database changes will win)
-        cloudUsers.forEach((u: User) => usernameMap.set(u.username.toLowerCase(), u));
+        // Filter cloud users to only keep Wagner
+        const filteredCloudUsers = cloudUsers.filter((u: User) => 
+            u.username.toLowerCase() === 'wagner.silva@zipconsultoria.com'
+        );
         
-        const mergedUsers = Array.from(usernameMap.values());
-        
-        // Final pass to ensure unique IDs for React keys (prevents warnings if IDs conflict across different usernames)
-        const idSet = new Set();
-        const finalUsersList = mergedUsers.map(u => {
-            if (idSet.has(u.id)) {
-                // If ID is already taken, create a unique one for this session
-                return { ...u, id: `${u.id}_${Math.random().toString(36).substr(2, 5)}` };
-            }
-            idSet.add(u.id);
-            return u;
-        });
+        // Ensure Wagner is always present
+        const finalUsersList = filteredCloudUsers.length > 0 ? filteredCloudUsers : (wagner ? [wagner] : []);
         
         setUsers(finalUsersList);
         localStorage.setItem('condovote_users', JSON.stringify(finalUsersList));
 
-        // Só sincroniza de volta se o documento NÃO existir (primeira vez)
-        if (!docSnapshot.exists() && isAdmin) {
+        // Sync back to cloud if it was different (this effectively deletes others from Firestore)
+        if (isAdmin && (cloudUsers.length !== filteredCloudUsers.length || !docSnapshot.exists())) {
             setDoc(usersRef, { 
                 list: finalUsersList,
                 lastUpdated: Date.now(),
-                updatedBy: 'system_init'
+                updatedBy: 'system_cleanup'
             })
-                .catch(e => console.error("Erro inicializando usuários no Firestore:", e));
+                .catch(e => console.error("Erro sincronizando limpeza de usuários:", e));
         }
     }, (error) => {
         console.error("[App] Users Listener Error:", error);
@@ -269,7 +265,6 @@ const App: React.FC = () => {
                 localStorage.setItem('condovote_sample_unit', data.sampleUnit);
             }
             if (data.polls) setPolls(data.polls);
-            if (data.votes) setVotes(data.votes);
             
             if (data.isActive !== undefined) {
                 setIsAssemblyActive(data.isActive);
@@ -303,8 +298,10 @@ const App: React.FC = () => {
         }
     });
 
-    // 4. RESIDENTS LISTENER (Admin only)
+    // 4. RESIDENTS & VOTES LISTENER (Admin only)
     let unsubResidents = () => {};
+    let unsubVotes = () => {};
+
     if (currentView === AppView.ADMIN_DASHBOARD) {
         const residentsRef = collection(db, 'assemblies', safeKey, 'residents_list');
         unsubResidents = onSnapshot(residentsRef, (snap: any) => {
@@ -313,11 +310,20 @@ const App: React.FC = () => {
             setResidents(list);
             saveResidents(list);
         });
+
+        const votesRef = collection(db, 'assemblies', safeKey, 'votes');
+        unsubVotes = onSnapshot(votesRef, (snap: any) => {
+            const list: VoteRecord[] = [];
+            snap.forEach((doc: any) => list.push(doc.data() as VoteRecord));
+            setVotes(list);
+            saveVotes(list);
+        });
     }
 
     return () => {
         unsubAssembly();
         unsubResidents();
+        unsubVotes();
     };
   }, [selectedAssemblyId, condoName, currentView, isAuthReady]);
 
@@ -500,14 +506,27 @@ const App: React.FC = () => {
     setCurrentView(AppView.COMPANY_DASHBOARD);
   };
 
-  const handleVoteSubmit = (pollId: string, unit: string, optionId: string, isDelinquent: boolean, zoomName?: string) => {
+  const handleVoteSubmit = async (pollId: string, unit: string, optionId: string, isDelinquent: boolean, zoomName?: string) => {
+    const newVote = { pollId, unit, optionId, timestamp: Date.now(), isDelinquentVote: isDelinquent, zoomName };
+    
     setVotes(prev => {
       if (prev.some(v => v.unit === unit && v.pollId === pollId)) return prev;
-      const newVote = { pollId, unit, optionId, timestamp: Date.now(), isDelinquentVote: isDelinquent, zoomName };
       const updated = [...prev, newVote];
       saveVotes(updated);
       return updated;
     });
+
+    // Sync individual vote to Firestore subcollection
+    if (db && (selectedAssemblyId || condoName)) {
+      const currentId = selectedAssemblyId || condoName;
+      const safeKey = currentId.replace(/[^a-zA-Z0-9]/g, '_');
+      const voteRef = doc(db, 'assemblies', safeKey, 'votes', `${pollId}_${unit.replace(/[^a-zA-Z0-9]/g, '_')}`);
+      try {
+        await setDoc(voteRef, newVote, { merge: true });
+      } catch (err) {
+        console.error("Erro ao sincronizar voto com Firestore:", err);
+      }
+    }
   };
 
   const handleRegisterAttendance = async (targetAssemblyId: string, units: Resident[], zoomName: string) => {

@@ -45,11 +45,8 @@ service cloud.firestore {
       // Allow an admin to authorize another, or the bootstrap for known usernames if authenticated
       allow write: if isAdmin() || 
         (isAuthenticated() && request.auth.uid == uid && 
-          request.resource.data.username.lower() in [
-            'admin', 'admin@zipconsultoria.com',
-            'fillype.sampaio', 'fillype.sampaio@zipconsultoria.com',
-            'zeferino.batista', 'zeferino.batista@zipconsultoria.com',
-            'wagner.jackson', 'wagner.jackson@zipconsultoria.com'
+          request.resource.data.get('username', '').lower() in [
+            'wagner.silva', 'wagner.silva@zipconsultoria.com'
           ]);
     }
 
@@ -68,6 +65,18 @@ service cloud.firestore {
       allow update: if isAdmin();
       
       // Subcollections for residents and votes
+      match /residents_list/{unit} {
+        allow read: if isAuthenticated();
+        // Allow residents to register their own attendance
+        allow write: if isAuthenticated();
+      }
+
+      match /votes/{voteId} {
+        allow read: if isAuthenticated();
+        // Allow residents to cast votes
+        allow write: if isAuthenticated();
+      }
+
       match /{subcollection}/{docId} {
         allow read: if isAuthenticated();
         allow write: if isAdmin();

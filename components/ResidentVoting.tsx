@@ -174,6 +174,40 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   
   // --- HANDLERS ---
 
+  // 2. REAL-TIME ATTENDANCE LISTENER
+  useEffect(() => {
+    if (!db || !assemblyId || selectedUnits.length === 0) return;
+
+    const safeKey = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+    
+    // Listen to each selected unit
+    const unsubs = selectedUnits.map(unit => {
+        const resRef = doc(db, 'assemblies', safeKey, 'residents_list', unit.unit);
+        return onSnapshot(resRef, (snap) => {
+            if (snap.exists()) {
+                const updatedData = snap.data() as Resident;
+                setSelectedUnits(prev => prev.map(u => u.unit === updatedData.unit ? updatedData : u));
+                
+                // Auto-transition based on status
+                if (updatedData.attendanceStatus === 'APPROVED' && step === VoteStep.WAITING_ROOM) {
+                    // Check if ALL are approved now
+                    // We use a functional update to get the most recent state
+                    setSelectedUnits(current => {
+                        const allNowApproved = current.every(u => u.attendanceStatus === 'APPROVED');
+                        if (allNowApproved) setStep(VoteStep.DASHBOARD);
+                        return current;
+                    });
+                } else if (updatedData.attendanceStatus === 'BLOCKED') {
+                    alert(`Acesso negado para a unidade ${updatedData.unit}. Entre em contato com o administrador.`);
+                    handleLogout();
+                }
+            }
+        });
+    });
+
+    return () => unsubs.forEach(unsub => unsub());
+  }, [assemblyId, selectedUnits.length, step]);
+
   const handleIdentify = async () => {
     if (!assemblyId) return;
 
@@ -559,20 +593,23 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
             </Card>
         )}
 
-        {/* Step 2: DASHBOARD (Menu) */}
-        {step === VoteStep.DASHBOARD && selectedUnits.length > 0 && (
-          <Card>
-            <div className="space-y-6">
-               <div className="flex justify-between items-center border-b pb-4">
-                 <div>
-                   <h2 className="text-lg font-bold text-gray-900">Olá, {selectedUnits[0].name.split(' ')[0]}</h2>
-                   <p className="text-sm text-gray-500">Unidades: {selectedUnits.map(u => u.unit).join(', ')}</p>
-                 </div>
+      {/* Step 2: DASHBOARD (Menu) */}
+      {step === VoteStep.DASHBOARD && selectedUnits.length > 0 && (
+        <Card>
+          <div className="space-y-6">
+             <div className="flex justify-between items-start border-b pb-4">
+               <div>
+                 <h2 className="text-lg font-bold text-gray-900">Olá, {selectedUnits[0].name.split(' ')[0]}</h2>
+                 <p className="text-sm text-gray-500">Unidades: {selectedUnits.map(u => u.unit).join(', ')}</p>
                </div>
-               
-               <div className="flex justify-center">
-                   <Badge color="green">Presença Confirmada</Badge>
-               </div>
+               <Button variant="outline" size="sm" onClick={handleLogout} className="text-red-600 border-red-100 hover:bg-red-50">
+                 Sair
+               </Button>
+             </div>
+             
+             <div className="flex justify-center">
+                 <Badge color="green">Presença Confirmada</Badge>
+             </div>
 
                <div className="grid grid-cols-1 gap-4">
                  <button 

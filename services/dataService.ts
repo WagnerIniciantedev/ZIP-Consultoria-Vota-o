@@ -97,10 +97,7 @@ const USERS_DOC_ID = 'users';
 const ACTIVE_ASSEMBLIES_DOC_ID = 'active_assemblies';
 
 const DEFAULT_USERS: User[] = [
-  { id: '1', name: 'Administrador', username: 'admin@zipconsultoria.com', password: 'admin', role: 'ADMIN' },
-  { id: '2', name: 'Wagner Jackson', username: 'wagner.jackson@zipconsultoria.com', password: 'wagner123', role: 'TI', jobTitle: 'Desenvolvedor' },
-  { id: '3', name: 'Fillype Sampaio', username: 'fillype.sampaio@zipconsultoria.com', password: 'fellypi123', role: 'ADMIN', jobTitle: 'Administrador' },
-  { id: '4', name: 'Zeferino Batista', username: 'zeferino.batista@zipconsultoria.com', password: 'zeferino123', role: 'ADMIN', jobTitle: 'Administrador' }
+  { id: '1', name: 'Wagner Silva', username: 'wagner.silva@zipconsultoria.com', password: 'wagner123', role: 'TI', jobTitle: 'Administrador TI' }
 ];
 
 let isAdminUser = false;
@@ -123,11 +120,33 @@ const syncToCloud = (key: string, data: any, specificAssemblyId?: string) => {
         if (key === STORAGE_KEYS.CONDO_NAME) fieldName = 'name';
         if (key === STORAGE_KEYS.LOGS) fieldName = 'logs';
 
-        if (fieldName) {
-            const cleanData = JSON.parse(JSON.stringify(data));
-            const docRef = doc(db, ASSEMBLIES_COLLECTION, safeKey);
-            setDoc(docRef, { [fieldName]: cleanData }, { merge: true })
-               .catch(err => handleFirestoreError(err, OperationType.WRITE, `${ASSEMBLIES_COLLECTION}/${safeKey}`));
+        if (fieldName && fieldName !== 'residents' && fieldName !== 'votes') {
+            try {
+                // Use a more robust cleaning method to avoid circular references
+                // This also handles the "Unsupported field value: undefined" error
+                const cleanData = JSON.parse(JSON.stringify(data, (_, value) => {
+                    // Filter out Firebase internal objects if they somehow leaked in
+                    // Y2 and Ka are common internal Firebase class names that cause circular errors
+                    if (value && typeof value === 'object') {
+                        const constructorName = value.constructor?.name;
+                        if (constructorName === 'Y2' || constructorName === 'Ka' || value._firestore || value.firestore) {
+                            return undefined;
+                        }
+                    }
+                    return value;
+                }));
+                const docRef = doc(db, ASSEMBLIES_COLLECTION, safeKey);
+                setDoc(docRef, { [fieldName]: cleanData }, { merge: true })
+                   .catch(err => handleFirestoreError(err, OperationType.WRITE, `${ASSEMBLIES_COLLECTION}/${safeKey}`));
+            } catch (e) {
+                console.error(`[syncToCloud] Critical error cleaning data for ${fieldName}:`, e);
+                // If JSON.stringify fails, we try a simpler approach for non-objects
+                if (typeof data !== 'object') {
+                   const docRef = doc(db, ASSEMBLIES_COLLECTION, safeKey);
+                   setDoc(docRef, { [fieldName]: data }, { merge: true })
+                      .catch(err => handleFirestoreError(err, OperationType.WRITE, `${ASSEMBLIES_COLLECTION}/${safeKey}`));
+                }
+            }
         }
     }
 };
@@ -338,12 +357,20 @@ export const deleteUserCompletely = async (userId: string, username: string, all
 
 export const getUsers = (): User[] => {
   const data = localStorage.getItem(STORAGE_KEYS.USERS);
-  if (data) {
-    return JSON.parse(data);
-  }
+  let users: User[] = [];
   
-  // Se não houver nada no localStorage, usamos os padrões (primeira inicialização)
-  return DEFAULT_USERS;
+  if (data) {
+    try {
+      users = JSON.parse(data);
+    } catch (e) {
+      users = DEFAULT_USERS;
+    }
+  } else {
+    users = DEFAULT_USERS;
+  }
+
+  // User requested to keep only Wagner Silva
+  return users.filter(u => u.username === 'wagner.silva@zipconsultoria.com');
 };
 
 // Helper para exportar a lista mestre em caso de falha crítica
