@@ -97,7 +97,7 @@ const USERS_DOC_ID = 'users';
 const ACTIVE_ASSEMBLIES_DOC_ID = 'active_assemblies';
 
 const DEFAULT_USERS: User[] = [
-  { id: '1', name: 'Wagner Silva', username: 'wagner.silva@zipconsultoria.com', password: 'wagner123', role: 'TI', jobTitle: 'Administrador TI' }
+  { id: '1', name: 'Wagner Silva', username: 'wagner.silva', password: 'wagner123', role: 'TI', jobTitle: 'Administrador TI' }
 ];
 
 let isAdminUser = false;
@@ -369,8 +369,8 @@ export const getUsers = (): User[] => {
     users = DEFAULT_USERS;
   }
 
-  // User requested to keep only Wagner Silva
-  return users.filter(u => u.username === 'wagner.silva@zipconsultoria.com');
+  // Retornamos todos os usuários sem filtro para que os novos apareçam
+  return users;
 };
 
 // Helper para exportar a lista mestre em caso de falha crítica

@@ -437,7 +437,7 @@ export const UsersManagement: React.FC<UsersProps> = ({
                             )}
                           </div>
                           <p className="text-xs text-gray-500 font-mono mt-1 flex items-center gap-1 truncate">
-                            @{user.username}
+                            {user.username}
                           </p>
                         </div>
                       </div>

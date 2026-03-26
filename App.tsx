@@ -339,11 +339,6 @@ const App: React.FC = () => {
     let normalizedEmail = adminEmail.trim().toLowerCase();
     const cleanPass = adminPass.trim();
 
-    // Se o usuário não digitou o @zipconsultoria.com, adicionamos automaticamente para a busca
-    if (normalizedEmail && !normalizedEmail.includes('@')) {
-      normalizedEmail = `${normalizedEmail}@zipconsultoria.com`;
-    }
-
     // 1. Busca na lista de usuários carregados (Estado)
     let validUser = users.find(u => 
       u.username.toLowerCase() === normalizedEmail && u.password === cleanPass
