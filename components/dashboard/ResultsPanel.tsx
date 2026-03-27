@@ -4,7 +4,7 @@ import { Poll, VoteRecord, Resident, PollCalculationType, User, AssemblyType } f
 import { Button, Card, Badge, Input } from '../ui';
 import { exportVotesToCSV, addLog, savePolls, cleanText } from '../../services/dataService';
 import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { ArrowLeft, PlayCircle, PauseCircle, StopCircle, Download, Eye, EyeOff, Plus } from 'lucide-react';
+import { ArrowLeft, PlayCircle, PauseCircle, StopCircle, Download, Eye, EyeOff, Plus, Users } from 'lucide-react';
 
 interface ResultsPanelProps {
   poll: Poll;
@@ -16,6 +16,7 @@ interface ResultsPanelProps {
   currentUser: User | null;
   assemblyType: AssemblyType | null;
   setPolls: React.Dispatch<React.SetStateAction<Poll[]>>;
+  residentsCount: number;
 }
 
 export const ResultsPanel: React.FC<ResultsPanelProps> = ({ 
@@ -27,7 +28,8 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
   onEndPoll,
   currentUser,
   assemblyType,
-  setPolls
+  setPolls,
+  residentsCount
 }) => {
   const [showDelinquentVotes, setShowDelinquentVotes] = useState(false);
   const [isConfirmingEnd, setIsConfirmingEnd] = useState(false);
@@ -166,9 +168,16 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                <p className="text-sm text-gray-500">{cleanText(poll.description)}</p>
                <Badge color="gray">{getCalculationLabel(poll.calculationType)}</Badge>
              </div>
-             <div className="mt-2">
+             <div className="mt-2 flex items-center gap-3">
                  {poll.isActive ? <Badge color="green">Votação Ativa</Badge> : 
                  poll.isEnded ? <Badge color="red">Encerrada</Badge> : <Badge color="yellow">Pausada / Rascunho</Badge>}
+                 
+                 {residentsCount > 0 && (
+                   <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-bold border border-gray-200">
+                     <Users size={12} className="text-gray-500" />
+                     <span>Votos: {pollVotes.length} / {residentsCount}</span>
+                   </div>
+                 )}
              </div>
            </div>
            <div className="flex gap-3">

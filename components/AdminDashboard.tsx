@@ -41,6 +41,7 @@ interface AdminDashboardProps {
   onBackToCompany: () => void;
   currentUser: User | null;
   selectedAssemblyId?: string;
+  residentsCount: number;
   setSampleUnit: React.Dispatch<React.SetStateAction<string>>;
   assemblyType: AssemblyType | null;
   startedBy?: string;
@@ -63,6 +64,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onBackToCompany,
   currentUser,
   selectedAssemblyId,
+  residentsCount,
   setSampleUnit,
   assemblyType,
   startedBy
@@ -378,6 +380,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  currentUser={currentUser}
                  assemblyType={assemblyType}
                  setPolls={setPolls}
+                 residentsCount={residentsCount}
               />
             )}
 

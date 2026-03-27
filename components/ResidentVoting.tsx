@@ -140,75 +140,43 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
   // 2. REAL-TIME STATUS UPDATES (Per Unit)
   useEffect(() => {
-    if (selectedUnits.length > 0 && assemblyId) {
-      const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
-      
-      const unsubs = selectedUnits.map(unit => {
-          const resRef = doc(db, 'assemblies', safeAssemblyId, 'residents_list', unit.unit.toLowerCase());
-          return onSnapshot(resRef, (snap) => {
-              if (snap.exists()) {
-                  const updatedData = snap.data() as Resident;
-                  
-                  setSelectedUnits(prev => {
-                      const updated = prev.map(u => u.unit.toLowerCase() === updatedData.unit.toLowerCase() ? updatedData : u);
-                      
-                      // Check for auto-transition to DASHBOARD if approved
-                      const anyApproved = updated.some(u => u.attendanceStatus === 'APPROVED');
-                      if (anyApproved && step === VoteStep.WAITING_ROOM) {
-                          setStep(VoteStep.DASHBOARD);
-                      }
-
-                      return updated;
-                  });
-                  
-                  if (updatedData.attendanceStatus === 'BLOCKED') {
-                      alert(`O acesso da unidade ${updatedData.unit} foi bloqueado pelo administrador.`);
-                      handleLogout();
-                  }
-              }
-          });
-      });
-
-      return () => unsubs.forEach(unsub => unsub());
-    }
-  }, [selectedUnits.length, assemblyId, step]); // Added step to dependency to allow transition check
-
-  
-  // --- HANDLERS ---
-
-  // 2. REAL-TIME ATTENDANCE LISTENER
-  useEffect(() => {
-    if (!db || !assemblyId || selectedUnits.length === 0) return;
-
-    const safeKey = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+    if (selectedUnits.length === 0 || !assemblyId) return;
     
-    // Listen to each selected unit
+    const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+    
     const unsubs = selectedUnits.map(unit => {
-        const resRef = doc(db, 'assemblies', safeKey, 'residents_list', unit.unit);
+        const resRef = doc(db, 'assemblies', safeAssemblyId, 'residents_list', unit.unit.toLowerCase());
         return onSnapshot(resRef, (snap) => {
             if (snap.exists()) {
                 const updatedData = snap.data() as Resident;
-                setSelectedUnits(prev => prev.map(u => u.unit === updatedData.unit ? updatedData : u));
                 
-                // Auto-transition based on status
-                if (updatedData.attendanceStatus === 'APPROVED' && step === VoteStep.WAITING_ROOM) {
-                    // Check if ALL are approved now
-                    // We use a functional update to get the most recent state
-                    setSelectedUnits(current => {
-                        const allNowApproved = current.every(u => u.attendanceStatus === 'APPROVED');
-                        if (allNowApproved) setStep(VoteStep.DASHBOARD);
-                        return current;
-                    });
-                } else if (updatedData.attendanceStatus === 'BLOCKED') {
-                    alert(`Acesso negado para a unidade ${updatedData.unit}. Entre em contato com o administrador.`);
+                setSelectedUnits(prev => {
+                    const updated = prev.map(u => u.unit.toLowerCase() === updatedData.unit.toLowerCase() ? updatedData : u);
+                    
+                    // Check for auto-transition to DASHBOARD if approved
+                    const anyApproved = updated.some(u => u.attendanceStatus === 'APPROVED');
+                    if (anyApproved && step === VoteStep.WAITING_ROOM) {
+                        setStep(VoteStep.DASHBOARD);
+                    }
+
+                    return updated;
+                });
+                
+                if (updatedData.attendanceStatus === 'BLOCKED') {
+                    alert(`O acesso da unidade ${updatedData.unit} foi bloqueado pelo administrador.`);
                     handleLogout();
                 }
             }
+        }, (error) => {
+            console.error("Resident status listener error:", error);
         });
     });
 
     return () => unsubs.forEach(unsub => unsub());
-  }, [assemblyId, selectedUnits.length, step]);
+  }, [selectedUnits.length, assemblyId]); // Removed 'step' to avoid re-subscribing on step change
+
+  
+  // --- HANDLERS ---
 
   const handleIdentify = async () => {
     if (!assemblyId) return;

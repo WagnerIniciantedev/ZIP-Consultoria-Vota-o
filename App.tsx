@@ -47,6 +47,7 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
   const [isAssemblyActive, setIsAssemblyActive] = useState<boolean | null>(null);
+  const [residentsCount, setResidentsCount] = useState<number>(0);
   const [assemblyType, setAssemblyType] = useState<AssemblyType | null>(null);
   const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
@@ -60,6 +61,7 @@ const App: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false); 
   const [loginError, setLoginError] = useState('');
+  const [globalError, setGlobalError] = useState('');
   const [isConnected, setIsConnected] = useState(navigator.onLine);
 
   // --- INITIAL LOAD ---
@@ -196,13 +198,13 @@ const App: React.FC = () => {
         }
     }, (error) => {
         console.error("[App] Users Listener Error:", error);
-        // Don't set hasPermissionError here as we have fallback users
     });
 
     const globalRef = doc(db, 'system', 'global');
     const unsubGlobal = onSnapshot(globalRef, (docSnapshot) => {
         const data = docSnapshot.data();
         const val = data?.active_condo;
+        // Only update condoName if we are in login view to avoid disrupting active sessions
         if (val && val !== 'null' && currentView === AppView.ADMIN_LOGIN) {
             setCondoName(val);
             if (data?.startedBy) setStartedBy(data.startedBy);
@@ -215,7 +217,7 @@ const App: React.FC = () => {
         unsubUsers();
         unsubGlobal();
     };
-  }, [currentView, isAuthReady, currentUser]);
+  }, [isAuthReady, !!currentUser]); // Removed currentView to prevent unnecessary re-subscriptions
 
   // --- 2. LOGS LISTENER (Global) ---
   useEffect(() => {
@@ -226,7 +228,7 @@ const App: React.FC = () => {
         const data = snap.data();
         if (data && Array.isArray(data.list)) {
           setLogs(data.list);
-          saveLogs(data.list);
+          saveLogs(data.list, false); // Don't sync back to cloud
         }
       }
     }, (error) => {
@@ -239,7 +241,7 @@ const App: React.FC = () => {
         const data = snap.data();
         if (data && Array.isArray(data.list)) {
           setActiveAssemblies(data.list);
-          localStorage.setItem('condovote_active_assemblies', JSON.stringify(data.list));
+          saveActiveAssemblies(data.list, false); // Don't sync back to cloud
         }
       }
     }, (error) => {
@@ -252,7 +254,7 @@ const App: React.FC = () => {
         const data = snap.data();
         if (data && Array.isArray(data.list)) {
           setPastAssemblies(data.list);
-          localStorage.setItem('condovote_assemblies', JSON.stringify(data.list));
+          saveAssemblies(data.list, false); // Don't sync back to cloud
         }
       }
     }, (error) => {
@@ -270,6 +272,9 @@ const App: React.FC = () => {
       }
     }, (error) => {
       console.error("[App] Error Logs Listener Error:", error);
+      if (error.message.includes('resource-exhausted') || error.message.includes('Quota exceeded')) {
+        setGlobalError("Limite de uso do banco de dados excedido. Por favor, aguarde o reset diário da cota.");
+      }
     });
 
     return () => {
@@ -291,10 +296,15 @@ const App: React.FC = () => {
         return;
     }
 
+    const currentAssemblyId = selectedAssemblyId || localStorage.getItem('condovote_assembly_id');
+    if (!currentAssemblyId && currentView !== AppView.ADMIN_LOGIN) {
+      setIsDataLoaded(true);
+      return;
+    }
+
     setIsDataLoaded(false);
     setIsAssemblyActive(null);
 
-    const currentAssemblyId = selectedAssemblyId || localStorage.getItem('condovote_assembly_id');
     const safeKey = (currentAssemblyId || condoName || localStorage.getItem('condovote_condo_name') || 'setup').replace(/[^a-zA-Z0-9]/g, '_');
     const assemblyRef = doc(db, 'assemblies', safeKey);
 
@@ -310,6 +320,7 @@ const App: React.FC = () => {
             }
             if (data.polls) setPolls(data.polls);
             if (data.startedBy) setStartedBy(data.startedBy);
+            if (data.residentsCount) setResidentsCount(data.residentsCount);
             
             if (data.isActive !== undefined) {
                 setIsAssemblyActive(data.isActive);
@@ -320,10 +331,8 @@ const App: React.FC = () => {
             setIsDataLoaded(true);
         } else {
             // If assembly doc doesn't exist, wait longer before giving up
-            // This prevents "unavailable" flash during creation propagation
             setTimeout(() => {
               if (selectedAssemblyId || (condoName && condoName !== 'Modo Administrativo')) {
-                // Double check if it still doesn't exist
                 if (!isDataLoaded) {
                   setPolls([]);
                   setVotes([]);
@@ -336,6 +345,9 @@ const App: React.FC = () => {
         }
     }, (error) => {
         console.error("[App] Firestore Listener Error:", error);
+        if (error.message.includes('resource-exhausted') || error.message.includes('Quota exceeded')) {
+          setGlobalError("Limite de uso do banco de dados excedido. Por favor, aguarde o reset diário da cota.");
+        }
         if (error.message.includes('permission-denied')) {
             setHasPermissionError(true);
             setIsAssemblyActive(false);
@@ -370,7 +382,7 @@ const App: React.FC = () => {
         unsubResidents();
         unsubVotes();
     };
-  }, [selectedAssemblyId, condoName, currentView, isAuthReady]);
+  }, [selectedAssemblyId, currentView === AppView.ADMIN_DASHBOARD, isAuthReady]); 
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -407,7 +419,7 @@ const App: React.FC = () => {
       // Sincroniza o UID do Firebase com o usuário administrador para as regras do Firestore
       // Fazemos isso ANTES do log para garantir que as permissões estejam ativas
       if (auth?.currentUser) {
-        const isAdmin = validUser.role === 'ADMIN' || validUser.role === 'TI' || validUser.role === 'MASTER';
+        const isAdmin = validUser.role === 'ADMIN' || validUser.role === 'TI';
         setAdminStatus(isAdmin);
         
         // Usamos o username completo conforme solicitado pelo usuário (sem prefixo)
@@ -568,12 +580,27 @@ const App: React.FC = () => {
   const handleVoteSubmit = async (pollId: string, unit: string, optionId: string, isDelinquent: boolean, zoomName?: string) => {
     const newVote = { pollId, unit, optionId, timestamp: Date.now(), isDelinquentVote: isDelinquent, zoomName };
     
+    let canVote = true;
     setVotes(prev => {
-      if (prev.some(v => v.unit === unit && v.pollId === pollId)) return prev;
+      if (prev.some(v => v.unit === unit && v.pollId === pollId)) {
+        canVote = false;
+        return prev;
+      }
+      
+      // Check if we reached the limit of residents imported
+      const pollVotesCount = prev.filter(v => v.pollId === pollId).length;
+      if (residentsCount > 0 && pollVotesCount >= residentsCount) {
+        canVote = false;
+        alert(`Limite de votos atingido (${residentsCount}). Não é possível registrar mais votos para esta enquete.`);
+        return prev;
+      }
+
       const updated = [...prev, newVote];
       saveVotes(updated);
       return updated;
     });
+
+    if (!canVote) return;
 
     // Sync individual vote to Firestore subcollection
     if (db && (selectedAssemblyId || condoName)) {
@@ -626,6 +653,20 @@ const App: React.FC = () => {
   if (currentView === AppView.ADMIN_LOGIN) {
     return (
       <div className="min-h-screen bg-[#E60000] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        {globalError && currentUser?.role === 'TI' && (
+          <div className="fixed top-0 left-0 right-0 bg-white text-red-600 p-4 text-center font-bold z-50 shadow-lg flex items-center justify-center gap-2">
+            <AlertCircle size={20} />
+            {globalError}
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => window.location.reload()}
+              className="ml-4 bg-red-600 text-white border-red-600 hover:bg-red-700"
+            >
+              Recarregar
+            </Button>
+          </div>
+        )}
         <div className="flex flex-col items-center w-full max-w-md z-10">
           <div className="mb-8 text-center">
              <img src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" alt="Zip Consultoria" className="h-64 w-auto mx-auto object-contain drop-shadow-xl" />
@@ -764,7 +805,22 @@ const App: React.FC = () => {
 
   if (currentView === AppView.COMPANY_DASHBOARD) {
     return (
-      <CompanyDashboard 
+      <div className="min-h-screen bg-gray-50">
+        {globalError && currentUser?.role === 'TI' && (
+          <div className="bg-red-600 text-white p-4 text-center font-bold flex items-center justify-center gap-2">
+            <AlertCircle size={20} />
+            {globalError}
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => window.location.reload()}
+              className="ml-4 bg-white text-red-600 border-white hover:bg-red-50"
+            >
+              Recarregar
+            </Button>
+          </div>
+        )}
+        <CompanyDashboard 
         currentUser={currentUser}
         onLogout={() => { 
           if (currentUser) addLog(currentUser, 'LOGOUT', 'Saiu do sistema');
@@ -809,13 +865,30 @@ const App: React.FC = () => {
         }}
         onClearErrorLogs={clearErrorLogs}
       />
+      </div>
     );
   }
 
   if (currentView === AppView.ADMIN_DASHBOARD) {
     return (
-      <AdminDashboard 
+      <div className="min-h-screen bg-gray-50">
+        {globalError && currentUser?.role === 'TI' && (
+          <div className="bg-red-600 text-white p-4 text-center font-bold flex items-center justify-center gap-2">
+            <AlertCircle size={20} />
+            {globalError}
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => window.location.reload()}
+              className="ml-4 bg-white text-red-600 border-white hover:bg-red-50"
+            >
+              Recarregar
+            </Button>
+          </div>
+        )}
+        <AdminDashboard 
         isAssemblyActive={isAssemblyActive}
+        residentsCount={residentsCount}
         residents={residents} setResidents={setResidents}
         polls={polls} setPolls={setPolls}
         votes={votes}
@@ -865,28 +938,45 @@ const App: React.FC = () => {
         assemblyType={assemblyType}
         startedBy={startedBy}
       />
+      </div>
     );
   }
 
   return (
-    <ResidentVoting 
-      assemblyId={selectedAssemblyId}
-      sampleUnit={sampleUnit}
-      polls={polls}
-      onVoteSubmit={handleVoteSubmit}
-      onRegisterAttendance={(units, zoomName) => handleRegisterAttendance(selectedAssemblyId, units, zoomName)}
-      hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
-      isResidentLink={new URLSearchParams(window.location.search).get('access') === 'resident'}
-      isConnected={isConnected}
-      startedBy={startedBy}
-      onBack={() => {
-        if (currentUser) {
-          setCurrentView(AppView.ADMIN_DASHBOARD);
-        } else {
-          setCurrentView(AppView.ADMIN_LOGIN);
-        }
-      }}
-    />
+    <div className="min-h-screen bg-gray-50">
+      {globalError && currentUser?.role === 'TI' && (
+        <div className="bg-red-600 text-white p-4 text-center font-bold flex items-center justify-center gap-2">
+          <AlertCircle size={20} />
+          {globalError}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => window.location.reload()}
+            className="ml-4 bg-white text-red-600 border-white hover:bg-red-50"
+          >
+            Recarregar
+          </Button>
+        </div>
+      )}
+      <ResidentVoting 
+        assemblyId={selectedAssemblyId}
+        sampleUnit={sampleUnit}
+        polls={polls}
+        onVoteSubmit={handleVoteSubmit}
+        onRegisterAttendance={(units, zoomName) => handleRegisterAttendance(selectedAssemblyId, units, zoomName)}
+        hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
+        isResidentLink={new URLSearchParams(window.location.search).get('access') === 'resident'}
+        isConnected={isConnected}
+        startedBy={startedBy}
+        onBack={() => {
+          if (currentUser) {
+            setCurrentView(AppView.ADMIN_DASHBOARD);
+          } else {
+            setCurrentView(AppView.ADMIN_LOGIN);
+          }
+        }}
+      />
+    </div>
   );
 };
 

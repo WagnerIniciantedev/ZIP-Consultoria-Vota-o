@@ -1,6 +1,6 @@
 
 import { Resident, Poll, VoteRecord, User, AssemblyRecord, ErrorLog } from '../types';
-import { doc, setDoc, deleteDoc, getDoc, collection, query, where, getDocs, getDocFromServer } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, getDoc, collection, query, where, getDocs, getDocFromServer, arrayUnion } from 'firebase/firestore';
 import { db, auth } from './firebase';
 
 // --- FIRESTORE ERROR HANDLING ---
@@ -40,6 +40,14 @@ let errorThrottle = {
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const now = Date.now();
+  const errorMessage = error instanceof Error ? error.message : String(error);
+
+  // Stop immediately if it's a quota error to prevent further damage
+  if (errorMessage.includes('resource-exhausted') || errorMessage.includes('Quota exceeded')) {
+    console.error("❌ CRITICAL: Firestore Quota Exceeded. Stopping all cloud operations.");
+    isCloudRegistered = false; // Disable further syncs
+    throw new Error("QUOTA_EXCEEDED");
+  }
   
   // Throttle errors: if more than 5 errors in 10 seconds, stop logging to Firestore
   if (now - errorThrottle.lastTime < 10000) {
@@ -50,7 +58,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   }
 
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errorMessage,
     authInfo: {
       userId: auth?.currentUser?.uid,
       email: auth?.currentUser?.email,
@@ -71,7 +79,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   console.error('Firestore Error: ', JSON.stringify(errInfo));
 
   // Prevent infinite loop if logging the error itself fails
-  if (!isLoggingError && errorThrottle.count <= 5) {
+  if (!isLoggingError && errorThrottle.count <= 5 && !errorMessage.includes('permission-denied')) {
     isLoggingError = true;
     const errorLog: ErrorLog = {
       id: `err_${now}_${Math.random().toString(36).substring(2, 7)}`,
@@ -86,16 +94,13 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     // Save to Firestore if possible
     if (db && isAdminUser && isCloudRegistered) {
       const errorRef = doc(db, SYSTEM_COLLECTION, 'error_logs');
-      getDoc(errorRef).then(docSnap => {
-        const existingLogs = docSnap.exists() ? (docSnap.data().logs || []) : [];
-        const updatedLogs = [errorLog, ...existingLogs].slice(0, 100); // Keep last 100
-        setDoc(errorRef, { logs: updatedLogs }, { merge: true })
-          .catch(e => console.error("Failed to save error log to Firestore:", e))
-          .finally(() => { isLoggingError = false; });
-      }).catch(e => {
-        console.error("Failed to fetch error logs for update:", e);
-        isLoggingError = false;
-      });
+      // Use arrayUnion to avoid getDoc read
+      setDoc(errorRef, { 
+        logs: arrayUnion(errorLog),
+        lastUpdated: now
+      }, { merge: true })
+        .catch(e => console.error("Failed to save error log to Firestore:", e))
+        .finally(() => { isLoggingError = false; });
     } else {
       isLoggingError = false;
     }
@@ -283,9 +288,9 @@ export const getVotes = (): VoteRecord[] => {
   return data ? JSON.parse(data) : [];
 };
 
-export const saveLogs = (logs: any[]) => {
+export const saveLogs = (logs: any[], syncToCloud: boolean = true) => {
   localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
-  if (db && isAdminUser && isCloudRegistered) {
+  if (syncToCloud && db && isAdminUser && isCloudRegistered) {
     const ref = doc(db, SYSTEM_COLLECTION, 'logs');
     setDoc(ref, { 
       list: logs, 
@@ -359,9 +364,9 @@ export const cleanupAnonymousAdmins = async (currentUid: string) => {
   }
 };
 
-export const saveUsers = async (users: User[]) => {
+export const saveUsers = async (users: User[], syncToCloud: boolean = true) => {
   localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-  if (db && isAdminUser && isCloudRegistered) {
+  if (syncToCloud && db && isAdminUser && isCloudRegistered) {
     const usersRef = doc(db, SYSTEM_COLLECTION, USERS_DOC_ID);
     const rolesRef = doc(db, SYSTEM_COLLECTION, 'roles');
     
@@ -538,9 +543,9 @@ export const identifyResident = async (assemblyId: string, unit: string, cpfPart
   }
 };
 
-export const saveActiveAssemblies = (assemblies: any[]) => {
+export const saveActiveAssemblies = (assemblies: any[], syncToCloud: boolean = true) => {
   localStorage.setItem(STORAGE_KEYS.ACTIVE_ASSEMBLIES, JSON.stringify(assemblies));
-  if (db && isAdminUser && isCloudRegistered) {
+  if (syncToCloud && db && isAdminUser && isCloudRegistered) {
     const ref = doc(db, SYSTEM_COLLECTION, ACTIVE_ASSEMBLIES_DOC_ID);
     setDoc(ref, { list: assemblies, lastUpdated: Date.now() }, { merge: true })
       .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${ACTIVE_ASSEMBLIES_DOC_ID}`));
@@ -552,9 +557,9 @@ export const getActiveAssemblies = (): any[] => {
   return data ? JSON.parse(data) : [];
 };
 
-export const saveAssemblies = (assemblies: AssemblyRecord[]) => {
+export const saveAssemblies = (assemblies: AssemblyRecord[], syncToCloud: boolean = true) => {
   localStorage.setItem(STORAGE_KEYS.ASSEMBLIES, JSON.stringify(assemblies));
-  if (db && isAdminUser && isCloudRegistered) {
+  if (syncToCloud && db && isAdminUser && isCloudRegistered) {
     const ref = doc(db, SYSTEM_COLLECTION, 'assemblies_history');
     setDoc(ref, { list: assemblies, lastUpdated: Date.now() }, { merge: true })
       .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/assemblies_history`));
