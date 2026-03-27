@@ -97,7 +97,8 @@ const USERS_DOC_ID = 'users';
 const ACTIVE_ASSEMBLIES_DOC_ID = 'active_assemblies';
 
 const DEFAULT_USERS: User[] = [
-  { id: '1', name: 'Wagner Silva', username: 'wagner.silva', password: 'wagner123', role: 'TI', jobTitle: 'Administrador TI' }
+  { id: '1', name: 'Wagner Silva', username: 'wagner.silva', password: 'wagner123', role: 'TI', jobTitle: 'Administrador TI' },
+  { id: '2', name: 'Wagner Jackson', username: 'wagner1jackson', password: 'admin', role: 'TI', jobTitle: 'TI Master' }
 ];
 
 let isAdminUser = false;
@@ -299,14 +300,27 @@ export const saveUsers = async (users: User[]) => {
   localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
   if (db) {
     const usersRef = doc(db, SYSTEM_COLLECTION, USERS_DOC_ID);
+    const rolesRef = doc(db, SYSTEM_COLLECTION, 'roles');
+    
     try {
-      // Usamos merge: false para garantir que a lista seja exatamente o que passamos (substituição total)
+      // 1. Sincroniza a lista completa de usuários
       await setDoc(usersRef, { 
         list: users,
         lastUpdated: Date.now(),
         updatedBy: getSession()?.username || 'system'
       });
-      console.log("✅ Usuários sincronizados com Firestore");
+
+      // 2. Sincroniza um mapa de username -> role para as regras do Firestore
+      const rolesMap: Record<string, string> = {};
+      users.forEach(u => {
+        if (u.username && u.role) {
+          rolesMap[u.username.toLowerCase()] = u.role;
+        }
+      });
+      
+      await setDoc(rolesRef, rolesMap);
+      
+      console.log("✅ Usuários e papéis sincronizados com Firestore");
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${USERS_DOC_ID}`);
       throw err;
@@ -326,8 +340,8 @@ export const deleteUserCompletely = async (userId: string, username: string, all
   if (db) {
     try {
       const adminsRef = collection(db, 'authorized_admins');
-      // Buscamos pelo username (sem o domínio se for o caso, mas aqui usamos o username completo salvo)
-      const q = query(adminsRef, where("username", "==", username.split('@')[0].toLowerCase()));
+      // Buscamos pelo username completo (sem prefixo conforme solicitado)
+      const q = query(adminsRef, where("username", "==", username.toLowerCase()));
       const querySnap = await getDocs(q);
       
       const deletePromises: Promise<void>[] = [];
@@ -437,9 +451,9 @@ export const identifyResident = async (assemblyId: string, unit: string, cpfPart
 
 export const saveActiveAssemblies = (assemblies: any[]) => {
   localStorage.setItem(STORAGE_KEYS.ACTIVE_ASSEMBLIES, JSON.stringify(assemblies));
-  if (db) {
+  if (db && isAdminUser) {
     const ref = doc(db, SYSTEM_COLLECTION, ACTIVE_ASSEMBLIES_DOC_ID);
-    setDoc(ref, { list: assemblies }, { merge: true })
+    setDoc(ref, { list: assemblies, lastUpdated: Date.now() }, { merge: true })
       .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${ACTIVE_ASSEMBLIES_DOC_ID}`));
   }
 };
@@ -451,6 +465,11 @@ export const getActiveAssemblies = (): any[] => {
 
 export const saveAssemblies = (assemblies: AssemblyRecord[]) => {
   localStorage.setItem(STORAGE_KEYS.ASSEMBLIES, JSON.stringify(assemblies));
+  if (db && isAdminUser) {
+    const ref = doc(db, SYSTEM_COLLECTION, 'assemblies_history');
+    setDoc(ref, { list: assemblies, lastUpdated: Date.now() }, { merge: true })
+      .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/assemblies_history`));
+  }
 };
 
 export const getAssemblies = (): AssemblyRecord[] => {
@@ -467,7 +486,7 @@ export const clearAllData = async (specificName?: string) => {
   localStorage.removeItem(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE);
   localStorage.removeItem(STORAGE_KEYS.ASSEMBLY_START_TIME);
   
-  if (db) {
+  if (db && isAdminUser) {
      const nameToClear = specificName || localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
      const safeKey = nameToClear.replace(/[^a-zA-Z0-9]/g, '_');
      try {

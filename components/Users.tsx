@@ -42,7 +42,7 @@ export const UsersManagement: React.FC<UsersProps> = ({
   const [newUserLogin, setNewUserLogin] = useState('');
   const [newUserPass, setNewUserPass] = useState('');
   const [newUserJobTitle, setNewUserJobTitle] = useState('');
-  const [newUserRole, setNewUserRole] = useState<'ADMIN' | 'TI'>('ADMIN');
+  const [newUserRole, setNewUserRole] = useState<'ADMIN' | 'TI' | 'MASTER'>('ADMIN');
 
   // Editing State
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -50,7 +50,7 @@ export const UsersManagement: React.FC<UsersProps> = ({
     name: '',
     username: '',
     password: '',
-    role: 'ADMIN' as 'ADMIN' | 'TI',
+    role: 'ADMIN' as 'ADMIN' | 'TI' | 'MASTER',
     jobTitle: ''
   });
 
@@ -58,8 +58,8 @@ export const UsersManagement: React.FC<UsersProps> = ({
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const isPrivileged = currentUser?.role === 'TI' || currentUser?.role === 'ADMIN';
-  const isTI = currentUser?.role === 'TI';
+  const isPrivileged = currentUser?.role === 'TI' || currentUser?.role === 'ADMIN' || currentUser?.role === 'MASTER';
+  const isTI = currentUser?.role === 'TI' || currentUser?.role === 'MASTER';
 
   // --- Handlers ---
 
@@ -266,22 +266,31 @@ export const UsersManagement: React.FC<UsersProps> = ({
                   {isPrivileged && (
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cargo</label>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-3 gap-2">
                         <button
                           type="button"
                           onClick={() => setEditForm({...editForm, role: 'ADMIN'})}
-                          className={`p-2 rounded-lg border text-xs font-bold transition-all ${editForm.role === 'ADMIN' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                          className={`p-2 rounded-lg border text-[10px] font-bold transition-all ${editForm.role === 'ADMIN' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
                         >
-                          ADMINISTRADOR
+                          ADMIN
                         </button>
                         {isTI && (
-                          <button
-                            type="button"
-                            onClick={() => setEditForm({...editForm, role: 'TI'})}
-                            className={`p-2 rounded-lg border text-xs font-bold transition-all ${editForm.role === 'TI' ? 'bg-purple-50 border-purple-500 text-purple-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-                          >
-                            T.I. (MASTER)
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setEditForm({...editForm, role: 'TI'})}
+                              className={`p-2 rounded-lg border text-[10px] font-bold transition-all ${editForm.role === 'TI' ? 'bg-purple-50 border-purple-500 text-purple-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                            >
+                              T.I.
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditForm({...editForm, role: 'MASTER'})}
+                              className={`p-2 rounded-lg border text-[10px] font-bold transition-all ${editForm.role === 'MASTER' ? 'bg-black border-black text-white' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                            >
+                              MASTER
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -343,22 +352,31 @@ export const UsersManagement: React.FC<UsersProps> = ({
                   {isPrivileged && (
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cargo</label>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-3 gap-2">
                         <button
                           type="button"
                           onClick={() => setNewUserRole('ADMIN')}
-                          className={`p-2 rounded-lg border text-xs font-bold transition-all ${newUserRole === 'ADMIN' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                          className={`p-2 rounded-lg border text-[10px] font-bold transition-all ${newUserRole === 'ADMIN' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
                         >
-                          ADMINISTRADOR
+                          ADMIN
                         </button>
                         {isTI && (
-                          <button
-                            type="button"
-                            onClick={() => setNewUserRole('TI')}
-                            className={`p-2 rounded-lg border text-xs font-bold transition-all ${newUserRole === 'TI' ? 'bg-purple-50 border-purple-500 text-purple-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-                          >
-                            T.I. (MASTER)
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setNewUserRole('TI')}
+                              className={`p-2 rounded-lg border text-[10px] font-bold transition-all ${newUserRole === 'TI' ? 'bg-purple-50 border-purple-500 text-purple-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                            >
+                              T.I.
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNewUserRole('MASTER')}
+                              className={`p-2 rounded-lg border text-[10px] font-bold transition-all ${newUserRole === 'MASTER' ? 'bg-black border-black text-white' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                            >
+                              MASTER
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -426,8 +444,8 @@ export const UsersManagement: React.FC<UsersProps> = ({
                         <div className="truncate">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-bold text-gray-900 text-sm truncate">{user.name}</p>
-                            <Badge color={user.role === 'TI' ? 'purple' : 'red'}>
-                              {user.role === 'TI' ? 'T.I. (MASTER)' : 'ADMINISTRADOR'}
+                            <Badge color={user.role === 'MASTER' ? 'black' : (user.role === 'TI' ? 'purple' : 'red')}>
+                              {user.role === 'MASTER' ? 'MASTER' : (user.role === 'TI' ? 'T.I.' : 'ADMINISTRADOR')}
                             </Badge>
                             {user.jobTitle && <Badge color="gray">{user.jobTitle}</Badge>}
                             {isMe && (

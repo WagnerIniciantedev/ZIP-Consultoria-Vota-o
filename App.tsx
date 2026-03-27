@@ -28,7 +28,7 @@ import { CompanyDashboard } from './components/CompanyDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
 import { Button, Input, Card } from './components/ui';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
-import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, RefreshCw } from 'lucide-react';
+import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, RefreshCw, Building2 } from 'lucide-react';
 
 const App: React.FC = () => {
   
@@ -42,6 +42,7 @@ const App: React.FC = () => {
   const [sampleUnit, setSampleUnit] = useState<string>('');
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<string>('');
   const [pastAssemblies, setPastAssemblies] = useState<AssemblyRecord[]>([]);
+  const [activeAssemblies, setActiveAssemblies] = useState<ActiveAssembly[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [isAssemblyActive, setIsAssemblyActive] = useState<boolean | null>(null);
   const [assemblyType, setAssemblyType] = useState<AssemblyType | null>(null);
@@ -89,6 +90,7 @@ const App: React.FC = () => {
     setUsers(initialUsers);
     setCondoName(getCondoName());
     setPastAssemblies(getAssemblies());
+    setActiveAssemblies(getActiveAssemblies());
     setLogs(getLogs());
     
     // Restore sample unit if available
@@ -159,8 +161,13 @@ const App: React.FC = () => {
     setIsConnected(true);
 
     // Update admin status in dataService
-    const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'TI';
+    const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'TI' || currentUser?.role === 'MASTER';
     setAdminStatus(isAdmin);
+
+    // Sincroniza o UID se estiver logado mas não registrado nesta sessão do Firebase
+    if (isAdmin && auth?.currentUser && currentUser) {
+        registerAdminUid(auth.currentUser.uid, currentUser.username.toLowerCase(), currentUser.role || 'ADMIN');
+    }
 
     const usersRef = doc(db, 'system', 'users');
     const unsubUsers = onSnapshot(usersRef, (docSnapshot) => {
@@ -172,22 +179,16 @@ const App: React.FC = () => {
             }
         }
 
-        // Se o Firestore estiver vazio, garantimos que pelo menos o Wagner exista (bootstrap)
+        // Se o Firestore estiver vazio, garantimos que pelo menos os usuários padrão existam (bootstrap)
         const safetyUsers = getMasterSecurityUsers();
-        const wagner = safetyUsers.find(u => u.username.toLowerCase() === 'wagner.silva');
-        
-        const finalUsersList = cloudUsers.length > 0 ? cloudUsers : (wagner ? [wagner] : []);
+        const finalUsersList = cloudUsers.length > 0 ? cloudUsers : safetyUsers;
         
         setUsers(finalUsersList);
         localStorage.setItem('condovote_users', JSON.stringify(finalUsersList));
 
         // Sync back to cloud if it was empty (bootstrap)
         if (isAdmin && !docSnapshot.exists()) {
-            setDoc(usersRef, { 
-                list: finalUsersList,
-                lastUpdated: Date.now(),
-                updatedBy: 'system_bootstrap'
-            })
+            saveUsers(finalUsersList)
                 .catch(e => console.error("Erro sincronizando bootstrap de usuários:", e));
         }
     }, (error) => {
@@ -227,7 +228,38 @@ const App: React.FC = () => {
     }, (error) => {
       console.error("[App] Logs Listener Error:", error);
     });
-    return () => unsubLogs();
+
+    const activeAssembliesRef = doc(db, 'system', 'active_assemblies');
+    const unsubActive = onSnapshot(activeAssembliesRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && Array.isArray(data.list)) {
+          setActiveAssemblies(data.list);
+          localStorage.setItem('condovote_active_assemblies', JSON.stringify(data.list));
+        }
+      }
+    }, (error) => {
+      console.error("[App] Active Assemblies Listener Error:", error);
+    });
+
+    const historyRef = doc(db, 'system', 'assemblies_history');
+    const unsubHistory = onSnapshot(historyRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && Array.isArray(data.list)) {
+          setPastAssemblies(data.list);
+          localStorage.setItem('condovote_assemblies', JSON.stringify(data.list));
+        }
+      }
+    }, (error) => {
+      console.error("[App] History Listener Error:", error);
+    });
+
+    return () => {
+      unsubLogs();
+      unsubActive();
+      unsubHistory();
+    };
   }, [isAuthReady]);
 
   // --- 3. ASSEMBLY SPECIFIC LISTENER ---
@@ -349,6 +381,14 @@ const App: React.FC = () => {
     if (validUser) {
       setCurrentUser(validUser);
       saveSession(validUser, rememberMe);
+      
+      // Reset assembly state on login to avoid stale data
+      setIsAssemblyActive(false);
+      setCondoName('');
+      setSelectedAssemblyId('');
+      saveAssemblyId('');
+      saveAssemblyStatus(false);
+      
       setCurrentView(AppView.COMPANY_DASHBOARD);
       addLog(validUser, 'LOGIN', 'Acesso ao sistema realizado com sucesso');
       setLoginError('');
@@ -357,8 +397,8 @@ const App: React.FC = () => {
 
       // Sincroniza o UID do Firebase com o usuário administrador para as regras do Firestore
       if (auth?.currentUser) {
-        // Removemos o domínio para bater com a lista de bootstrap nas regras do Firestore
-        const usernameToRegister = validUser.username.split('@')[0].toLowerCase();
+        // Usamos o username completo conforme solicitado pelo usuário (sem prefixo)
+        const usernameToRegister = validUser.username.toLowerCase();
         registerAdminUid(auth.currentUser.uid, usernameToRegister, validUser.role || 'ADMIN');
       }
     } else {
@@ -391,6 +431,8 @@ const App: React.FC = () => {
     if (db && assemblyId) {
       const safeKey = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
       const assemblyRef = doc(db, 'assemblies', safeKey);
+      const globalRef = doc(db, 'system', 'global');
+      
       try {
         await setDoc(assemblyRef, { 
           condoName: name, 
@@ -400,6 +442,9 @@ const App: React.FC = () => {
           residentsCount: initialResidents.length,
           type: type
         }, { merge: true });
+
+        // Set this as the global active condo for residents without specific link
+        await setDoc(globalRef, { active_condo: name }, { merge: true });
 
         // If there are initial residents, sync them to the subcollection
         if (initialResidents.length > 0) {
@@ -441,12 +486,12 @@ const App: React.FC = () => {
       saveAssemblies(newPastAssemblies);
 
       // Update ActiveAssembly status in the list
-      const activeAssembliesList = getActiveAssemblies();
-      const updatedActive = activeAssembliesList.map((a: ActiveAssembly) => 
+      const updatedActive = activeAssemblies.map((a: ActiveAssembly) => 
         (a.id === selectedAssemblyId || a.condoName === condoName) 
         ? { ...a, isActive: false, status: 'completed' as const } 
         : a
       );
+      setActiveAssemblies(updatedActive);
       saveActiveAssemblies(updatedActive);
       
       // Update Firestore document to inactive
@@ -591,6 +636,25 @@ const App: React.FC = () => {
                 <Button type="submit" className="w-full bg-[#E60000] hover:bg-red-700 text-white font-bold py-3.5 shadow-lg active:scale-95 transition-all text-sm">ENTRAR</Button>
               </form>
 
+              {isAssemblyActive && (
+                <div className="mt-6">
+                  <div className="relative mb-6">
+                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
+                    <div className="relative flex justify-center text-[10px] uppercase tracking-widest text-gray-400"><span className="px-2 bg-white">OU</span></div>
+                  </div>
+                  <Button 
+                    onClick={() => setCurrentView(AppView.VOTE_IDENTIFY)}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 shadow-lg active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                  >
+                    <Building2 size={18} />
+                    SOU MORADOR / QUERO VOTAR
+                  </Button>
+                  <p className="text-center text-[10px] text-green-600 font-bold mt-2 animate-pulse">
+                    VOTAÇÃO EM ABERTO: {condoName}
+                  </p>
+                </div>
+              )}
+
               <div className="mt-8 relative">
                   <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
                   <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500 font-medium text-[10px] tracking-widest">ACESSO RESTRITO</span></div>
@@ -692,6 +756,8 @@ const App: React.FC = () => {
           setCurrentView(AppView.ADMIN_DASHBOARD);
         }}
         onStartAssembly={handleStartAssembly}
+        activeAssemblies={activeAssemblies}
+        setActiveAssemblies={setActiveAssemblies}
         users={users}
         setUsers={setUsers}
         pastAssemblies={pastAssemblies}

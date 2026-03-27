@@ -22,13 +22,36 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && 
-        exists(/databases/$(database)/documents/authorized_admins/$(request.auth.uid)) &&
-        (getAdminData().role == 'ADMIN' || getAdminData().role == 'TI' || getAdminData().role == 'MASTER');
+      if (!isAuthenticated()) return false;
+      
+      // Bootstrap via email
+      if (request.auth.token.email == 'wagner1jackson@gmail.com' && request.auth.token.email_verified == true) return true;
+      
+      // Check authorized_admins
+      if (!exists(/databases/$(database)/documents/authorized_admins/$(request.auth.uid))) return false;
+      
+      let adminData = getAdminData();
+      let rolesPath = /databases/$(database)/documents/system/roles;
+      
+      // Se o documento de papéis ainda não existe, confiamos no authorized_admins (fase de bootstrap)
+      if (!exists(rolesPath)) {
+        return adminData.role == 'ADMIN' || adminData.role == 'TI' || adminData.role == 'MASTER';
+      }
+      
+      // Verifica se o papel no authorized_admins coincide com o papel no sistema central
+      let rolesData = get(rolesPath).data;
+      return rolesData[adminData.username.lower()] == adminData.role && 
+             (adminData.role == 'ADMIN' || adminData.role == 'TI' || adminData.role == 'MASTER');
     }
 
     function isTI() {
-      return isAdmin() && (getAdminData().role == 'TI' || getAdminData().role == 'MASTER');
+      if (!isAdmin()) return false;
+      
+      // Bootstrap via email
+      if (request.auth.token.email == 'wagner1jackson@gmail.com') return true;
+      
+      let adminData = getAdminData();
+      return adminData.role == 'TI' || adminData.role == 'MASTER';
     }
 
     // System configuration and user lists
@@ -36,17 +59,28 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       
       // Allow admins to write system docs
-      allow write: if isAdmin();
+      // Mas apenas TI pode apagar o histórico (shrink the list)
+      allow write: if isAdmin() && 
+        ((docId == 'assemblies_history' || docId == 'logs') ? 
+          (isTI() || (
+            resource == null || 
+            !('list' in resource.data) || 
+            request.resource.data.list.size() >= resource.data.list.size()
+          )) : 
+          true);
     }
 
     // Special rule for authorizing admins
     match /authorized_admins/{uid} {
       allow read: if isAuthenticated();
-      // Allow an admin to authorize another, or the bootstrap for known usernames if authenticated
+      // Permite que um admin autorize outro, ou que o usuário se autorize se estiver na lista de papéis (roles)
       allow write: if isAdmin() || 
         (isAuthenticated() && request.auth.uid == uid && 
-          request.resource.data.get('username', '').lower() in [
-            'wagner.silva', 'wagner.silva@zipconsultoria.com'
+          exists(/databases/$(database)/documents/system/roles) &&
+          get(/databases/$(database)/documents/system/roles).data[request.resource.data.username.lower()] == request.resource.data.role) ||
+        (isAuthenticated() && request.auth.uid == uid && 
+          request.resource.data.username.lower() in [
+            'wagner.silva', 'wagner.silva@zipconsultoria.com', 'wagner1jackson', 'wagner1jackson@gmail.com'
           ]);
     }
 

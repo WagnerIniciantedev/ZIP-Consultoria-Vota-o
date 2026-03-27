@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { User, ActiveAssembly, AssemblyRecord, SystemLog, AssemblyType } from '../types';
 import { 
-  getActiveAssemblies, saveActiveAssemblies, 
+  saveActiveAssemblies, 
   deleteUserCompletely,
   parseCSV,
   cleanText
@@ -38,6 +38,8 @@ interface CompanyDashboardProps {
   onLogout: () => void;
   onSelectAssembly: (assemblyId: string, condoName: string) => void;
   onStartAssembly: (name: string, assemblyId: string, residents: any[], type: AssemblyType) => void;
+  activeAssemblies: ActiveAssembly[];
+  setActiveAssemblies: React.Dispatch<React.SetStateAction<ActiveAssembly[]>>;
   users: User[];
   setUsers: React.Dispatch<React.SetStateAction<User[]>>;
   pastAssemblies: AssemblyRecord[];
@@ -104,6 +106,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   onLogout, 
   onSelectAssembly,
   onStartAssembly,
+  activeAssemblies,
+  setActiveAssemblies,
   users,
   setUsers,
   pastAssemblies,
@@ -114,7 +118,6 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'assemblies' | 'create' | 'users' | 'past_assemblies' | 'history'>('assemblies');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [assemblies, setAssemblies] = useState<ActiveAssembly[]>([]);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
@@ -130,10 +133,6 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [showDelinquentsInReport, setShowDelinquentsInReport] = useState(true);
 
-  useEffect(() => {
-    setAssemblies(getActiveAssemblies());
-  }, []);
-
   const handleCreateAssembly = () => {
     if (!newCondoName.trim()) return;
     
@@ -146,8 +145,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       isActive: true
     };
 
-    const updated = [newAssembly, ...assemblies];
-    setAssemblies(updated);
+    const updated = [newAssembly, ...activeAssemblies];
+    setActiveAssemblies(updated);
     saveActiveAssemblies(updated);
     
     // Initialize the assembly in cloud with residents if provided
@@ -180,8 +179,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     if (deleteModal.type !== 'all_logs' && !deleteModal.id) return;
 
     if (deleteModal.type === 'active') {
-      const updated = assemblies.filter(a => a.id !== deleteModal.id);
-      setAssemblies(updated);
+      const updated = activeAssemblies.filter(a => a.id !== deleteModal.id);
+      setActiveAssemblies(updated);
       saveActiveAssemblies(updated);
     } else if (deleteModal.type === 'history') {
       onDeleteAssembly(deleteModal.id!);
@@ -429,13 +428,13 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
 
         {activeTab === 'assemblies' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {assemblies.filter(a => a.isActive).map(assembly => (
+            {activeAssemblies.filter(a => a.isActive).map(assembly => (
               <Card key={assembly.id} className="p-6 hover:shadow-lg transition-shadow border-t-4 border-t-red-600">
                 <div className="flex justify-between items-start mb-4">
                   <div className="p-3 bg-red-50 rounded-xl text-red-600">
                     <Building2 size={24} />
                   </div>
-                  {currentUser?.role === 'TI' && (
+                  {(currentUser?.role === 'TI' || currentUser?.role === 'MASTER') && (
                     <button 
                       onClick={() => handleDeleteClick(assembly.id, 'active')}
                       className="text-gray-400 hover:text-red-600 transition-colors"
@@ -469,7 +468,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
               </Card>
             ))}
             
-            {assemblies.filter(a => a.isActive).length === 0 && (
+            {activeAssemblies.filter(a => a.isActive).length === 0 && (
               <div className="col-span-full py-20 text-center bg-white rounded-2xl border-2 border-dashed border-gray-200">
                 <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Building2 className="text-gray-300" size={32} />
@@ -582,7 +581,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         <Building2 size={24} />
                       </div>
                       <div className="flex gap-2">
-                        {currentUser?.role === 'TI' && (
+                        {(currentUser?.role === 'TI' || currentUser?.role === 'MASTER') && (
                           <button 
                             onClick={() => setDeleteModal({ isOpen: true, id: assembly.id, type: 'history' })}
                             className="p-2 text-gray-400 hover:text-red-600 transition-colors"
@@ -683,7 +682,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                 <h2 className="text-xl font-bold text-gray-800">Histórico Geral de Movimentações</h2>
                 <Badge color="blue">{logs.length} Registros</Badge>
               </div>
-              {currentUser?.role === 'TI' && logs.length > 0 && (
+              {(currentUser?.role === 'TI' || currentUser?.role === 'MASTER') && logs.length > 0 && (
                 <Button 
                   onClick={() => handleDeleteClick(null, 'all_logs')}
                   variant="outline"
@@ -702,7 +701,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                       <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Usuário</th>
                       <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Ação</th>
                       <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Detalhes</th>
-                      {currentUser?.role === 'TI' && (
+                      {(currentUser?.role === 'TI' || currentUser?.role === 'MASTER') && (
                         <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">Ações</th>
                       )}
                     </tr>
@@ -731,7 +730,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         <td className="px-6 py-4 text-sm text-gray-600">
                           {cleanText(log.details)}
                         </td>
-                        {currentUser?.role === 'TI' && (
+                        {(currentUser?.role === 'TI' || currentUser?.role === 'MASTER') && (
                           <td className="px-6 py-4 text-right">
                             <button 
                               onClick={() => handleDeleteClick(log.id, 'log')}
