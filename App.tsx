@@ -172,29 +172,23 @@ const App: React.FC = () => {
             }
         }
 
-        // User requested to keep only Wagner Silva
+        // Se o Firestore estiver vazio, garantimos que pelo menos o Wagner exista (bootstrap)
         const safetyUsers = getMasterSecurityUsers();
-        const wagner = safetyUsers.find(u => u.username.toLowerCase() === 'wagner.silva@zipconsultoria.com');
+        const wagner = safetyUsers.find(u => u.username.toLowerCase() === 'wagner.silva');
         
-        // Filter cloud users to only keep Wagner
-        const filteredCloudUsers = cloudUsers.filter((u: User) => 
-            u.username.toLowerCase() === 'wagner.silva@zipconsultoria.com'
-        );
-        
-        // Ensure Wagner is always present
-        const finalUsersList = filteredCloudUsers.length > 0 ? filteredCloudUsers : (wagner ? [wagner] : []);
+        const finalUsersList = cloudUsers.length > 0 ? cloudUsers : (wagner ? [wagner] : []);
         
         setUsers(finalUsersList);
         localStorage.setItem('condovote_users', JSON.stringify(finalUsersList));
 
-        // Sync back to cloud if it was different (this effectively deletes others from Firestore)
-        if (isAdmin && (cloudUsers.length !== filteredCloudUsers.length || !docSnapshot.exists())) {
+        // Sync back to cloud if it was empty (bootstrap)
+        if (isAdmin && !docSnapshot.exists()) {
             setDoc(usersRef, { 
                 list: finalUsersList,
                 lastUpdated: Date.now(),
-                updatedBy: 'system_cleanup'
+                updatedBy: 'system_bootstrap'
             })
-                .catch(e => console.error("Erro sincronizando limpeza de usuários:", e));
+                .catch(e => console.error("Erro sincronizando bootstrap de usuários:", e));
         }
     }, (error) => {
         console.error("[App] Users Listener Error:", error);
