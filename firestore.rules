@@ -37,15 +37,19 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       
       // Allow admins to write system docs
-      // Mas apenas TI pode apagar o histórico (shrink the list)
+      // Mas apenas TI pode apagar o histórico ou logs de erro
       allow write: if isAdmin() && 
-        ((docId == 'assemblies_history' || docId == 'logs') ? 
+        ((docId == 'assemblies_history' || docId == 'logs' || docId == 'error_logs') ? 
           (isTI() || (
             resource == null || 
             !('list' in resource.data) || 
-            request.resource.data.list.size() >= resource.data.list.size()
+            !('logs' in resource.data) ||
+            (docId == 'error_logs' ? request.resource.data.logs.size() >= resource.data.logs.size() : request.resource.data.list.size() >= resource.data.list.size())
           )) : 
-          true);
+          true) ||
+        // Allow any authenticated user to append to error_logs (but not clear it)
+        (docId == 'error_logs' && isAuthenticated() && 
+         (resource == null || (request.resource.data.logs.size() > resource.data.logs.size())));
     }
 
     // Special rule for authorizing admins

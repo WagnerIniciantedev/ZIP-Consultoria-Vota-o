@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord, SystemLog, AssemblyType } from './types';
+import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord, SystemLog, AssemblyType, ErrorLog } from './types';
 import { 
   getResidents, saveResidents, 
   getPolls, savePolls, 
@@ -15,7 +15,8 @@ import {
   getActiveAssemblies, saveActiveAssemblies,
   addLog,
   getLogs, saveLogs, registerAdminUid, setAdminStatus, clearAdminStatus,
-  testConnection
+  testConnection,
+  clearErrorLogs
 } from './services/dataService';
 import { ActiveAssembly } from './types';
 import { onSnapshot, doc, setDoc, collection } from 'firebase/firestore';
@@ -44,6 +45,7 @@ const App: React.FC = () => {
   const [pastAssemblies, setPastAssemblies] = useState<AssemblyRecord[]>([]);
   const [activeAssemblies, setActiveAssemblies] = useState<ActiveAssembly[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
+  const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
   const [isAssemblyActive, setIsAssemblyActive] = useState<boolean | null>(null);
   const [assemblyType, setAssemblyType] = useState<AssemblyType | null>(null);
   const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
@@ -257,10 +259,24 @@ const App: React.FC = () => {
       console.error("[App] History Listener Error:", error);
     });
 
+    // Error logs listener
+    const errorLogsRef = doc(db, 'system', 'error_logs');
+    const unsubErrorLogs = onSnapshot(errorLogsRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && Array.isArray(data.logs)) {
+          setErrorLogs(data.logs);
+        }
+      }
+    }, (error) => {
+      console.error("[App] Error Logs Listener Error:", error);
+    });
+
     return () => {
       unsubLogs();
       unsubActive();
       unsubHistory();
+      unsubErrorLogs();
     };
   }, [isAuthReady]);
 
@@ -774,6 +790,7 @@ const App: React.FC = () => {
         setUsers={setUsers}
         pastAssemblies={pastAssemblies}
         logs={logs}
+        errorLogs={errorLogs}
         onDeleteAssembly={(id) => {
           const assembly = pastAssemblies.find(a => a.id === id);
           if (currentUser && assembly) addLog(currentUser, 'EXCLUSÃO_RELATÓRIO', `Excluiu o relatório da assembleia: ${assembly.condoName}`);
@@ -790,6 +807,7 @@ const App: React.FC = () => {
           setLogs([]);
           saveLogs([]);
         }}
+        onClearErrorLogs={clearErrorLogs}
       />
     );
   }

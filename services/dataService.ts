@@ -1,5 +1,5 @@
 
-import { Resident, Poll, VoteRecord, User, AssemblyRecord } from '../types';
+import { Resident, Poll, VoteRecord, User, AssemblyRecord, ErrorLog } from '../types';
 import { doc, setDoc, deleteDoc, getDoc, collection, query, where, getDocs, getDocFromServer } from 'firebase/firestore';
 import { db, auth } from './firebase';
 
@@ -32,7 +32,23 @@ interface FirestoreErrorInfo {
   }
 }
 
+let isLoggingError = false;
+let errorThrottle = {
+  count: 0,
+  lastTime: 0
+};
+
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const now = Date.now();
+  
+  // Throttle errors: if more than 5 errors in 10 seconds, stop logging to Firestore
+  if (now - errorThrottle.lastTime < 10000) {
+    errorThrottle.count++;
+  } else {
+    errorThrottle.count = 1;
+    errorThrottle.lastTime = now;
+  }
+
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -51,7 +67,40 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   }
+  
   console.error('Firestore Error: ', JSON.stringify(errInfo));
+
+  // Prevent infinite loop if logging the error itself fails
+  if (!isLoggingError && errorThrottle.count <= 5) {
+    isLoggingError = true;
+    const errorLog: ErrorLog = {
+      id: `err_${now}_${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: now,
+      error: errInfo.error,
+      operationType: errInfo.operationType,
+      path: errInfo.path,
+      userId: errInfo.authInfo.userId,
+      userName: auth?.currentUser?.displayName || 'Desconhecido'
+    };
+    
+    // Save to Firestore if possible
+    if (db && isAdminUser && isCloudRegistered) {
+      const errorRef = doc(db, SYSTEM_COLLECTION, 'error_logs');
+      getDoc(errorRef).then(docSnap => {
+        const existingLogs = docSnap.exists() ? (docSnap.data().logs || []) : [];
+        const updatedLogs = [errorLog, ...existingLogs].slice(0, 100); // Keep last 100
+        setDoc(errorRef, { logs: updatedLogs }, { merge: true })
+          .catch(e => console.error("Failed to save error log to Firestore:", e))
+          .finally(() => { isLoggingError = false; });
+      }).catch(e => {
+        console.error("Failed to fetch error logs for update:", e);
+        isLoggingError = false;
+      });
+    } else {
+      isLoggingError = false;
+    }
+  }
+
   throw new Error(JSON.stringify(errInfo));
 }
 
@@ -403,6 +452,32 @@ export const getUsers = (): User[] => {
 
 // Helper para exportar a lista mestre em caso de falha crítica
 export const getMasterSecurityUsers = () => DEFAULT_USERS;
+
+export const getErrorLogs = async (): Promise<ErrorLog[]> => {
+  if (db && isAdminUser && isCloudRegistered) {
+    try {
+      const errorRef = doc(db, SYSTEM_COLLECTION, 'error_logs');
+      const docSnap = await getDoc(errorRef);
+      if (docSnap.exists()) {
+        return docSnap.data().logs || [];
+      }
+    } catch (error) {
+      console.error("Error fetching error logs:", error);
+    }
+  }
+  return [];
+};
+
+export const clearErrorLogs = async () => {
+  if (db && isAdminUser && isCloudRegistered) {
+    try {
+      const errorRef = doc(db, SYSTEM_COLLECTION, 'error_logs');
+      await setDoc(errorRef, { logs: [] }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `${SYSTEM_COLLECTION}/error_logs`);
+    }
+  }
+};
 
 export const saveCondoName = (name: string) => {
   localStorage.setItem(STORAGE_KEYS.CONDO_NAME, name);

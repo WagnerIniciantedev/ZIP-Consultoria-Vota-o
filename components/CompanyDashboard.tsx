@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { User, ActiveAssembly, AssemblyRecord, SystemLog, AssemblyType } from '../types';
+import { User, ActiveAssembly, AssemblyRecord, SystemLog, AssemblyType, ErrorLog } from '../types';
 import { 
   saveActiveAssemblies, 
   deleteUserCompletely,
@@ -24,7 +24,8 @@ import {
   Share2,
   Check,
   Printer,
-  Table
+  Table,
+  AlertTriangle
 } from 'lucide-react';
 import { Button, Input, Card, Badge } from './ui';
 import { UsersManagement } from './Users';
@@ -44,9 +45,11 @@ interface CompanyDashboardProps {
   setUsers: React.Dispatch<React.SetStateAction<User[]>>;
   pastAssemblies: AssemblyRecord[];
   logs: SystemLog[];
+  errorLogs?: ErrorLog[];
   onDeleteAssembly: (id: string) => void;
   onDeleteLog?: (id: string) => void;
   onClearLogs?: () => void;
+  onClearErrorLogs?: () => void;
 }
 
 const ConfirmPasswordModal: React.FC<{
@@ -114,9 +117,11 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   logs,
   onDeleteAssembly,
   onDeleteLog,
-  onClearLogs
+  onClearLogs,
+  errorLogs = [],
+  onClearErrorLogs
 }) => {
-  const [activeTab, setActiveTab] = useState<'assemblies' | 'create' | 'users' | 'past_assemblies' | 'history'>('assemblies');
+  const [activeTab, setActiveTab] = useState<'assemblies' | 'create' | 'users' | 'past_assemblies' | 'history' | 'error_logs'>('assemblies');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -125,7 +130,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const [newCondoName, setNewCondoName] = useState('');
   const [assemblyType, setAssemblyType] = useState<AssemblyType>(AssemblyType.ONLINE);
   const [csvData, setCsvData] = useState<any[]>([]);
-  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: string | null; type: 'active' | 'history' | 'log' | 'all_logs' }>({
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: string | null; type: 'active' | 'history' | 'log' | 'all_logs' | 'all_error_logs' }>({
     isOpen: false,
     id: null,
     type: 'active'
@@ -162,7 +167,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     onSelectAssembly(assemblyId, newCondoName.trim());
   };
 
-  const handleDeleteClick = (id: string | null, type: 'active' | 'history' | 'log' | 'all_logs') => {
+  const handleDeleteClick = (id: string | null, type: 'active' | 'history' | 'log' | 'all_logs' | 'all_error_logs') => {
     setDeleteModal({ isOpen: true, id, type });
   };
 
@@ -189,6 +194,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       if (onDeleteLog) onDeleteLog(deleteModal.id!);
     } else if (deleteModal.type === 'all_logs') {
       if (onClearLogs) onClearLogs();
+    } else if (deleteModal.type === 'all_error_logs') {
+      if (onClearErrorLogs) onClearErrorLogs();
     }
     
     setDeleteModal({ isOpen: false, id: null, type: 'active' });
@@ -390,6 +397,14 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
           >
             <History size={20} /> Histórico
           </button>
+          {currentUser?.role === 'TI' && (
+            <button 
+              onClick={() => { setActiveTab('error_logs'); setIsSidebarOpen(false); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'error_logs' ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}
+            >
+              <AlertTriangle size={20} /> Logs de Erro
+            </button>
+          )}
         </nav>
 
         <div className="p-4 border-t border-red-500/30">
@@ -417,6 +432,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
             {activeTab === 'users' && 'Gestão de Funcionários'}
             {activeTab === 'past_assemblies' && 'Assembleias Concluídas'}
             {activeTab === 'history' && 'Histórico do Sistema'}
+            {activeTab === 'error_logs' && 'Logs de Erro do Sistema'}
           </h1>
           <p className="text-gray-500">
             {activeTab === 'assemblies' && 'Gerencie as assembleias que estão ocorrendo agora.'}
@@ -424,6 +440,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
             {activeTab === 'users' && 'Controle o acesso dos administradores ao sistema.'}
             {activeTab === 'past_assemblies' && 'Visualize os resultados de assembleias passadas.'}
             {activeTab === 'history' && 'Veja todas as movimentações realizadas no sistema.'}
+            {activeTab === 'error_logs' && 'Visualize erros críticos do Firestore para depuração.'}
           </p>
         </header>
 
@@ -757,6 +774,68 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
             </Card>
           </div>
         )}
+        {activeTab === 'error_logs' && currentUser?.role === 'TI' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-4">
+                <h2 className="text-xl font-bold text-gray-800">Logs de Erros Críticos</h2>
+                <Badge color="red">{errorLogs.length} Erros</Badge>
+              </div>
+              {errorLogs.length > 0 && (
+                <Button 
+                  onClick={() => handleDeleteClick(null, 'all_error_logs')}
+                  variant="outline"
+                  className="text-red-600 border-red-200 hover:bg-red-50 flex items-center gap-2"
+                >
+                  <Trash2 size={16} /> Limpar Logs de Erro
+                </Button>
+              )}
+            </div>
+            <Card className="p-0 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Data/Hora</th>
+                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Operação</th>
+                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Caminho</th>
+                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Erro</th>
+                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Usuário</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {errorLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-red-50/30 transition-colors">
+                        <td className="px-6 py-4 text-sm text-gray-500 whitespace-nowrap">
+                          {new Date(log.timestamp).toLocaleString('pt-BR')}
+                        </td>
+                        <td className="px-6 py-4 text-sm">
+                          <Badge color="red">{log.operationType}</Badge>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-mono text-gray-600">
+                          {log.path}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-red-600 font-medium">
+                          {log.error}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">
+                          {log.userName} ({log.userId?.substring(0, 5)}...)
+                        </td>
+                      </tr>
+                    ))}
+                    {errorLogs.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-gray-400 italic">
+                          Nenhum erro crítico registrado.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+        )}
       </div>
 
       <ConfirmPasswordModal 
@@ -772,7 +851,9 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
             ? "Tem certeza que deseja excluir este relatório do histórico? Esta ação não pode ser desfeita."
             : deleteModal.type === 'log'
             ? "Tem certeza que deseja excluir este registro do histórico?"
-            : "Tem certeza que deseja LIMPAR TODO o histórico do sistema? Esta ação é irreversível."
+            : deleteModal.type === 'all_logs'
+            ? "Tem certeza que deseja LIMPAR TODO o histórico do sistema? Esta ação é irreversível."
+            : "Tem certeza que deseja LIMPAR TODOS os logs de erro? Esta ação é irreversível."
         }
       />
     </div>

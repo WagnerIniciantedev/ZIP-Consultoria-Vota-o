@@ -74,6 +74,16 @@ export interface VoteRecord {
   zoomName?: string; // Name used in the platform
 }
 
+export interface ErrorLog {
+  id: string;
+  timestamp: number;
+  error: string;
+  operationType: string;
+  path: string | null;
+  userId: string | undefined;
+  userName: string | undefined;
+}
+
 export interface User {
   id: string;
   name: string;
