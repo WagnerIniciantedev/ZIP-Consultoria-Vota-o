@@ -22,6 +22,7 @@ export interface ActiveAssembly {
   isActive: boolean;
   type?: AssemblyType;
   status?: 'active' | 'completed';
+  startedBy?: string;
 }
 
 export enum PollCalculationType {
@@ -104,4 +105,5 @@ export interface AssemblyRecord {
   votes: VoteRecord[];
   residentsSnapshot: Resident[]; // Snapshot of residents/attendance at that time
   logs?: SystemLog[];
+  startedBy?: string;
 }

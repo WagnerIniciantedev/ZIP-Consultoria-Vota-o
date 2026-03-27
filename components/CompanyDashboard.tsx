@@ -37,7 +37,7 @@ interface CompanyDashboardProps {
   currentUser: User | null;
   onLogout: () => void;
   onSelectAssembly: (assemblyId: string, condoName: string) => void;
-  onStartAssembly: (name: string, assemblyId: string, residents: any[], type: AssemblyType) => void;
+  onStartAssembly: (name: string, assemblyId: string, residents: any[], type: AssemblyType, startedBy?: string) => void;
   activeAssemblies: ActiveAssembly[];
   setActiveAssemblies: React.Dispatch<React.SetStateAction<ActiveAssembly[]>>;
   users: User[];
@@ -142,7 +142,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       id: assemblyId,
       condoName: newCondoName.trim(),
       createdAt: timestamp,
-      isActive: true
+      isActive: true,
+      startedBy: currentUser?.name || 'Sistema'
     };
 
     const updated = [newAssembly, ...activeAssemblies];
@@ -150,7 +151,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     saveActiveAssemblies(updated);
     
     // Initialize the assembly in cloud with residents if provided
-    onStartAssembly(newCondoName.trim(), assemblyId, csvData, assemblyType);
+    onStartAssembly(newCondoName.trim(), assemblyId, csvData, assemblyType, currentUser?.name || 'Sistema');
     
     setNewCondoName('');
     setAssemblyType(AssemblyType.ONLINE);

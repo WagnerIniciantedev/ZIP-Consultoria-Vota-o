@@ -16,6 +16,7 @@ interface ResidentVotingProps {
   onBack: () => void;
   isResidentLink?: boolean;
   isConnected?: boolean;
+  startedBy?: string;
 }
 
 // Internal State for Navigation
@@ -43,6 +44,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   onBack,
   isResidentLink = false,
   isConnected = true,
+  startedBy = ''
 }) => {
   const [step, setStep] = useState<VoteStep>(VoteStep.IDENTIFY);
   
@@ -401,6 +403,11 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
             alt="Zip Consultoria" 
             className="h-24 w-auto mx-auto object-contain brightness-0" 
          />
+         {startedBy && (
+           <p className="text-[10px] uppercase tracking-wider text-gray-400 mt-2">
+             Iniciado por: <span className="font-semibold text-gray-500">{startedBy}</span>
+           </p>
+         )}
       </div>
       
       {/* Network Status Indicator */}

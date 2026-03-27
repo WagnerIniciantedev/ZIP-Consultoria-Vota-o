@@ -102,13 +102,14 @@ const DEFAULT_USERS: User[] = [
 ];
 
 let isAdminUser = false;
+let isCloudRegistered = false;
 
 export const setAdminStatus = (status: boolean) => {
   isAdminUser = status;
 };
 
 const syncToCloud = (key: string, data: any, specificAssemblyId?: string) => {
-    if (db && isAdminUser) {
+    if (db && isAdminUser && isCloudRegistered) {
         const assemblyId = specificAssemblyId || localStorage.getItem(STORAGE_KEYS.ASSEMBLY_ID) || localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
         const safeKey = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
         
@@ -230,7 +231,7 @@ export const getVotes = (): VoteRecord[] => {
 
 export const saveLogs = (logs: any[]) => {
   localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
-  if (db && isAdminUser) {
+  if (db && isAdminUser && isCloudRegistered) {
     const ref = doc(db, SYSTEM_COLLECTION, 'logs');
     setDoc(ref, { 
       list: logs, 
@@ -272,6 +273,7 @@ export const registerAdminUid = async (uid: string, username: string, role: 'TI'
         authorizedAt: Date.now(),
         lastLogin: Date.now()
       }, { merge: true });
+      isCloudRegistered = true;
       console.log(`✅ UID do administrador (${role}) registrado no Firestore`);
     } catch (err) {
       console.warn("⚠️ Falha ao registrar UID do administrador:", err);
@@ -305,7 +307,7 @@ export const cleanupAnonymousAdmins = async (currentUid: string) => {
 
 export const saveUsers = async (users: User[]) => {
   localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-  if (db) {
+  if (db && isAdminUser && isCloudRegistered) {
     const usersRef = doc(db, SYSTEM_COLLECTION, USERS_DOC_ID);
     const rolesRef = doc(db, SYSTEM_COLLECTION, 'roles');
     
@@ -400,7 +402,7 @@ export const getMasterSecurityUsers = () => DEFAULT_USERS;
 export const saveCondoName = (name: string) => {
   localStorage.setItem(STORAGE_KEYS.CONDO_NAME, name);
   if (name && isAdminUser) syncToCloud(STORAGE_KEYS.CONDO_NAME, name);
-  if (db && name && name !== 'Modo Administrativo' && isAdminUser) {
+  if (db && name && name !== 'Modo Administrativo' && isAdminUser && isCloudRegistered) {
       const globalRef = doc(db, SYSTEM_COLLECTION, GLOBAL_DOC_ID);
       setDoc(globalRef, { active_condo: name }, { merge: true })
         .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${GLOBAL_DOC_ID}`));
@@ -458,7 +460,7 @@ export const identifyResident = async (assemblyId: string, unit: string, cpfPart
 
 export const saveActiveAssemblies = (assemblies: any[]) => {
   localStorage.setItem(STORAGE_KEYS.ACTIVE_ASSEMBLIES, JSON.stringify(assemblies));
-  if (db && isAdminUser) {
+  if (db && isAdminUser && isCloudRegistered) {
     const ref = doc(db, SYSTEM_COLLECTION, ACTIVE_ASSEMBLIES_DOC_ID);
     setDoc(ref, { list: assemblies, lastUpdated: Date.now() }, { merge: true })
       .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/${ACTIVE_ASSEMBLIES_DOC_ID}`));
@@ -472,7 +474,7 @@ export const getActiveAssemblies = (): any[] => {
 
 export const saveAssemblies = (assemblies: AssemblyRecord[]) => {
   localStorage.setItem(STORAGE_KEYS.ASSEMBLIES, JSON.stringify(assemblies));
-  if (db && isAdminUser) {
+  if (db && isAdminUser && isCloudRegistered) {
     const ref = doc(db, SYSTEM_COLLECTION, 'assemblies_history');
     setDoc(ref, { list: assemblies, lastUpdated: Date.now() }, { merge: true })
       .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/assemblies_history`));
@@ -493,7 +495,7 @@ export const clearAllData = async (specificName?: string) => {
   localStorage.removeItem(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE);
   localStorage.removeItem(STORAGE_KEYS.ASSEMBLY_START_TIME);
   
-  if (db && isAdminUser) {
+  if (db && isAdminUser && isCloudRegistered) {
      const nameToClear = specificName || localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';
      const safeKey = nameToClear.replace(/[^a-zA-Z0-9]/g, '_');
      try {

@@ -48,6 +48,7 @@ const App: React.FC = () => {
   const [assemblyType, setAssemblyType] = useState<AssemblyType | null>(null);
   const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
+  const [startedBy, setStartedBy] = useState<string>('');
   const [hasPermissionError, setHasPermissionError] = useState<boolean>(false);
 
   // Auth State
@@ -202,6 +203,7 @@ const App: React.FC = () => {
         const val = data?.active_condo;
         if (val && val !== 'null' && currentView === AppView.ADMIN_LOGIN) {
             setCondoName(val);
+            if (data?.startedBy) setStartedBy(data.startedBy);
         }
     }, (error) => {
         console.error("[App] Global Listener Error:", error);
@@ -291,6 +293,7 @@ const App: React.FC = () => {
                 localStorage.setItem('condovote_sample_unit', data.sampleUnit);
             }
             if (data.polls) setPolls(data.polls);
+            if (data.startedBy) setStartedBy(data.startedBy);
             
             if (data.isActive !== undefined) {
                 setIsAssemblyActive(data.isActive);
@@ -353,7 +356,7 @@ const App: React.FC = () => {
     };
   }, [selectedAssemblyId, condoName, currentView, isAuthReady]);
 
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Normalização dos inputs para evitar erros de digitação (espaços ou maiúsculas)
@@ -385,24 +388,28 @@ const App: React.FC = () => {
       saveAssemblyStatus(false);
       saveCondoName('');
       
+      // Sincroniza o UID do Firebase com o usuário administrador para as regras do Firestore
+      // Fazemos isso ANTES do log para garantir que as permissões estejam ativas
+      if (auth?.currentUser) {
+        const isAdmin = validUser.role === 'ADMIN' || validUser.role === 'TI' || validUser.role === 'MASTER';
+        setAdminStatus(isAdmin);
+        
+        // Usamos o username completo conforme solicitado pelo usuário (sem prefixo)
+        const usernameToRegister = validUser.username.toLowerCase();
+        await registerAdminUid(auth.currentUser.uid, usernameToRegister, validUser.role || 'ADMIN');
+      }
+      
       setCurrentView(AppView.COMPANY_DASHBOARD);
       addLog(validUser, 'LOGIN', 'Acesso ao sistema realizado com sucesso');
       setLoginError('');
       setAdminEmail('');
       setAdminPass('');
-
-      // Sincroniza o UID do Firebase com o usuário administrador para as regras do Firestore
-      if (auth?.currentUser) {
-        // Usamos o username completo conforme solicitado pelo usuário (sem prefixo)
-        const usernameToRegister = validUser.username.toLowerCase();
-        registerAdminUid(auth.currentUser.uid, usernameToRegister, validUser.role || 'ADMIN');
-      }
     } else {
       setLoginError('Credenciais inválidas. Verifique usuário e senha.');
     }
   };
 
-  const handleStartAssembly = async (name: string, assemblyId: string, initialResidents: Resident[] = [], type: AssemblyType = AssemblyType.ONLINE) => {
+  const handleStartAssembly = async (name: string, assemblyId: string, initialResidents: Resident[] = [], type: AssemblyType = AssemblyType.ONLINE, startedBy?: string) => {
     setResidents(initialResidents);
     setPolls([]);
     setVotes([]);
@@ -436,11 +443,15 @@ const App: React.FC = () => {
           createdAt: Date.now(),
           sampleUnit: sampleUnitValue,
           residentsCount: initialResidents.length,
-          type: type
+          type: type,
+          startedBy: startedBy || currentUser?.name || 'Sistema'
         }, { merge: true });
 
         // Set this as the global active condo for residents without specific link
-        await setDoc(globalRef, { active_condo: name }, { merge: true });
+        await setDoc(globalRef, { 
+          active_condo: name,
+          startedBy: startedBy || currentUser?.name || 'Sistema'
+        }, { merge: true });
 
         // If there are initial residents, sync them to the subcollection
         if (initialResidents.length > 0) {
@@ -828,6 +839,7 @@ const App: React.FC = () => {
         selectedAssemblyId={selectedAssemblyId}
         setSampleUnit={setSampleUnit}
         assemblyType={assemblyType}
+        startedBy={startedBy}
       />
     );
   }
@@ -842,6 +854,7 @@ const App: React.FC = () => {
       hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
       isResidentLink={new URLSearchParams(window.location.search).get('access') === 'resident'}
       isConnected={isConnected}
+      startedBy={startedBy}
       onBack={() => {
         if (currentUser) {
           setCurrentView(AppView.ADMIN_DASHBOARD);

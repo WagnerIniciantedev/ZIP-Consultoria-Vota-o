@@ -43,6 +43,7 @@ interface AdminDashboardProps {
   selectedAssemblyId?: string;
   setSampleUnit: React.Dispatch<React.SetStateAction<string>>;
   assemblyType: AssemblyType | null;
+  startedBy?: string;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -63,7 +64,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   currentUser,
   selectedAssemblyId,
   setSampleUnit,
-  assemblyType
+  assemblyType,
+  startedBy
 }) => {
   const [activeTab, setActiveTab] = useState<'setup_excel' | 'create_poll' | 'manage_polls' | 'attendance' | 'end_assembly'>('setup_excel');
   const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
@@ -185,6 +187,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className={`w-2 h-2 rounded-full ${isDemoMode ? 'bg-blue-500' : 'bg-green-500 animate-pulse'}`}></div>
                   {condoName}
                </h2>
+               {startedBy && (
+                 <p className="text-[10px] uppercase tracking-wider text-gray-400 mt-1">
+                   Iniciado por: <span className="font-semibold text-gray-500">{startedBy}</span>
+                 </p>
+               )}
             </div>
 
             <div className="flex items-center gap-4">
