@@ -119,7 +119,6 @@ const syncToCloud = (key: string, data: any, specificAssemblyId?: string) => {
         if (key === STORAGE_KEYS.IS_ASSEMBLY_ACTIVE) fieldName = 'isActive';
         if (key === STORAGE_KEYS.ASSEMBLY_START_TIME) fieldName = 'startTime';
         if (key === STORAGE_KEYS.CONDO_NAME) fieldName = 'name';
-        if (key === STORAGE_KEYS.LOGS) fieldName = 'logs';
 
         if (fieldName && fieldName !== 'residents' && fieldName !== 'votes') {
             try {
@@ -231,7 +230,15 @@ export const getVotes = (): VoteRecord[] => {
 
 export const saveLogs = (logs: any[]) => {
   localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
-  syncToCloud(STORAGE_KEYS.LOGS, logs);
+  if (db && isAdminUser) {
+    const ref = doc(db, SYSTEM_COLLECTION, 'logs');
+    setDoc(ref, { 
+      list: logs, 
+      lastUpdated: Date.now(),
+      updatedBy: getSession()?.username || 'system'
+    }, { merge: true })
+      .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/logs`));
+  }
 };
 
 export const getLogs = (): any[] => {

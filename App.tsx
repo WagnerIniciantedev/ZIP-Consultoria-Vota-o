@@ -353,11 +353,6 @@ const App: React.FC = () => {
     };
   }, [selectedAssemblyId, condoName, currentView, isAuthReady]);
 
-  // Persistence triggers
-  useEffect(() => { if(condoName) saveCondoName(condoName) }, [condoName]);
-  useEffect(() => saveAssemblies(pastAssemblies), [pastAssemblies]);
-  useEffect(() => saveAssemblyStatus(isAssemblyActive), [isAssemblyActive]);
-
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -388,6 +383,7 @@ const App: React.FC = () => {
       setSelectedAssemblyId('');
       saveAssemblyId('');
       saveAssemblyStatus(false);
+      saveCondoName('');
       
       setCurrentView(AppView.COMPANY_DASHBOARD);
       addLog(validUser, 'LOGIN', 'Acesso ao sistema realizado com sucesso');
@@ -537,6 +533,8 @@ const App: React.FC = () => {
     setIsAssemblyActive(false);
     setSelectedAssemblyId('');
     saveAssemblyId('');
+    saveAssemblyStatus(false);
+    saveCondoName('');
     setCurrentView(AppView.COMPANY_DASHBOARD);
   };
 
@@ -752,7 +750,9 @@ const App: React.FC = () => {
           setSelectedAssemblyId(id);
           saveAssemblyId(id);
           setCondoName(name);
+          saveCondoName(name);
           setIsAssemblyActive(true);
+          saveAssemblyStatus(true);
           setCurrentView(AppView.ADMIN_DASHBOARD);
         }}
         onStartAssembly={handleStartAssembly}

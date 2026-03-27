@@ -25,16 +25,16 @@ service cloud.firestore {
       return isAuthenticated() && 
         exists(/databases/$(database)/documents/authorized_admins/$(request.auth.uid)) && (
           !exists(/databases/$(database)/documents/system/roles) ? 
-            (getAdminData().role in ['ADMIN', 'TI', 'MASTER']) :
-            (get(/databases/$(database)/documents/system/roles).data[getAdminData().username.toLower()] == getAdminData().role && 
-             getAdminData().role in ['ADMIN', 'TI', 'MASTER'])
+            (getAdminData().get('role', 'NONE') in ['ADMIN', 'TI', 'MASTER']) :
+            (get(/databases/$(database)/documents/system/roles).data.get(getAdminData().get('username', '').lower(), 'NONE') == getAdminData().get('role', 'NONE') && 
+             getAdminData().get('role', 'NONE') in ['ADMIN', 'TI', 'MASTER'])
         );
     }
 
     function isTI() {
       return isAdmin() && (
         exists(/databases/$(database)/documents/authorized_admins/$(request.auth.uid)) && 
-        getAdminData().role in ['TI', 'MASTER']
+        getAdminData().get('role', 'NONE') in ['TI', 'MASTER']
       );
     }
 
@@ -61,10 +61,10 @@ service cloud.firestore {
       allow write: if isAdmin() || 
         (isAuthenticated() && request.auth.uid == uid && 
           exists(/databases/$(database)/documents/system/roles) &&
-          get(/databases/$(database)/documents/system/roles).data[request.resource.data.username.toLower()] == request.resource.data.role) ||
+          get(/databases/$(database)/documents/system/roles).data.get(request.resource.data.get('username', '').lower(), 'NONE') == request.resource.data.get('role', 'NONE')) ||
         (isAuthenticated() && request.auth.uid == uid && 
-          request.resource.data.username.toLower() in [
-            'wagner.silva', 'wagner1jackson'
+          request.resource.data.get('username', '').lower() in [
+            'wagner.silva', 'wagner1jackson', 'admin', 'master', 'ti'
           ]);
     }
 
