@@ -254,7 +254,7 @@ export const addLog = (user: User, action: string, details?: string) => {
   saveLogs(updatedLogs);
 };
 
-export const registerAdminUid = async (uid: string, username: string, role: 'TI' | 'ADMIN' = 'ADMIN') => {
+export const registerAdminUid = async (uid: string, username: string, role: 'TI' | 'ADMIN' | 'MASTER' = 'ADMIN') => {
   if (db) {
     // Agora 'authorized_admins' é uma coleção de nível superior para evitar erros de segmentos ímpares
     const adminRef = doc(db, 'authorized_admins', uid);

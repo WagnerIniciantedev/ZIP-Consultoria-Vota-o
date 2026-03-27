@@ -5,7 +5,7 @@ import {
   getResidents, saveResidents, 
   getPolls, savePolls, 
   getVotes, saveVotes,
-  getUsers,
+  getUsers, saveUsers,
   getCondoName, saveCondoName,
   getAssemblies, saveAssemblies,
   getAssemblyStatus, saveAssemblyStatus,
@@ -189,7 +189,7 @@ const App: React.FC = () => {
         // Sync back to cloud if it was empty (bootstrap)
         if (isAdmin && !docSnapshot.exists()) {
             saveUsers(finalUsersList)
-                .catch(e => console.error("Erro sincronizando bootstrap de usuários:", e));
+                .catch((e: any) => console.error("Erro sincronizando bootstrap de usuários:", e));
         }
     }, (error) => {
         console.error("[App] Users Listener Error:", error);

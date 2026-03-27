@@ -55,7 +55,7 @@ export const Card: React.FC<{ children: React.ReactNode, title?: string, classNa
   );
 };
 
-export const Badge: React.FC<{ children: React.ReactNode, color?: 'green' | 'red' | 'yellow' | 'gray' | 'purple' | 'blue', className?: string }> = ({ children, color = 'gray', className = '' }) => {
+export const Badge: React.FC<{ children: React.ReactNode, color?: 'green' | 'red' | 'yellow' | 'gray' | 'purple' | 'blue' | 'black', className?: string }> = ({ children, color = 'gray', className = '' }) => {
   const colors = {
     green: 'bg-green-100 text-green-800',
     red: 'bg-red-100 text-red-800',
@@ -63,6 +63,7 @@ export const Badge: React.FC<{ children: React.ReactNode, color?: 'green' | 'red
     gray: 'bg-gray-100 text-gray-800',
     purple: 'bg-purple-100 text-purple-800',
     blue: 'bg-blue-100 text-blue-800',
+    black: 'bg-black text-white',
   };
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[color]} ${className}`}>
