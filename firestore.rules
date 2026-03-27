@@ -23,19 +23,13 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && 
-        exists(/databases/$(database)/documents/authorized_admins/$(request.auth.uid)) && (
-          !exists(/databases/$(database)/documents/system/roles) ? 
-            (getAdminData().get('role', 'NONE') in ['ADMIN', 'TI', 'MASTER']) :
-            (get(/databases/$(database)/documents/system/roles).data.get(getAdminData().get('username', '').lower(), 'NONE') == getAdminData().get('role', 'NONE') && 
-             getAdminData().get('role', 'NONE') in ['ADMIN', 'TI', 'MASTER'])
-        );
+        exists(/databases/$(database)/documents/authorized_admins/$(request.auth.uid)) && 
+        getAdminData().get('role', 'NONE') in ['ADMIN', 'TI'];
     }
 
     function isTI() {
-      return isAdmin() && (
-        exists(/databases/$(database)/documents/authorized_admins/$(request.auth.uid)) && 
-        getAdminData().get('role', 'NONE') in ['TI', 'MASTER']
-      );
+      return isAdmin() && 
+        getAdminData().get('role', 'NONE') == 'TI';
     }
 
     // System configuration and user lists
@@ -57,15 +51,17 @@ service cloud.firestore {
     // Special rule for authorizing admins
     match /authorized_admins/{uid} {
       allow read: if isAuthenticated();
-      // Permite que um admin autorize outro, ou que o usuário se autorize se estiver na lista de papéis (roles)
+      // Permite que um admin autorize outro, ou que o usuário se autorize se estiver na lista de papéis (roles) ou bootstrap
       allow write: if isAdmin() || 
-        (isAuthenticated() && request.auth.uid == uid && 
-          exists(/databases/$(database)/documents/system/roles) &&
-          get(/databases/$(database)/documents/system/roles).data.get(request.resource.data.get('username', '').lower(), 'NONE') == request.resource.data.get('role', 'NONE')) ||
-        (isAuthenticated() && request.auth.uid == uid && 
+        (isAuthenticated() && request.auth.uid == uid && (
+          // Check bootstrap list
           request.resource.data.get('username', '').lower() in [
-            'wagner.silva', 'wagner1jackson', 'admin', 'master', 'ti'
-          ]);
+            'wagner.silva', 'admin', 'ti'
+          ] ||
+          // Check roles document if it exists
+          (exists(/databases/$(database)/documents/system/roles) &&
+           get(/databases/$(database)/documents/system/roles).data.get(request.resource.data.get('username', '').lower(), 'NONE') == request.resource.data.get('role', 'NONE'))
+        ));
     }
 
     // Connection test collection

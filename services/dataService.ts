@@ -97,8 +97,7 @@ const USERS_DOC_ID = 'users';
 const ACTIVE_ASSEMBLIES_DOC_ID = 'active_assemblies';
 
 const DEFAULT_USERS: User[] = [
-  { id: '1', name: 'Wagner Silva', username: 'wagner.silva', password: 'wagner123', role: 'TI', jobTitle: 'Administrador TI' },
-  { id: '2', name: 'Wagner Jackson', username: 'wagner1jackson', password: 'admin', role: 'TI', jobTitle: 'TI Master' }
+  { id: '1', name: 'Wagner Silva', username: 'wagner.silva', password: 'wagner123', role: 'TI', jobTitle: 'Administrador TI' }
 ];
 
 let isAdminUser = false;
@@ -106,6 +105,12 @@ let isCloudRegistered = false;
 
 export const setAdminStatus = (status: boolean) => {
   isAdminUser = status;
+  if (!status) isCloudRegistered = false;
+};
+
+export const clearAdminStatus = () => {
+  isAdminUser = false;
+  isCloudRegistered = false;
 };
 
 const syncToCloud = (key: string, data: any, specificAssemblyId?: string) => {
@@ -262,7 +267,7 @@ export const addLog = (user: User, action: string, details?: string) => {
   saveLogs(updatedLogs);
 };
 
-export const registerAdminUid = async (uid: string, username: string, role: 'TI' | 'ADMIN' | 'MASTER' = 'ADMIN') => {
+export const registerAdminUid = async (uid: string, username: string, role: 'TI' | 'ADMIN' = 'ADMIN') => {
   if (db) {
     // Agora 'authorized_admins' é uma coleção de nível superior para evitar erros de segmentos ímpares
     const adminRef = doc(db, 'authorized_admins', uid);

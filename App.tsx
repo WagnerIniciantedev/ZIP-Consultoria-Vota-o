@@ -14,7 +14,7 @@ import {
   getMasterSecurityUsers,
   getActiveAssemblies, saveActiveAssemblies,
   addLog,
-  getLogs, saveLogs, registerAdminUid, setAdminStatus,
+  getLogs, saveLogs, registerAdminUid, setAdminStatus, clearAdminStatus,
   testConnection
 } from './services/dataService';
 import { ActiveAssembly } from './types';
@@ -162,7 +162,7 @@ const App: React.FC = () => {
     setIsConnected(true);
 
     // Update admin status in dataService
-    const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'TI' || currentUser?.role === 'MASTER';
+    const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'TI';
     setAdminStatus(isAdmin);
 
     // Sincroniza o UID se estiver logado mas não registrado nesta sessão do Firebase
@@ -753,6 +753,7 @@ const App: React.FC = () => {
         onLogout={() => { 
           if (currentUser) addLog(currentUser, 'LOGOUT', 'Saiu do sistema');
           clearSession(); 
+          clearAdminStatus();
           setCurrentUser(null); 
           setCurrentView(AppView.ADMIN_LOGIN); 
         }}
@@ -801,7 +802,12 @@ const App: React.FC = () => {
         polls={polls} setPolls={setPolls}
         votes={votes}
         condoName={condoName} setCondoName={setCondoName}
-        onLogout={() => { clearSession(); setCurrentUser(null); setCurrentView(AppView.ADMIN_LOGIN); }}
+        onLogout={() => { 
+          clearSession(); 
+          clearAdminStatus();
+          setCurrentUser(null); 
+          setCurrentView(AppView.ADMIN_LOGIN); 
+        }}
         onGoToVoting={() => setCurrentView(AppView.VOTE_IDENTIFY)}
         onTogglePoll={(id: string) => {
             const updated = polls.map(p => {

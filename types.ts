@@ -79,7 +79,7 @@ export interface User {
   name: string;
   username: string;
   password: string;
-  role?: 'TI' | 'ADMIN' | 'MASTER'; // Technical permission level
+  role?: 'TI' | 'ADMIN'; // Technical permission level
   jobTitle?: string;     // Custom display title (Cargo)
 }
 
