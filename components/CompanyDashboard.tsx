@@ -297,24 +297,6 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       XLSX.utils.book_append_sheet(workbook, pollWS, `Enquete ${idx + 1}`);
     });
 
-    // 3. Logs Sheet
-    if (assembly.logs && assembly.logs.length > 0) {
-      const logsData = [
-        ['HISTÓRICO DE AUDITORIA'],
-        ['Data/Hora', 'Usuário', 'Ação', 'Detalhes']
-      ];
-      assembly.logs.slice().reverse().forEach(log => {
-        logsData.push([
-          new Date(log.timestamp).toLocaleString('pt-BR'),
-          cleanText(log.userName),
-          cleanText(log.action),
-          cleanText(log.details || '')
-        ]);
-      });
-      const logsWS = XLSX.utils.aoa_to_sheet(logsData);
-      XLSX.utils.book_append_sheet(workbook, logsWS, 'Auditoria');
-    }
-
     XLSX.writeFile(workbook, `Relatorio_${assembly.condoName.replace(/\s+/g, '_')}.xlsx`);
   };
 
@@ -336,7 +318,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       {/* Mobile Header */}
       <div className="lg:hidden bg-red-600 p-4 flex items-center justify-between text-white shadow-md sticky top-0 z-30">
         <div className="flex items-center gap-2">
-          <img src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" alt="Logo" className="h-8 w-auto brightness-0 invert" />
+          <img src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" alt="Logo" className="h-8 w-auto" />
           <span className="font-bold text-xs uppercase tracking-widest">Painel ZIP</span>
         </div>
         <button 
@@ -362,7 +344,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         lg:relative lg:translate-x-0 lg:flex
       `}>
         <div className="p-6 border-b border-red-500/30">
-          <img src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" alt="Logo" className="h-20 w-auto mx-auto brightness-0 invert" />
+          <img src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" alt="Logo" className="h-20 w-auto mx-auto" />
           <p className="text-[10px] text-center font-bold text-red-100 mt-2 uppercase tracking-widest">Painel Corporativo</p>
         </div>
 
@@ -682,7 +664,6 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         polls={pastAssemblies.find(a => a.id === selectedReportId)!.polls}
                         votes={pastAssemblies.find(a => a.id === selectedReportId)!.votes}
                         residents={pastAssemblies.find(a => a.id === selectedReportId)!.residentsSnapshot}
-                        logs={pastAssemblies.find(a => a.id === selectedReportId)!.logs}
                         showDelinquents={showDelinquentsInReport}
                       />
                     </div>

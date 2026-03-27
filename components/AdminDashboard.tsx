@@ -178,9 +178,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="flex justify-between h-24 items-center">
             <div className="flex items-center gap-2">
                <img 
-                    src="https://i.postimg.cc/Y0w6w1cm/Whats-App-Image-2025-11-29-at-22-21-41-removebg-preview.png" 
+                    src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
                     alt="Zip Consultoria" 
-                    className="h-24 w-auto object-contain brightness-0"
+                    className="h-24 w-auto object-contain"
                />
             </div>
 
