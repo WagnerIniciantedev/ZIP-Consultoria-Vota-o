@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Poll, PollCalculationType, User } from '../../types';
 import { Button, Input, Card, Badge } from '../ui';
-import { Trash2, Plus, PlayCircle, PauseCircle, StopCircle, BarChart3, Link as LinkIcon, Copy, Edit2 } from 'lucide-react';
+import { Trash2, Plus, PlayCircle, PauseCircle, StopCircle, BarChart3, Link as LinkIcon, Copy, Edit2, Maximize2 } from 'lucide-react';
 import { savePolls, addLog, cleanText } from '../../services/dataService'; // Import updated
 
 const generateId = () => {
@@ -206,6 +206,7 @@ interface PollListProps {
   onEndPoll: (id: string) => void;
   onDeletePoll: (id: string) => void;
   onSelectPoll: (id: string) => void;
+  onSelectPollZoom?: (id: string) => void;
   onEditPoll: (poll: Poll) => void;
   currentUser: User | null;
   condoName: string;
@@ -218,6 +219,7 @@ export const PollList: React.FC<PollListProps> = ({
   onEndPoll, 
   onDeletePoll, 
   onSelectPoll,
+  onSelectPollZoom,
   onEditPoll,
   currentUser,
   condoName,
@@ -386,6 +388,7 @@ export const PollList: React.FC<PollListProps> = ({
                     )}
 
                     {!isConfirmingDelete && !isConfirmingEnd && (
+                      <>
                         <Button 
                           onClick={(e) => { 
                             e.preventDefault();
@@ -397,6 +400,21 @@ export const PollList: React.FC<PollListProps> = ({
                         >
                           <BarChart3 size={14} /> Ver Resultados
                         </Button>
+
+                        {onSelectPollZoom && (
+                          <Button 
+                            onClick={(e) => { 
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onSelectPollZoom(poll.id);
+                            }} 
+                            variant="primary"
+                            className="text-sm py-1 px-3 h-8 flex gap-1 items-center bg-indigo-600 hover:bg-indigo-700 border-indigo-600"
+                          >
+                            <Maximize2 size={14} /> Zoom
+                          </Button>
+                        )}
+                      </>
                     )}
 
                     {/* CONFIRM DELETE UI */}

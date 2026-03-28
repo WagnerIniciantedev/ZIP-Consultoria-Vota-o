@@ -71,6 +71,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'setup_excel' | 'create_poll' | 'manage_polls' | 'attendance' | 'end_assembly'>('setup_excel');
   const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
+  const [isZoomMode, setIsZoomMode] = useState(false);
   const [pollToEdit, setPollToEdit] = useState<Poll | null>(null);
   
   // TOUR STATE
@@ -360,7 +361,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 onTogglePoll={onTogglePoll}
                 onEndPoll={onEndPoll}
                 onDeletePoll={onDeletePoll}
-                onSelectPoll={(id) => { setSelectedPollId(id); }}
+                onSelectPoll={(id) => { setSelectedPollId(id); setIsZoomMode(false); }}
+                onSelectPollZoom={(id) => { setSelectedPollId(id); setIsZoomMode(true); }}
                 onEditPoll={(poll) => { setPollToEdit(poll); setActiveTab('create_poll'); }}
                 currentUser={currentUser}
                 condoName={condoName}
@@ -381,6 +383,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  assemblyType={assemblyType}
                  setPolls={setPolls}
                  residentsCount={residentsCount}
+                 isZoomMode={isZoomMode}
+                 setIsZoomMode={setIsZoomMode}
               />
             )}
 
