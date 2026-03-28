@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Poll, VoteRecord, Resident, PollCalculationType } from '../../types';
+import { Poll, VoteRecord, Resident, PollCalculationType, AssemblyType } from '../../types';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { cleanText } from '../../services/dataService';
 
@@ -12,6 +12,7 @@ interface ReportDocumentProps {
   residents: Resident[];
   isForPDF?: boolean;
   showDelinquents?: boolean;
+  assemblyType?: AssemblyType | null;
 }
 
 const COLORS = ['#DC2626', '#EA580C', '#D97706', '#65A30D', '#059669', '#2563EB', '#7C3AED', '#DB2777'];
@@ -23,11 +24,21 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
   votes,
   residents,
   isForPDF = false,
-  showDelinquents = true
+  showDelinquents = true,
+  assemblyType = null
 }) => {
   const totalUnits = new Set(residents.map(r => r.unit)).size;
   const participatingUnits = new Set(votes.map(v => v.unit)).size;
   const quorumPercent = totalUnits > 0 ? ((participatingUnits / totalUnits) * 100).toFixed(1) : 0;
+
+  const getAssemblyTypeLabel = (type: AssemblyType | null) => {
+    switch (type) {
+      case AssemblyType.ONLINE: return "Online";
+      case AssemblyType.PRESENTIAL: return "Presencial";
+      case AssemblyType.HYBRID: return "Híbrida";
+      default: return "Não Informada";
+    }
+  };
 
   return (
     <div id="report-content" className={`bg-slate-100 font-sans ${isForPDF ? 'w-[794px] min-h-[1123px]' : 'w-full'} mx-auto overflow-hidden shadow-2xl border border-slate-200`}>
@@ -67,9 +78,15 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
               <div className="bg-red-600 text-white px-6 py-3 rounded-sm mb-6 shadow-lg shadow-red-100">
                 <p className="text-xs font-black uppercase tracking-[0.2em] leading-none">{cleanText(condoName)}</p>
               </div>
-              <div className="space-y-1">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] leading-none">Sessão Realizada em</p>
-                <p className="text-3xl font-black text-slate-900 tracking-tighter">{new Date(date).toLocaleDateString('pt-BR')}</p>
+              <div className="space-y-3">
+                <div className="text-right">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] leading-none mb-1">Modalidade</p>
+                  <p className="text-sm font-black text-slate-900 uppercase tracking-tighter">{getAssemblyTypeLabel(assemblyType)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] leading-none mb-1">Sessão Realizada em</p>
+                  <p className="text-3xl font-black text-slate-900 tracking-tighter">{new Date(date).toLocaleDateString('pt-BR')}</p>
+                </div>
               </div>
             </div>
           </div>

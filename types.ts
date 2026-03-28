@@ -114,6 +114,7 @@ export interface AssemblyRecord {
   polls: Poll[];
   votes: VoteRecord[];
   residentsSnapshot: Resident[]; // Snapshot of residents/attendance at that time
+  type?: AssemblyType;
   logs?: SystemLog[];
   startedBy?: string;
 }

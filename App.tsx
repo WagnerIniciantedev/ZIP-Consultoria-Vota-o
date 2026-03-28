@@ -513,6 +513,7 @@ const App: React.FC = () => {
         polls: [...polls], 
         votes: [...votes], 
         residentsSnapshot: [...residents],
+        type: assemblyType || undefined,
         logs: currentLogs
       };
       
@@ -831,6 +832,12 @@ const App: React.FC = () => {
         }}
         onSelectAssembly={(id, name) => {
           if (currentUser) addLog(currentUser, 'SELEÇÃO_ASSEMBLEIA', `Selecionou a assembleia: ${name}`);
+          const assembly = activeAssemblies.find(a => a.id === id);
+          if (assembly && assembly.type) {
+            setAssemblyType(assembly.type);
+          } else {
+            setAssemblyType(AssemblyType.ONLINE); // Default fallback
+          }
           setSelectedAssemblyId(id);
           saveAssemblyId(id);
           setCondoName(name);
@@ -967,7 +974,6 @@ const App: React.FC = () => {
         hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
         isResidentLink={new URLSearchParams(window.location.search).get('access') === 'resident'}
         isConnected={isConnected}
-        startedBy={startedBy}
         onBack={() => {
           if (currentUser) {
             setCurrentView(AppView.ADMIN_DASHBOARD);

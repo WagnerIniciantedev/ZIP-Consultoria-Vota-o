@@ -148,6 +148,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       condoName: newCondoName.trim(),
       createdAt: timestamp,
       isActive: true,
+      type: assemblyType,
       startedBy: currentUser?.name || 'Sistema'
     };
 
@@ -665,6 +666,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         votes={pastAssemblies.find(a => a.id === selectedReportId)!.votes}
                         residents={pastAssemblies.find(a => a.id === selectedReportId)!.residentsSnapshot}
                         showDelinquents={showDelinquentsInReport}
+                        assemblyType={pastAssemblies.find(a => a.id === selectedReportId)!.type}
                       />
                     </div>
                   </div>
