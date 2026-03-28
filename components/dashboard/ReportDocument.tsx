@@ -153,13 +153,20 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
             }
 
             const chartData = poll.options.map(opt => {
-              const val = dataMap.get(opt.id) || 0;
+              const onlineVal = dataMap.get(opt.id) || 0;
+              const manualVal = poll.manualVotes?.[opt.id] || 0;
+              const totalVal = onlineVal + manualVal;
+              
               return {
                 name: cleanText(opt.text),
-                votos: Number(val.toFixed(4)),
-                percent: totalWeight > 0 ? ((val / totalWeight) * 100).toFixed(1) : 0
+                votos: Number(totalVal.toFixed(4)),
+                online: Number(onlineVal.toFixed(4)),
+                presencial: Number(manualVal.toFixed(4)),
+                percent: totalWeight > 0 ? ((totalVal / totalWeight) * 100).toFixed(2) : "0.00"
               };
             });
+
+            const winner = [...chartData].sort((a, b) => Number(b.votos) - Number(a.votos))[0];
 
             return (
               <div key={poll.id} className="break-inside-avoid page-break-inside-avoid">
@@ -214,7 +221,11 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                               <div className="w-1.5 h-10 bg-slate-900" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
                               <div className="flex flex-col">
                                 <span className="font-black text-slate-900 text-sm uppercase tracking-tight leading-none mb-1">{d.name}</span>
-                                <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{d.votos} pontos auditados</span>
+                                <div className="flex gap-4 mt-1">
+                                  <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Online: {d.online}</span>
+                                  <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Presencial: {d.presencial}</span>
+                                  <span className="text-[9px] text-slate-600 font-black uppercase tracking-widest">Total: {d.votos}</span>
+                                </div>
                               </div>
                             </div>
                             <div className="text-right">
@@ -232,9 +243,220 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Winner Badge */}
+                {totalWeight > 0 && winner && (
+                  <div className="mt-8 bg-slate-900 p-6 rounded-sm flex items-center justify-between border-l-8 border-red-600">
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-1">Resultado da Deliberação</p>
+                      <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Opção Vencedora: <span className="text-red-600">{winner.name}</span></h3>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-1">Aprovação Final</p>
+                      <p className="text-4xl font-black text-white tracking-tighter">{winner.percent}%</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Detailed Votes Table */}
+                <div className="mt-12 border border-slate-200 rounded-sm overflow-hidden break-inside-avoid page-break-inside-avoid">
+                  <div className="bg-slate-900 px-4 py-2 flex justify-between items-center">
+                    <h4 className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Detalhamento de Votos Auditados</h4>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{pollVotes.length} Votos Registrados</span>
+                  </div>
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-100 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Unidade</th>
+                        <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Nome Morador</th>
+                        <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Identificação Zoom</th>
+                        <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Tipo</th>
+                        <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Opção Votada</th>
+                        <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {pollVotes.sort((a, b) => a.unit.localeCompare(b.unit)).map((v, i) => {
+                        const resident = residents.find(r => r.unit === v.unit);
+                        const opt = poll.options.find(o => o.id === v.optionId);
+                        return (
+                          <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                            <td className="px-4 py-2 text-[11px] font-bold text-slate-900 border-r border-slate-100">{v.unit}</td>
+                            <td className="px-4 py-2 text-[10px] text-slate-600 uppercase border-r border-slate-100">{cleanText(resident?.name || '-')}</td>
+                            <td className="px-4 py-2 text-[10px] text-slate-400 uppercase italic border-r border-slate-100">{cleanText(v.zoomName || resident?.zoomName || '-')}</td>
+                            <td className="px-4 py-2 text-[10px] text-slate-400 font-bold border-r border-slate-100">ONLINE</td>
+                            <td className="px-4 py-2 text-[10px] font-bold text-slate-900 uppercase border-r border-slate-100">{cleanText(opt?.text || '-')}</td>
+                            <td className="px-4 py-2 text-[9px] font-black">
+                              {v.isDelinquentVote ? (
+                                <span className="text-red-600">INADIMPLENTE</span>
+                              ) : (
+                                <span className="text-green-600">VÁLIDO</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {poll.manualVotes && Object.entries(poll.manualVotes).map(([optId, count], idx) => {
+                        if (count === 0) return null;
+                        const opt = poll.options.find(o => o.id === optId);
+                        return (
+                          <tr key={`manual-${idx}`} className="bg-slate-50">
+                            <td className="px-4 py-2 text-[11px] font-bold text-slate-900 border-r border-slate-100">-</td>
+                            <td className="px-4 py-2 text-[10px] text-slate-600 uppercase border-r border-slate-100">Votos Presenciais</td>
+                            <td className="px-4 py-2 text-[10px] text-slate-400 uppercase italic border-r border-slate-100">-</td>
+                            <td className="px-4 py-2 text-[10px] text-slate-400 font-bold border-r border-slate-100">PRESENCIAL</td>
+                            <td className="px-4 py-2 text-[10px] font-bold text-slate-900 uppercase border-r border-slate-100">{cleanText(opt?.text || '-')}</td>
+                            <td className="px-4 py-2 text-[9px] font-black text-slate-600">
+                              {count} {poll.calculationType === PollCalculationType.FRACTION ? 'PONTOS' : 'VOTOS'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {pollVotes.length === 0 && (!poll.manualVotes || Object.keys(poll.manualVotes).length === 0) && (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-xs italic">Nenhum voto registrado para esta enquete.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             );
           })}
+        </div>
+
+        {/* Participation and Voting Control Section */}
+        <div className="mt-32 break-inside-avoid page-break-inside-avoid">
+          <div className="flex items-center gap-6 mb-12">
+            <div className="text-7xl font-black text-slate-100 leading-none select-none">
+              {String(polls.length + 1).padStart(2, '0')}
+            </div>
+            <div className="flex-1 border-l-4 border-slate-900 pl-8">
+              <p className="text-[11px] font-black text-slate-900 uppercase tracking-[0.5em] mb-2">Controle de Presença</p>
+              <h2 className="text-4xl font-black text-slate-900 uppercase tracking-tighter leading-none mb-4">Unidades Aprovadas e Participação</h2>
+              <p className="text-base text-slate-500 font-medium leading-relaxed italic max-w-2xl">
+                Listagem de todas as unidades que realizaram o check-in e foram aprovadas para participar da assembleia, com o detalhamento de sua participação nas votações.
+              </p>
+            </div>
+          </div>
+
+          <div className="border border-slate-200 rounded-sm overflow-hidden">
+            <div className="bg-slate-900 px-4 py-3 flex justify-between items-center">
+              <h4 className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Relatório de Engajamento</h4>
+              <div className="flex gap-6">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  Aprovados: {residents.filter(r => r.attendanceStatus === 'APPROVED').length}
+                </span>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  Participaram: {new Set(votes.map(v => v.unit)).size}
+                </span>
+              </div>
+            </div>
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-100 border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Unidade</th>
+                  <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Nome do Proprietário</th>
+                  <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Nome do Zoom</th>
+                  <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Enquetes Votadas</th>
+                  <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Participação Total</th>
+                  <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Enquetes Não Votadas</th>
+                  <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest">Quais enquetes não foi votada</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {residents
+                  .filter(r => r.attendanceStatus === 'APPROVED')
+                  .sort((a, b) => a.unit.localeCompare(b.unit))
+                  .map((r, i) => {
+                    const resVotes = votes.filter(v => v.unit === r.unit);
+                    const votedPollIds = new Set(resVotes.map(v => v.pollId));
+                    const votedCount = votedPollIds.size;
+                    const totalPolls = polls.length;
+                    const notVotedCount = totalPolls - votedCount;
+                    const votedAll = votedCount === totalPolls;
+                    
+                    const notVotedPolls = polls
+                      .map((p, idx) => ({ id: p.id, index: idx + 1 }))
+                      .filter(p => !votedPollIds.has(p.id));
+
+                    return (
+                      <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                        <td className="px-4 py-2 text-[11px] font-bold text-slate-900 border-r border-slate-100">{r.unit}</td>
+                        <td className="px-4 py-2 text-[10px] text-slate-600 uppercase border-r border-slate-100">{cleanText(r.name)}</td>
+                        <td className="px-4 py-2 text-[10px] text-slate-400 uppercase italic border-r border-slate-100">{cleanText(r.zoomName || '-')}</td>
+                        <td className="px-4 py-2 text-[10px] text-slate-400 border-r border-slate-100">
+                          <div className="flex flex-wrap gap-1">
+                            {polls.map((p, pIdx) => {
+                              const v = resVotes.find(vote => vote.pollId === p.id);
+                              if (!v) return null;
+                              const opt = p.options.find(o => o.id === v.optionId);
+                              return (
+                                <span key={p.id} className="bg-slate-100 px-1.5 py-0.5 rounded text-[9px] font-medium text-slate-600 border border-slate-200">
+                                  E{pIdx + 1}: <span className="font-bold text-slate-900">{cleanText(opt?.text || '-')}</span>
+                                </span>
+                              );
+                            }).filter(Boolean)}
+                            {votedCount === 0 && '-'}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 text-[10px] text-slate-400 border-r border-slate-100">
+                          {totalPolls > 0 ? (
+                            votedAll ? (
+                              <span className="text-green-600 font-bold">100%</span>
+                            ) : (
+                              <span className="text-amber-600 font-bold">{((votedCount / totalPolls) * 100).toFixed(0)}%</span>
+                            )
+                          ) : '-'}
+                        </td>
+                        <td className="px-4 py-2 text-[10px] text-slate-400 font-bold text-center border-r border-slate-100">
+                          {notVotedCount}
+                        </td>
+                        <td className="px-4 py-2 text-[10px] text-red-600 font-medium">
+                          {notVotedPolls.length > 0 
+                            ? notVotedPolls.map(p => `Enquete ${p.index}`).join(', ')
+                            : <span className="text-green-600 font-bold">NENHUMA</span>
+                          }
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {residents.filter(r => r.attendanceStatus === 'APPROVED').length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400 text-xs italic">Nenhuma unidade aprovada para esta assembleia.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+
+            <div className="mt-6 grid grid-cols-3 gap-4 p-4 bg-white border-t border-slate-200">
+              <div className="bg-slate-50 p-4 border border-slate-200 rounded-sm">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Aprovados que Votaram</p>
+                <p className="text-xl font-black text-slate-900">
+                  {residents.filter(r => r.attendanceStatus === 'APPROVED' && votes.some(v => v.unit === r.unit)).length} de {residents.filter(r => r.attendanceStatus === 'APPROVED').length}
+                </p>
+              </div>
+              <div className="bg-slate-50 p-4 border border-slate-200 rounded-sm">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Participação Integral</p>
+                <p className="text-xl font-black text-slate-900">
+                  {residents.filter(r => {
+                    if (r.attendanceStatus !== 'APPROVED') return false;
+                    const resVotes = votes.filter(v => v.unit === r.unit);
+                    const votedPollIds = new Set(resVotes.map(v => v.pollId));
+                    return votedPollIds.size === polls.length && polls.length > 0;
+                  }).length} Unidades
+                </p>
+              </div>
+              <div className="bg-slate-900 p-4 rounded-sm text-white">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Engajamento Total</p>
+                <p className="text-xl font-black text-red-600">
+                  {residents.filter(r => r.attendanceStatus === 'APPROVED').length > 0 
+                    ? ((residents.filter(r => r.attendanceStatus === 'APPROVED' && votes.some(v => v.unit === r.unit)).length / residents.filter(r => r.attendanceStatus === 'APPROVED').length) * 100).toFixed(1)
+                    : 0}%
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Footer */}

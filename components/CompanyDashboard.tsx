@@ -278,7 +278,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         ['Descrição', cleanText(poll.description)],
         [''],
         ['DETALHAMENTO DE VOTOS'],
-        ['Unidade', 'Morador', 'Nome Zoom', 'Opção Escolhida', 'Status', 'Peso']
+        ['Unidade', 'Morador', 'Opção Escolhida', 'Status', 'Peso']
       ];
 
       pollVotes.sort((a, b) => a.unit.localeCompare(b.unit)).forEach(v => {
@@ -287,7 +287,6 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         sheetData.push([
           cleanText(v.unit),
           cleanText(resident?.name || 'N/A'),
-          cleanText(v.zoomName || '-'),
           cleanText(opt?.text || 'N/A'),
           v.isDelinquentVote ? 'Inadimplente' : 'Válido',
           v.isDelinquentVote ? '0.0000' : '1.0000' // Simplified for excel, logic can be complex
