@@ -165,23 +165,23 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
 
   if (isZoomMode) {
     return (
-      <div className="fixed inset-0 bg-white z-[100] flex flex-col p-8 overflow-y-auto animate-in fade-in">
-        <div className="flex justify-between items-center mb-10 border-b pb-6">
+      <div className="fixed inset-0 bg-gradient-to-br from-[#E60000] via-[#D00000] to-[#990000] z-[100] flex flex-col p-8 overflow-y-auto animate-in fade-in">
+        <div className="flex justify-between items-center mb-10 border-b border-white/20 pb-6">
           <div>
-            <h1 className="text-4xl font-black text-gray-900 uppercase tracking-tight">{cleanText(poll.title)}</h1>
-            <p className="text-xl text-gray-500 mt-2">{cleanText(poll.description)}</p>
+            <h1 className="text-4xl font-black text-white uppercase tracking-tight drop-shadow-md">{cleanText(poll.title)}</h1>
+            <p className="text-xl text-white/80 mt-2">{cleanText(poll.description)}</p>
           </div>
           <Button 
             variant="outline" 
             onClick={() => setIsZoomMode(false)}
-            className="flex items-center gap-2 px-6 py-6 text-lg border-2"
+            className="flex items-center gap-2 px-6 py-6 text-lg border-2 border-white/30 text-white hover:bg-white/10"
           >
             <Minimize2 size={24} /> Sair do Modo Zoom
           </Button>
         </div>
 
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          <div className="h-[500px] w-full bg-gray-50 rounded-3xl p-8 flex items-center justify-center border-2 border-dashed border-gray-200">
+          <div className="h-[500px] w-full bg-white/10 backdrop-blur-sm rounded-3xl p-8 flex items-center justify-center border-2 border-white/20 shadow-2xl">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -210,9 +210,9 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
           <div className="space-y-6">
             <div className="grid grid-cols-1 gap-4">
               {chartData.map((d, i) => (
-                <div key={i} className="bg-white p-6 rounded-2xl border-2 flex items-center justify-between shadow-sm" style={{ borderColor: COLORS[i % COLORS.length] + '40' }}>
+                <div key={i} className="bg-white/95 p-6 rounded-2xl border-2 flex items-center justify-between shadow-xl" style={{ borderColor: COLORS[i % COLORS.length] + '40' }}>
                   <div className="flex items-center gap-4">
-                    <div className="w-6 h-6 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
+                    <div className="w-6 h-6 rounded-full shadow-sm" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
                     <div className="text-2xl font-bold text-gray-800">{d.name}</div>
                   </div>
                   <div className="text-right">
@@ -231,14 +231,14 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
               ))}
             </div>
             
-            <div className="pt-8 border-t-2 border-gray-100 flex justify-between items-end">
+            <div className="pt-8 border-t-2 border-white/10 flex justify-between items-end">
               <div>
-                <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Total de Participação</p>
-                <p className="text-5xl font-black text-gray-900">{Number(totalWeight.toFixed(4))}</p>
+                <p className="text-sm font-bold text-white/60 uppercase tracking-widest">Total de Participação</p>
+                <p className="text-5xl font-black text-white drop-shadow-sm">{Number(totalWeight.toFixed(4))}</p>
               </div>
               <div className="text-right">
-                <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Quórum Atual</p>
-                <p className="text-3xl font-bold text-gray-700">{pollVotes.length} / {residentsCount}</p>
+                <p className="text-sm font-bold text-white/60 uppercase tracking-widest">Quórum Atual</p>
+                <p className="text-3xl font-bold text-white/90">{pollVotes.length} / {residentsCount}</p>
               </div>
             </div>
           </div>

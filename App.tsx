@@ -653,7 +653,10 @@ const App: React.FC = () => {
 
   if (currentView === AppView.ADMIN_LOGIN) {
     return (
-      <div className="min-h-screen bg-[#E60000] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      <div className="min-h-screen bg-gradient-to-br from-[#E60000] via-[#D00000] to-[#990000] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        {/* Background Decorative Elements */}
+        <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-white/5 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-black/10 rounded-full blur-3xl"></div>
         {globalError && currentUser?.role === 'TI' && (
           <div className="fixed top-0 left-0 right-0 bg-white text-red-600 p-4 text-center font-bold z-50 shadow-lg flex items-center justify-center gap-2">
             <AlertCircle size={20} />

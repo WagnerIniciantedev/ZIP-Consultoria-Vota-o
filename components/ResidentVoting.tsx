@@ -355,36 +355,40 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4 relative">
+    <div className="min-h-screen bg-gradient-to-br from-[#E60000] via-[#D00000] to-[#990000] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      {/* Background Decorative Elements */}
+      <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-white/5 rounded-full blur-3xl"></div>
+      <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-black/10 rounded-full blur-3xl"></div>
+
       {!isConnected && (
         <div className="fixed top-4 right-4 z-50">
-          <Badge color="red" className="animate-pulse flex items-center gap-1 shadow-lg py-2 px-3">
+          <Badge color="red" className="animate-pulse flex items-center gap-1 shadow-lg py-2 px-3 bg-white text-red-600 border-none">
             <WifiOff size={16} /> Sem Conexão
           </Badge>
         </div>
       )}
-      <div className="mb-8 text-center">
+      <div className="mb-8 text-center z-10">
          <img 
             src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
             alt="Zip Consultoria" 
-            className="h-24 w-auto mx-auto object-contain" 
+            className="h-32 w-auto mx-auto object-contain drop-shadow-2xl" 
          />
       </div>
       
       {/* Network Status Indicator */}
       <div className="absolute top-4 right-4 z-10">
           {assemblyId ? (
-             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-700 rounded-full text-xs font-medium border border-green-200 shadow-sm transition-all duration-500">
+             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/20 text-white rounded-full text-xs font-bold border border-white/30 shadow-sm backdrop-blur-sm">
                 <Wifi size={14} /> <span>Conectado</span>
              </div>
           ) : (
-             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium border border-yellow-200 shadow-sm animate-pulse">
+             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 text-white/80 rounded-full text-xs font-bold border border-white/20 shadow-sm animate-pulse backdrop-blur-sm">
                 <RefreshCw size={14} className="animate-spin" /> <span>Sincronizando...</span>
              </div>
           )}
       </div>
 
-      <div className="max-w-md w-full">
+      <div className="max-w-md w-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
         
         {/* Step 1: Identification */}
         {step === VoteStep.IDENTIFY && (
