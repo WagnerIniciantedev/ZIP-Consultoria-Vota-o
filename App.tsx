@@ -27,6 +27,7 @@ import { db, auth } from './services/firebase';
 import { AdminDashboard } from './components/AdminDashboard';
 import { CompanyDashboard } from './components/CompanyDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
+import { UrnaEletronica } from './components/UrnaEletronica';
 import { Button, Input, Card } from './components/ui';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, RefreshCw, Building2 } from 'lucide-react';
@@ -618,8 +619,6 @@ const App: React.FC = () => {
 
   const handleRegisterAttendance = async (targetAssemblyId: string, units: Resident[], zoomName: string) => {
     if (db && targetAssemblyId) {
-      const { doc, setDoc } = await import('firebase/firestore');
-      
       // Update local state first for immediate feedback
       setResidents(prev => {
         const updated = prev.map(r => {
@@ -636,7 +635,9 @@ const App: React.FC = () => {
       // Sync each unit to Firestore subcollection using the explicit assemblyId
       const safeAssemblyId = targetAssemblyId.replace(/[^a-zA-Z0-9]/g, '_');
       const syncPromises = units.map(u => {
-        const updatedResident = { ...u, zoomName, attendanceStatus: 'PENDING' as const };
+        // Preserve APPROVED status if already set, otherwise set to PENDING
+        const newStatus = u.attendanceStatus === 'APPROVED' ? 'APPROVED' : 'PENDING';
+        const updatedResident = { ...u, zoomName, attendanceStatus: newStatus as any };
         const resRef = doc(db, 'assemblies', safeAssemblyId, 'residents_list', u.unit.toLowerCase());
         return setDoc(resRef, updatedResident, { merge: true });
       });
@@ -673,7 +674,12 @@ const App: React.FC = () => {
         )}
         <div className="flex flex-col items-center w-full max-w-md z-10">
           <div className="mb-8 text-center">
-             <img src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" alt="Zip Consultoria" className="h-64 w-auto mx-auto object-contain drop-shadow-xl" />
+             <img 
+              src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
+              alt="Zip Consultoria" 
+              className="h-64 w-auto mx-auto object-contain drop-shadow-xl" 
+              referrerPolicy="no-referrer"
+            />
           </div>
           
           <div className="w-full bg-white rounded-2xl shadow-2xl overflow-hidden">
@@ -947,7 +953,32 @@ const App: React.FC = () => {
         setSampleUnit={setSampleUnit}
         assemblyType={assemblyType}
         startedBy={startedBy}
+        onGoToUrna={() => setCurrentView(AppView.URNA_ELETRONICA)}
+        onVoteSubmit={handleVoteSubmit}
       />
+      </div>
+    );
+  }
+
+  if (currentView === AppView.URNA_ELETRONICA) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-red-700 via-rose-650 to-red-800 flex items-center justify-center p-6 md:p-12">
+        <div className="w-full max-w-4xl shadow-2xl rounded-2xl overflow-hidden bg-white/10 backdrop-blur-md p-1 border border-white/20">
+          <UrnaEletronica
+            residents={residents}
+            polls={polls}
+            votes={votes}
+            onVoteSubmit={handleVoteSubmit}
+            onBack={() => {
+              if (currentUser) {
+                setCurrentView(AppView.ADMIN_DASHBOARD);
+              } else {
+                setCurrentView(AppView.ADMIN_LOGIN);
+              }
+            }}
+            isStandalone={true}
+          />
+        </div>
       </div>
     );
   }

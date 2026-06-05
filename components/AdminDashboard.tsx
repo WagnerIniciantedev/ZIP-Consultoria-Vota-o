@@ -11,7 +11,8 @@ import {
   UserCheck,
   HelpCircle,
   Share2,
-  Check
+  Check,
+  Tablet
 } from 'lucide-react';
 import { Button, Card } from './ui';
 import { Resident, Poll, VoteRecord, User, AssemblyType } from '../types';
@@ -45,6 +46,8 @@ interface AdminDashboardProps {
   setSampleUnit: React.Dispatch<React.SetStateAction<string>>;
   assemblyType: AssemblyType | null;
   startedBy?: string;
+  onGoToUrna: () => void;
+  onVoteSubmit: (pollId: string, unit: string, optionId: string, isDelinquent: boolean, zoomName?: string) => Promise<void> | void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -67,7 +70,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   residentsCount,
   setSampleUnit,
   assemblyType,
-  startedBy
+  startedBy,
+  onGoToUrna,
+  onVoteSubmit
 }) => {
   const [activeTab, setActiveTab] = useState<'setup_excel' | 'create_poll' | 'manage_polls' | 'attendance' | 'end_assembly'>('setup_excel');
   const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
@@ -182,6 +187,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
                     alt="Zip Consultoria" 
                     className="h-24 w-auto object-contain"
+                    referrerPolicy="no-referrer"
                />
             </div>
 
@@ -292,6 +298,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               )}
             </button>
 
+            <button 
+              onClick={onGoToUrna}
+              className="w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors text-gray-600 hover:bg-gray-100"
+            >
+              <Tablet size={20} /> Urna Eletrônica (Presencial)
+            </button>
+
             <div className="border-t my-2 border-gray-200"></div>
 
             <div className="pt-6">
@@ -385,6 +398,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  residentsCount={residentsCount}
                  isZoomMode={isZoomMode}
                  setIsZoomMode={setIsZoomMode}
+                 onVoteSubmit={onVoteSubmit}
               />
             )}
 

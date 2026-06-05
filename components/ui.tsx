@@ -40,12 +40,13 @@ export const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = ({ c
   );
 };
 
-export const Card: React.FC<{ children: React.ReactNode, title?: string, className?: string }> = ({ children, title, className = '' }) => {
+export const Card: React.FC<{ children: React.ReactNode, title?: string, className?: string, headerActions?: React.ReactNode }> = ({ children, title, className = '', headerActions }) => {
   return (
     <div className={`bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden ${className}`}>
       {title && (
-        <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+        <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
           <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
+          {headerActions && <div>{headerActions}</div>}
         </div>
       )}
       <div className="p-6">

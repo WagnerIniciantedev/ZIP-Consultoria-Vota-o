@@ -7,6 +7,7 @@ export enum AppView {
   VOTE_CONFIRM = 'VOTE_CONFIRM',
   VOTE_BOOTH = 'VOTE_BOOTH',
   VOTE_SUCCESS = 'VOTE_SUCCESS',
+  URNA_ELETRONICA = 'URNA_ELETRONICA',
 }
 
 export enum AssemblyType {
@@ -45,6 +46,7 @@ export interface Resident {
   checkInTimestamp?: number; // When admin approved
   proxyCount?: number;       // Column G: Quantity of proxies
   proxyUnits?: string;       // Column H: Units in proxy
+  proxyOwnerUnit?: string;   // The unit that is representing this unit via proxy
 }
 
 export interface PollOption {

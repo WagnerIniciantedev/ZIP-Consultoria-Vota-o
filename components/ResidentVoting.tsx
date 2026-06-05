@@ -1,10 +1,28 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button, Input, Card, Badge } from './ui';
 import { Resident, Poll } from '../types';
-import { Vote, CheckCircle, UserCheck, ArrowLeft, ChevronRight, Clock, Building, Users, LayoutDashboard, AlertCircle, RefreshCw, Search, WifiOff, Wifi } from 'lucide-react';
+import { 
+  Vote, 
+  CheckCircle, 
+  UserCheck, 
+  ArrowLeft, 
+  ChevronRight, 
+  Clock, 
+  Building, 
+  Users, 
+  LayoutDashboard, 
+  AlertCircle, 
+  RefreshCw, 
+  Search, 
+  WifiOff, 
+  Wifi,
+  Trash2,
+  Info,
+  Pencil
+} from 'lucide-react';
 import { identifyResident } from '../services/dataService';
-import { db, doc, onSnapshot } from '../services/firebase';
+import { db, doc, onSnapshot, getDoc } from '../services/firebase';
 
 interface ResidentVotingProps {
   assemblyId: string;
@@ -21,12 +39,15 @@ interface ResidentVotingProps {
 // Internal State for Navigation
 enum VoteStep {
   IDENTIFY = 'IDENTIFY',
+  PROXY_REVOKE_CONFIRM = 'PROXY_REVOKE_CONFIRM',
   MULTI_UNIT_SELECT = 'MULTI_UNIT_SELECT',
+  PROXY_UNIT_SELECT = 'PROXY_UNIT_SELECT',
   DASHBOARD = 'DASHBOARD',
   ZOOM_CHECKIN = 'ZOOM_CHECKIN', // Now acts as "Verify & Confirm"
   WAITING_ROOM = 'WAITING_ROOM',
   LIST = 'LIST',
   BOOTH = 'BOOTH',
+  BOOTH_DISTINCT = 'BOOTH_DISTINCT',
   SUCCESS = 'SUCCESS'
 }
 
@@ -50,12 +71,23 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   const [unitInput, setUnitInput] = useState('');
   const [cpfInput, setCpfInput] = useState('');
   
+  // Proxy State
+  const [proxyOwner, setProxyOwner] = useState<Resident | null>(null);
+  const [proxyOwners, setProxyOwners] = useState<Record<string, Resident>>({});
+  const [proxyUnitsToVote, setProxyUnitsToVote] = useState<Resident[]>([]);
+  const [proxyToRevoke, setProxyToRevoke] = useState<Resident | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [isDistinctVoting, setIsDistinctVoting] = useState(false);
+  const [distinctVoteIndex, setDistinctVoteIndex] = useState(0);
+  
   // Multi Unit State
   const [multiUnitCandidates, setMultiUnitCandidates] = useState<Resident[]>([]);
   const [selectedUnits, setSelectedUnits] = useState<Resident[]>([]); // The units the user is currently representing
 
   // Zoom Input
   const [zoomNameInput, setZoomNameInput] = useState('');
+  const [isEditingZoomName, setIsEditingZoomName] = useState(false);
+  const [newZoomName, setNewZoomName] = useState('');
 
   const [selectedPoll, setSelectedPoll] = useState<Poll | null>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
@@ -65,12 +97,73 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   const [isIdentifying, setIsIdentifying] = useState(false);
   const [cachedUnitDisplay, setCachedUnitDisplay] = useState<string>('');
 
+  const stepRef = useRef(step);
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
+
   // Filter Active Polls
   const activePolls = polls.filter(p => p.isActive);
 
   // Helper status checks
   const allApproved = selectedUnits.length > 0 && selectedUnits.every(u => u.attendanceStatus === 'APPROVED');
   
+  const handleUpdateZoomName = async () => {
+    if (!newZoomName.trim() || !assemblyId || selectedUnits.length === 0) return;
+    
+    try {
+      const { db } = await import('../services/firebase');
+      const { doc, setDoc } = await import('firebase/firestore');
+      
+      const updatedUnits = selectedUnits.map(u => ({ ...u, zoomName: newZoomName }));
+      
+      // Update all units in cloud
+      const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+      for (const u of updatedUnits) {
+        const ref = doc(db, 'assemblies', safeAssemblyId, 'residents_list', u.unit.toLowerCase());
+        await setDoc(ref, { zoomName: newZoomName }, { merge: true });
+      }
+      
+      setSelectedUnits(updatedUnits);
+      localStorage.setItem(STORAGE_ZOOM_NAME_KEY, newZoomName);
+      setIsEditingZoomName(false);
+      
+      const { addLog, getSession } = await import('../services/dataService');
+      const user = getSession();
+      if (user) {
+        addLog(user, 'EDITAR_ZOOM_NAME_RESIDENTE', `Residente alterou nome do Zoom para: ${newZoomName}`);
+      }
+    } catch (error) {
+      console.error("Error updating zoom name:", error);
+    }
+  };
+
+  const handleRevokeProxyAsHolder = async () => {
+    if (!proxyToRevoke || !assemblyId) return;
+    
+    setIsRevoking(true);
+    try {
+      const { revokeProxy, addLog, getSession } = await import('../services/dataService');
+      // unit: the unit being revoked (the one that GAVE the proxy)
+      // proxyOwnerUnit: the unit that HAS the proxy (the current user)
+      await revokeProxy(assemblyId, proxyToRevoke.unit, selectedUnits[0].unit);
+      
+      // Update local state
+      setProxyUnitsToVote(prev => prev.filter(u => u.unit !== proxyToRevoke.unit));
+      setProxyToRevoke(null);
+      
+      // Add log
+      const user = getSession();
+      if (user) {
+        addLog(user, 'REVOGAR_PROCURACAO_RESIDENTE', `Residente revogou procuração da unidade: ${proxyToRevoke.unit}`);
+      }
+    } catch (error) {
+      console.error("Error revoking proxy:", error);
+    } finally {
+      setIsRevoking(false);
+    }
+  };
+
   // --- EFFECTS ---
 
   // 1. SESSION RESTORATION (Persistence)
@@ -101,28 +194,30 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
             // Fetch these units from Firestore
             const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
             const fetchUnits = async () => {
-                const foundUnits: Resident[] = [];
-                for (const unit of myUnitNumbers) {
-                    const resRef = doc(db, 'assemblies', safeAssemblyId, 'residents_list', unit.toLowerCase());
-                    // We don't use onSnapshot here yet, just a one-time fetch to restore session
-                    // The real-time listener will handle updates
-                    const { getDoc } = await import('../services/firebase');
-                    const snap = await getDoc(resRef);
-                    if (snap.exists()) {
-                        foundUnits.push(snap.data() as Resident);
+                try {
+                    const foundUnits: Resident[] = [];
+                    for (const unit of myUnitNumbers) {
+                        const resRef = doc(db, 'assemblies', safeAssemblyId, 'residents_list', unit.toLowerCase());
+                        const snap = await getDoc(resRef);
+                        if (snap.exists()) {
+                            foundUnits.push(snap.data() as Resident);
+                        }
                     }
-                }
 
-                if (foundUnits.length > 0) {
-                    setSelectedUnits(foundUnits);
-                    const isApproved = foundUnits.some(u => u.attendanceStatus === 'APPROVED');
-                    const isPending = foundUnits.some(u => u.attendanceStatus === 'PENDING');
+                    if (foundUnits.length > 0) {
+                        setSelectedUnits(foundUnits);
+                        const allApproved = foundUnits.every(u => u.attendanceStatus === 'APPROVED');
+                        const anyNone = foundUnits.some(u => !u.attendanceStatus || u.attendanceStatus === 'NONE');
 
-                    if (isApproved) setStep(VoteStep.DASHBOARD);
-                    else if (isPending) setStep(VoteStep.WAITING_ROOM);
-                    else setStep(VoteStep.ZOOM_CHECKIN);
+                        if (allApproved) setStep(VoteStep.DASHBOARD);
+                        else if (anyNone) setStep(VoteStep.ZOOM_CHECKIN);
+                        else setStep(VoteStep.WAITING_ROOM);
+                    }
+                } catch (e) {
+                    console.error("Failed to restore units", e);
+                } finally {
+                    setIsRestoringSession(false);
                 }
-                setIsRestoringSession(false);
             };
             fetchUnits();
         } catch (e) {
@@ -148,18 +243,25 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
             if (snap.exists()) {
                 const updatedData = snap.data() as Resident;
                 
+                // Check for auto-transition to DASHBOARD if approved
+                // We use stepRef to avoid stale closure
                 setSelectedUnits(prev => {
                     const updated = prev.map(u => u.unit.toLowerCase() === updatedData.unit.toLowerCase() ? updatedData : u);
                     
-                    // Check for auto-transition to DASHBOARD if approved
-                    const anyApproved = updated.some(u => u.attendanceStatus === 'APPROVED');
-                    if (anyApproved && step === VoteStep.WAITING_ROOM) {
+                    // Auto-transition logic
+                    const allApproved = updated.every(u => u.attendanceStatus === 'APPROVED');
+                    const anyNone = updated.some(u => !u.attendanceStatus || u.attendanceStatus === 'NONE');
+                    
+                    if (allApproved && stepRef.current === VoteStep.WAITING_ROOM) {
                         setStep(VoteStep.DASHBOARD);
+                    } else if (!allApproved && !anyNone && stepRef.current === VoteStep.ZOOM_CHECKIN) {
+                        // If they were in ZOOM_CHECKIN but now all are at least PENDING, move to WAITING_ROOM
+                        setStep(VoteStep.WAITING_ROOM);
                     }
-
+                    
                     return updated;
                 });
-                
+
                 if (updatedData.attendanceStatus === 'BLOCKED') {
                     alert(`O acesso da unidade ${updatedData.unit} foi bloqueado pelo administrador.`);
                     handleLogout();
@@ -194,10 +296,14 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
     setIsIdentifying(true);
     try {
-        const { resident, siblings } = await identifyResident(assemblyId, targetUnit, targetCpfClean);
+        const { resident, siblings, proxyOwners } = await identifyResident(assemblyId, targetUnit, targetCpfClean);
 
         if (resident) {
-            if (siblings.length > 1) {
+            setProxyOwners(proxyOwners);
+            if (proxyOwners[resident.unit]) {
+                setProxyOwner(proxyOwners[resident.unit]);
+                setStep(VoteStep.PROXY_REVOKE_CONFIRM);
+            } else if (siblings.length > 1) {
                 setMultiUnitCandidates(siblings);
                 setStep(VoteStep.MULTI_UNIT_SELECT);
             } else {
@@ -214,27 +320,87 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
     }
   };
 
+  const handleRevokeProxyAsOwner = async () => {
+    if (!assemblyId || !proxyOwner || !unitInput) return;
+    
+    setIsIdentifying(true);
+    try {
+        const { revokeProxy } = await import('../services/dataService');
+        await revokeProxy(assemblyId, unitInput, proxyOwner.unit);
+        
+        // Re-identify after revocation
+        const targetCpfClean = cpfInput.replace(/\D/g, '');
+        const { resident, siblings } = await identifyResident(assemblyId, unitInput, targetCpfClean);
+        
+        if (resident) {
+            if (siblings.length > 1) {
+                setMultiUnitCandidates(siblings);
+                setStep(VoteStep.MULTI_UNIT_SELECT);
+            } else {
+                proceedWithUnits([resident]);
+            }
+        }
+    } catch (error) {
+        console.error("Revocation error:", error);
+        alert("Erro ao revogar procuração.");
+    } finally {
+        setIsIdentifying(false);
+        setProxyOwner(null);
+    }
+  };
+
   const handleMultiUnitSelection = (units: Resident[]) => {
       proceedWithUnits(units);
   };
 
-  const proceedWithUnits = (units: Resident[]) => {
+  const proceedWithUnits = async (units: Resident[]) => {
+      // Check if any of these units have proxies
+      const unitsWithProxies = units.filter(u => u.proxyUnits && u.proxyUnits.trim());
+      
+      if (unitsWithProxies.length > 0) {
+          const proxyUnitsList: Resident[] = [];
+          const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+          
+          for (const unit of unitsWithProxies) {
+              const proxyUnitNumbers = unit.proxyUnits!.split(',').map(u => u.trim()).filter(u => u);
+              for (const pUnit of proxyUnitNumbers) {
+                  try {
+                      const resRef = doc(db, 'assemblies', safeAssemblyId, 'residents_list', pUnit.toLowerCase());
+                      const snap = await getDoc(resRef);
+                      if (snap.exists()) {
+                          proxyUnitsList.push(snap.data() as Resident);
+                      }
+                  } catch (e) {
+                      console.error(`Failed to fetch proxy unit ${pUnit}`, e);
+                  }
+              }
+          }
+          
+          if (proxyUnitsList.length > 0) {
+              setProxyUnitsToVote(proxyUnitsList);
+              setSelectedUnits(units); // These are the "owner" units
+              setStep(VoteStep.PROXY_UNIT_SELECT);
+              return;
+          }
+      }
+
       setSelectedUnits(units);
       
       // SAVE IDENTITY LOCALLY (Cache for offline/reload) - CRITICAL STEP
       const unitNumbers = units.map(u => u.unit);
       localStorage.setItem(STORAGE_IDENTITY_KEY, JSON.stringify(unitNumbers));
+      localStorage.setItem('condovote_assembly_id', assemblyId);
 
       // Direct flow
-      const isApproved = units.every(u => u.attendanceStatus === 'APPROVED');
-      const isPending = units.every(u => u.attendanceStatus === 'PENDING');
+      const allApproved = units.every(u => u.attendanceStatus === 'APPROVED');
+      const anyNone = units.some(u => !u.attendanceStatus || u.attendanceStatus === 'NONE');
 
-      if (isApproved) {
+      if (allApproved) {
           setStep(VoteStep.DASHBOARD);
-      } else if (isPending) {
-          setStep(VoteStep.WAITING_ROOM);
-      } else {
+      } else if (anyNone) {
           setStep(VoteStep.ZOOM_CHECKIN);
+      } else {
+          setStep(VoteStep.WAITING_ROOM);
       }
   };
 
@@ -285,30 +451,43 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   };
 
   const handleSelectPoll = (poll: Poll) => {
-    const allVoted = selectedUnits.every(u => hasVoted(poll.id, u.unit));
+    const allUnits = [...selectedUnits, ...proxyUnitsToVote];
+    const allVoted = allUnits.every(u => hasVoted(poll.id, u.unit));
     if (allVoted) {
       alert("Todas as suas unidades já votaram nesta enquete.");
       return;
     }
     setSelectedPoll(poll);
-    setStep(VoteStep.BOOTH);
+    
+    if (allUnits.length > 1) {
+      // Ask if they want to vote all at once or distinctly
+      setStep(VoteStep.BOOTH); // Default to booth, but I'll add the toggle there
+    } else {
+      setStep(VoteStep.BOOTH);
+    }
   };
 
   const submitVote = () => {
-    if (selectedOption && selectedUnits.length > 0 && selectedPoll) {
-      let voteCount = 0;
-      selectedUnits.forEach(u => {
-          if (!hasVoted(selectedPoll.id, u.unit)) {
-             onVoteSubmit(selectedPoll.id, u.unit, selectedOption, u.isDelinquent, zoomNameInput);
-             voteCount++;
-          }
-      });
-
-      if (voteCount > 0) {
+    if (selectedOption && selectedPoll) {
+      const allUnits = [...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit));
+      
+      if (isDistinctVoting) {
+        const currentUnit = allUnits[distinctVoteIndex];
+        onVoteSubmit(selectedPoll.id, currentUnit.unit, selectedOption, currentUnit.isDelinquent, zoomNameInput);
+        
+        if (distinctVoteIndex + 1 < allUnits.length) {
+          setDistinctVoteIndex(distinctVoteIndex + 1);
+          setSelectedOption(null);
+        } else {
           setStep(VoteStep.SUCCESS);
+          setDistinctVoteIndex(0);
+          setIsDistinctVoting(false);
+        }
       } else {
-          alert("Erro: Votos já registrados anteriormente.");
-          setStep(VoteStep.LIST);
+        allUnits.forEach(u => {
+          onVoteSubmit(selectedPoll.id, u.unit, selectedOption, u.isDelinquent, zoomNameInput);
+        });
+        setStep(VoteStep.SUCCESS);
       }
     }
   };
@@ -372,6 +551,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
             src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
             alt="Zip Consultoria" 
             className="h-32 w-auto mx-auto object-contain drop-shadow-2xl" 
+            referrerPolicy="no-referrer"
          />
       </div>
       
@@ -390,6 +570,47 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
 
       <div className="max-w-md w-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
         
+        {/* Proxy Revocation Modal */}
+        {proxyToRevoke && (
+          <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-red-100">
+              <div className="flex flex-col items-center text-center">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                  <Trash2 className="text-red-600" size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">Retirar Procuração?</h3>
+                <p className="text-gray-600 text-sm mb-6">
+                  Deseja realmente retirar a unidade <strong>{proxyToRevoke.unit}</strong> da sua lista de representação?
+                </p>
+                
+                <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 mb-6 flex items-start gap-2 text-left">
+                  <Info className="text-blue-600 mt-0.5 flex-shrink-0" size={16} />
+                  <p className="text-xs text-blue-800">
+                    <strong>Atenção:</strong> Para restituir esta procuração após a retirada, você precisará entrar em contato com o <strong>ADM da ZIP Consultoria</strong>.
+                  </p>
+                </div>
+
+                <div className="flex flex-col w-full gap-2">
+                  <Button 
+                    onClick={handleRevokeProxyAsHolder} 
+                    disabled={isRevoking}
+                    className="bg-red-600 hover:bg-red-700 text-white py-3 font-bold"
+                  >
+                    {isRevoking ? 'Processando...' : 'Sim, Retirar Unidade'}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setProxyToRevoke(null)}
+                    disabled={isRevoking}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Step 1: Identification */}
         {step === VoteStep.IDENTIFY && (
           <Card title="Acesso à Assembleia">
@@ -454,6 +675,37 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
           </Card>
         )}
 
+        {/* Step 1.2: Proxy Revoke Confirmation */}
+        {step === VoteStep.PROXY_REVOKE_CONFIRM && proxyOwner && (
+          <Card title="Unidade em Procuração">
+            <div className="space-y-6">
+              <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 flex gap-3">
+                <AlertCircle className="text-orange-600 shrink-0" />
+                <div>
+                  <p className="text-sm text-orange-800 font-bold mb-1">Atenção!</p>
+                  <p className="text-xs text-orange-700 leading-relaxed">
+                    Sua unidade (<strong>{unitInput}</strong>) está sendo representada por uma procuração em nome de <strong>{proxyOwner.name}</strong> (Unidade {proxyOwner.unit}).
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-sm text-gray-600">
+                Deseja retirar o poder de voto desta unidade e votar por conta própria? 
+                Ao confirmar, o procurador perderá o direito de votar por você.
+              </p>
+
+              <div className="flex flex-col gap-3">
+                <Button onClick={handleRevokeProxyAsOwner} className="bg-red-600 hover:bg-red-700">
+                  Sim, Retirar Poder e Votar
+                </Button>
+                <Button variant="outline" onClick={() => setStep(VoteStep.IDENTIFY)}>
+                  Não, Voltar
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
         {/* Step 1.5: Multi-Unit Selection */}
         {step === VoteStep.MULTI_UNIT_SELECT && (
              <Card title="Unidades Múltiplas">
@@ -465,29 +717,125 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                         </p>
                      </div>
 
-                     <div className="space-y-2 max-h-48 overflow-y-auto border rounded p-2 bg-gray-50">
-                         {multiUnitCandidates.map(u => (
-                             <div key={u.unit} className="flex items-center gap-2 p-2 bg-white border border-gray-100 rounded shadow-sm">
-                                 <Building size={16} className="text-gray-400" />
-                                 <span className="font-bold text-gray-700">{u.unit}</span>
-                                 <span className="text-sm text-gray-500">- {u.name}</span>
-                             </div>
-                         ))}
-                     </div>
+                      <div className="space-y-2 max-h-48 overflow-y-auto border rounded p-2 bg-gray-50">
+                          {multiUnitCandidates.map(u => {
+                              const pOwner = proxyOwners[u.unit];
+                              return (
+                                <div key={u.unit} className="flex flex-col p-2 bg-white border border-gray-100 rounded shadow-sm">
+                                    <div className="flex items-center gap-2">
+                                        <Building size={16} className={pOwner ? "text-orange-500" : "text-gray-400"} />
+                                        <span className="font-bold text-gray-700">{u.unit}</span>
+                                        <span className="text-sm text-gray-500">- {u.name}</span>
+                                    </div>
+                                    {pOwner && (
+                                        <div className="text-[10px] text-orange-600 font-bold mt-1 bg-orange-50 p-1 rounded">
+                                            Representado por: {pOwner.name} (Unidade {pOwner.unit})
+                                        </div>
+                                    )}
+                                </div>
+                              );
+                          })}
+                      </div>
 
-                     <div className="flex flex-col gap-3 mt-4">
-                         <Button onClick={() => handleMultiUnitSelection(multiUnitCandidates)}>
-                            Entrar com TODAS as unidades
-                         </Button>
-                         <Button variant="outline" onClick={() => handleMultiUnitSelection([multiUnitCandidates.find(u => u.unit.toLowerCase() === unitInput.toLowerCase().trim())!])}>
-                            Apenas a unidade {unitInput}
-                         </Button>
+                      <div className="flex flex-col gap-3 mt-4">
+                          <Button 
+                            onClick={() => {
+                                // Filter out units that have proxy owners
+                                const availableUnits = multiUnitCandidates.filter(u => !proxyOwners[u.unit]);
+                                if (availableUnits.length === 0) {
+                                    alert("Todas as suas unidades estão sendo representadas por procurações. Você deve entrar individualmente em cada uma para revogar o poder se desejar.");
+                                    return;
+                                }
+                                handleMultiUnitSelection(availableUnits);
+                            }}
+                          >
+                             Entrar com unidades disponíveis
+                          </Button>
+                          <Button variant="outline" onClick={() => {
+                              const u = multiUnitCandidates.find(u => u.unit.toLowerCase() === unitInput.toLowerCase().trim())!;
+                              if (proxyOwners[u.unit]) {
+                                  setProxyOwner(proxyOwners[u.unit]);
+                                  setStep(VoteStep.PROXY_REVOKE_CONFIRM);
+                              } else {
+                                  handleMultiUnitSelection([u]);
+                              }
+                          }}>
+                             Apenas a unidade {unitInput}
+                          </Button>
                          <Button variant="outline" onClick={() => setStep(VoteStep.IDENTIFY)}>
                             Voltar
                          </Button>
                      </div>
                  </div>
              </Card>
+        )}
+
+        {/* Step 1.6: Proxy Unit Selection */}
+        {step === VoteStep.PROXY_UNIT_SELECT && (
+          <Card title="Unidades em Procuração">
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-start gap-3">
+                <Users className="text-blue-600 mt-1 flex-shrink-0" />
+                <p className="text-sm text-blue-800">
+                  Você possui <strong>{proxyUnitsToVote.length} procuração(ões)</strong> além da sua unidade.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-xs font-bold text-gray-500 uppercase">Suas Unidades:</p>
+                <div className="space-y-2">
+                  {selectedUnits.map(u => (
+                    <div key={u.unit} className="flex items-center gap-2 p-2 bg-green-50 border border-green-100 rounded">
+                      <Building size={16} className="text-green-600" />
+                      <span className="font-bold text-gray-700">{u.unit}</span>
+                      <span className="text-xs text-gray-500">(Titular)</span>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-xs font-bold text-gray-500 uppercase mt-4">Unidades Representadas:</p>
+                <div className="space-y-2 max-h-40 overflow-y-auto border rounded p-2 bg-gray-50">
+                  {proxyUnitsToVote.map(u => (
+                    <div key={u.unit} className="flex items-center justify-between p-2 bg-white border border-gray-100 rounded shadow-sm group">
+                      <div className="flex items-center gap-2">
+                        <Building size={16} className="text-blue-600" />
+                        <span className="font-bold text-gray-700">{u.unit}</span>
+                        <span className="text-xs text-gray-500">- {u.name}</span>
+                      </div>
+                      <button 
+                        onClick={() => setProxyToRevoke(u)}
+                        className="text-gray-300 hover:text-red-500 p-1 transition-colors"
+                        title="Retirar Procuração"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 mt-6">
+                <Button onClick={() => {
+                  const allUnits = [...selectedUnits, ...proxyUnitsToVote];
+                  const unitNumbers = allUnits.map(u => u.unit);
+                  localStorage.setItem(STORAGE_IDENTITY_KEY, JSON.stringify(unitNumbers));
+                  localStorage.setItem('condovote_assembly_id', assemblyId);
+                  
+                  const allApproved = allUnits.every(u => u.attendanceStatus === 'APPROVED');
+                  const anyNone = allUnits.some(u => !u.attendanceStatus || u.attendanceStatus === 'NONE');
+
+                  if (allApproved) setStep(VoteStep.DASHBOARD);
+                  else if (anyNone) setStep(VoteStep.ZOOM_CHECKIN);
+                  else setStep(VoteStep.WAITING_ROOM);
+                }}>
+                  Confirmar e Continuar
+                </Button>
+                <Button variant="outline" onClick={() => setStep(VoteStep.IDENTIFY)}>
+                  Voltar
+                </Button>
+              </div>
+            </div>
+          </Card>
         )}
 
         {/* Step 3: Zoom Check-in (CONFIRM IDENTITY) */}
@@ -601,11 +949,38 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                     </div>
                  </button>
                  
-                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 flex items-center gap-3">
-                    <UserCheck className="text-green-600" size={20} />
-                    <div className="text-sm text-gray-600">
-                        Identificado como: <strong>{selectedUnits[0].zoomName}</strong>
+                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                       <div className="flex items-center gap-3">
+                          <UserCheck className="text-green-600" size={20} />
+                          <div className="text-sm text-gray-600">
+                              Identificado como: <strong>{selectedUnits[0].zoomName}</strong>
+                          </div>
+                       </div>
+                       <button 
+                         onClick={() => {
+                           setNewZoomName(selectedUnits[0].zoomName || '');
+                           setIsEditingZoomName(true);
+                         }}
+                         className="text-blue-600 text-xs font-bold hover:underline flex items-center gap-1"
+                       >
+                          <Pencil size={12} /> Editar
+                       </button>
                     </div>
+
+                    {isEditingZoomName && (
+                      <div className="flex gap-2 animate-in slide-in-from-top-1">
+                         <Input 
+                           value={newZoomName}
+                           onChange={(e) => setNewZoomName(e.target.value)}
+                           placeholder="Novo nome no Zoom"
+                           className="text-sm h-9"
+                           autoFocus
+                         />
+                         <Button size="sm" onClick={handleUpdateZoomName} className="h-9 px-3">OK</Button>
+                         <Button size="sm" variant="outline" onClick={() => setIsEditingZoomName(false)} className="h-9 px-3">X</Button>
+                      </div>
+                    )}
                  </div>
                </div>
             </div>
@@ -665,18 +1040,53 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
         )}
 
         {/* Step 6: Voting Booth */}
-        {step === VoteStep.BOOTH && selectedUnits.length > 0 && selectedPoll && (
+        {step === VoteStep.BOOTH && (selectedUnits.length > 0 || proxyUnitsToVote.length > 0) && selectedPoll && (
           <Card title="Cédula de Votação">
             <div className="space-y-6">
               <div>
-                <Button variant="outline" className="mb-4 text-xs flex items-center gap-1" onClick={() => setStep(VoteStep.LIST)}>
+                <Button variant="outline" className="mb-4 text-xs flex items-center gap-1" onClick={() => {
+                  setStep(VoteStep.LIST);
+                  setDistinctVoteIndex(0);
+                  setIsDistinctVoting(false);
+                }}>
                   <ArrowLeft size={12} /> Voltar para Lista
                 </Button>
                 <h2 className="text-xl font-bold text-gray-900 mb-2">{selectedPoll.title}</h2>
-                <div className="bg-red-50 text-red-800 text-sm p-2 rounded mb-2">
-                    Votando por: <strong>{selectedUnits.filter(u => !hasVoted(selectedPoll.id, u.unit)).map(u => u.unit).join(', ')}</strong>
+                
+                {/* Voting Mode Toggle */}
+                {([...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit)).length > 1) && (
+                  <div className="flex bg-gray-100 p-1 rounded-lg mb-4">
+                    <button 
+                      onClick={() => {
+                        setIsDistinctVoting(false);
+                        setDistinctVoteIndex(0);
+                      }}
+                      className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${!isDistinctVoting ? 'bg-white shadow-sm text-red-600' : 'text-gray-500'}`}
+                    >
+                      Votar em Bloco
+                    </button>
+                    <button 
+                      onClick={() => setIsDistinctVoting(true)}
+                      className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${isDistinctVoting ? 'bg-white shadow-sm text-red-600' : 'text-gray-500'}`}
+                    >
+                      Votos Distintos
+                    </button>
+                  </div>
+                )}
+
+                <div className="bg-red-50 text-red-800 text-sm p-3 rounded-lg mb-2 border border-red-100">
+                    {isDistinctVoting ? (
+                      <>
+                        Votando agora pela unidade: <strong>{[...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit))[distinctVoteIndex]?.unit}</strong>
+                        <p className="text-[10px] mt-1 opacity-70">Passo {distinctVoteIndex + 1} de {[...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit)).length}</p>
+                      </>
+                    ) : (
+                      <>
+                        Votando por: <strong>{[...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit)).map(u => u.unit).join(', ')}</strong>
+                      </>
+                    )}
                 </div>
-                {selectedPoll.description && <p className="text-gray-500 text-sm">{selectedPoll.description}</p>}
+                {selectedPoll.description && <p className="text-gray-500 text-sm mt-2">{selectedPoll.description}</p>}
               </div>
 
               <div className="space-y-3">
@@ -704,7 +1114,11 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
               </div>
 
               <div className="flex gap-3 pt-4">
-                <Button variant="outline" onClick={() => setStep(VoteStep.LIST)} className="flex-1">
+                <Button variant="outline" onClick={() => {
+                  setStep(VoteStep.LIST);
+                  setDistinctVoteIndex(0);
+                  setIsDistinctVoting(false);
+                }} className="flex-1">
                   Cancelar
                 </Button>
                 <Button 
@@ -712,7 +1126,10 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   className="flex-[2]" 
                   disabled={!selectedOption}
                 >
-                  Confirmar Voto(s)
+                  {isDistinctVoting 
+                    ? (distinctVoteIndex + 1 === [...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit)).length ? 'Finalizar Votação' : 'Próxima Unidade')
+                    : 'Confirmar Voto(s)'
+                  }
                 </Button>
               </div>
             </div>

@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Resident, User } from '../../types';
 import { Button, Input, Card } from '../ui';
 import { exportAttendanceCSV, saveResidents, addLog } from '../../services/dataService';
-import { FileSpreadsheet, Clock, CheckCircle2, Ban, LogOut, Pencil, Edit3 } from 'lucide-react';
+import { FileSpreadsheet, Clock, CheckCircle2, Ban, LogOut, Pencil, Edit3, RefreshCcw } from 'lucide-react';
 
 interface AttendancePanelProps {
   residents: Resident[];
@@ -20,11 +20,19 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   currentUser,
   selectedAssemblyId
 }) => {
-  const [editingResident, setEditingResident] = useState<{unit: string, name: string, zoomName: string} | null>(null);
+  const [editingResident, setEditingResident] = useState<{
+    unit: string, 
+    name: string, 
+    zoomName: string,
+    proxyCount: number,
+    proxyUnits: string
+  } | null>(null);
   const [confirmBlockUnit, setConfirmBlockUnit] = useState<string | null>(null);
 
   const pendingResidents = residents.filter(r => r.attendanceStatus === 'PENDING');
   const approvedResidents = residents.filter(r => r.attendanceStatus === 'APPROVED');
+
+  const [isRestoringAll, setIsRestoringAll] = useState(false);
 
   const updateResidentInCloud = async (resident: Resident) => {
     if (!selectedAssemblyId) return;
@@ -89,6 +97,45 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
       }
   };
 
+  const handleRestoreAllProxies = async () => {
+    if (!selectedAssemblyId || !confirm("Deseja realmente restituir todas as procurações? Isso irá remover todos os vínculos atuais e você precisará re-importar ou re-atribuir manualmente.")) return;
+    
+    setIsRestoringAll(true);
+    try {
+      const updated = residents.map(r => ({
+        ...r,
+        proxyOwnerUnit: undefined,
+        proxyUnits: '',
+        proxyCount: 0
+      }));
+      
+      setResidents(updated);
+      saveResidents(updated);
+      
+      // Update all in cloud (this is heavy, but necessary if we want to "restore" or "reset")
+      const { db } = await import('../../services/firebase');
+      const { doc, writeBatch } = await import('firebase/firestore');
+      const batch = writeBatch(db);
+      
+      updated.forEach(res => {
+        const ref = doc(db, 'assemblies', selectedAssemblyId, 'residents_list', res.unit.toLowerCase());
+        batch.set(ref, res);
+      });
+      
+      await batch.commit();
+      
+      if (currentUser) {
+        addLog(currentUser, 'RESTITUIR_TODAS_PROCURACOES', 'Resetou todas as procurações da assembleia');
+      }
+      alert("Todas as procurações foram resetadas com sucesso.");
+    } catch (error) {
+      console.error("Error restoring proxies:", error);
+      alert("Erro ao processar restauração.");
+    } finally {
+      setIsRestoringAll(false);
+    }
+  };
+
   const handleExportAttendance = () => {
     if (residents.filter(r => r.attendanceStatus === 'APPROVED').length === 0) {
       alert("Não há participantes aprovados para gerar a lista.");
@@ -97,22 +144,36 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
     exportAttendanceCSV(residents, condoName);
   };
 
-  const openEditResident = (unit: string, name: string, zoomName: string) => {
-    setEditingResident({ unit, name, zoomName: zoomName || '' });
+  const openEditResident = (unit: string, name: string, zoomName: string, proxyCount: number = 0, proxyUnits: string = '') => {
+    setEditingResident({ unit, name, zoomName: zoomName || '', proxyCount, proxyUnits });
   };
 
-  const handleSaveResidentDetails = () => {
-    if (!editingResident) return;
+  const handleSaveResidentDetails = async () => {
+    if (!editingResident || !selectedAssemblyId) return;
     
     const resident = residents.find(r => r.unit === editingResident.unit);
     if (!resident) return;
 
-    const updatedResident = { ...resident, name: editingResident.name, zoomName: editingResident.zoomName };
+    const updatedResident = { 
+      ...resident, 
+      name: editingResident.name, 
+      zoomName: editingResident.zoomName,
+      proxyCount: editingResident.proxyCount,
+      proxyUnits: editingResident.proxyUnits
+    };
     const updated = residents.map(r => r.unit === editingResident.unit ? updatedResident : r);
     
     setResidents(updated);
     saveResidents(updated); // Local Save
     updateResidentInCloud(updatedResident); // Cloud Sync
+
+    // Update target units with proxyOwnerUnit
+    if (editingResident.proxyUnits) {
+      const { grantProxy } = await import('../../services/dataService');
+      const targetUnits = editingResident.proxyUnits.split(',').map(u => u.trim()).filter(u => u);
+      await grantProxy(selectedAssemblyId, editingResident.unit, targetUnits);
+    }
+
     setEditingResident(null);
   };
 
@@ -147,6 +208,25 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
                        value={editingResident.name}
                        onChange={(e) => setEditingResident({...editingResident, name: e.target.value})}
                      />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Qtd. Procurações</label>
+                      <Input 
+                        type="number"
+                        value={editingResident.proxyCount}
+                        onChange={(e) => setEditingResident({...editingResident, proxyCount: parseInt(e.target.value) || 0})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Unidades Proc.</label>
+                      <Input 
+                        value={editingResident.proxyUnits}
+                        onChange={(e) => setEditingResident({...editingResident, proxyUnits: e.target.value})}
+                        placeholder="Ex: 102, 103"
+                      />
+                    </div>
                   </div>
 
                   <div className="flex gap-2 pt-2">
@@ -185,12 +265,17 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
                       <div className="text-sm text-gray-500 mt-1 flex items-center gap-2 group">
                          <span className="font-semibold text-blue-700">Zoom:</span> {r.zoomName}
                          <button 
-                           onClick={() => openEditResident(r.unit, r.name, r.zoomName || '')}
+                           onClick={() => openEditResident(r.unit, r.name, r.zoomName || '', r.proxyCount, r.proxyUnits)}
                            className="text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
                         >
                             <Pencil size={14} />
                          </button>
                       </div>
+                      {r.proxyCount && r.proxyCount > 0 ? (
+                        <div className="text-[10px] text-orange-600 font-bold mt-0.5">
+                          {r.proxyCount} Procuração(ões) ({r.proxyUnits})
+                        </div>
+                      ) : null}
                    </div>
                    
                    {confirmBlockUnit === r.unit ? (
@@ -215,7 +300,23 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
          )}
       </Card>
 
-      <Card title={`Participantes na Sala (Aprovados: ${approvedResidents.length})`}>
+      <Card 
+        title={`Participantes na Sala (Aprovados: ${approvedResidents.length})`}
+        headerActions={
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleRestoreAllProxies}
+              disabled={isRestoringAll}
+              className="text-orange-600 border-orange-100 hover:bg-orange-50 flex items-center gap-1"
+            >
+              <RefreshCcw size={14} className={isRestoringAll ? 'animate-spin' : ''} />
+              Restituir Procuradores
+            </Button>
+          </div>
+        }
+      >
          {approvedResidents.length === 0 ? (
              <p className="text-gray-500 text-sm italic">Nenhum participante aprovado ainda.</p>
          ) : (
@@ -227,10 +328,19 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
                       <div className="text-xs text-gray-500 truncate">{r.name}</div>
                       <div className="text-xs text-blue-600 mt-1 flex items-center gap-1">
                          <span className="truncate font-semibold">Zoom: {r.zoomName}</span>
-                         <button onClick={() => openEditResident(r.unit, r.name, r.zoomName || '')}>
-                            <Pencil size={12} className="text-gray-300 hover:text-blue-600" />
+                         <button 
+                           onClick={() => openEditResident(r.unit, r.name, r.zoomName || '', r.proxyCount, r.proxyUnits)}
+                           className="text-gray-400 hover:text-blue-600 flex items-center gap-1 ml-1"
+                         >
+                            <Pencil size={12} />
+                            <span className="text-[10px] font-bold uppercase">Editar</span>
                          </button>
                       </div>
+                      {r.proxyCount && r.proxyCount > 0 ? (
+                        <div className="text-[10px] text-orange-600 font-bold mt-0.5">
+                          {r.proxyCount} Procuração(ões) ({r.proxyUnits})
+                        </div>
+                      ) : null}
                     </div>
                     <button onClick={() => handleResetResident(r.unit)} className="text-gray-400 hover:text-red-500 ml-2">
                        <LogOut size={16} />

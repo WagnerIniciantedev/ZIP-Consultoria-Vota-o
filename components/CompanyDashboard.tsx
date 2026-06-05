@@ -208,17 +208,24 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
 
     setIsGeneratingPDF(true);
     try {
-      // Ensure we are at the top of the page for capture
+      // Small delay to allow the DOM to update with isForPDF styles
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Ensure we are at the top for capture
+      const originalScrollPos = window.scrollY;
       window.scrollTo(0, 0);
       
-      // Create a temporary container to render the PDF version
       const canvas = await html2canvas(element, {
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
-        scale: 2, // Higher quality
+        scale: 2,
         allowTaint: true,
+        windowWidth: 794, // Force A4 width for consistent rendering
       } as any);
+      
+      // Restore scroll position
+      window.scrollTo(0, originalScrollPos);
       
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
@@ -226,22 +233,25 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
       
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+      // Calculate dimensions to fit A4 with small margin
+      const margin = 5; // 5mm margin
+      const contentWidth = pdfWidth - (2 * margin);
+      const imgWidth = contentWidth;
+      const imgHeight = (canvas.height * contentWidth) / canvas.width;
       
       let heightLeft = imgHeight;
-      let position = 0;
+      let position = margin; // Start with margin at top
 
       // First page
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-      heightLeft -= pdfHeight;
+      pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
+      heightLeft -= (pdfHeight - (2 * margin));
 
       // Subsequent pages
       while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
+        position = heightLeft - imgHeight + margin;
         pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-        heightLeft -= pdfHeight;
+        pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
+        heightLeft -= (pdfHeight - (2 * margin));
       }
 
       pdf.save(`Relatorio_${condoName.replace(/\s+/g, '_')}_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.pdf`);
@@ -318,7 +328,12 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       {/* Mobile Header */}
       <div className="lg:hidden bg-red-600 p-4 flex items-center justify-between text-white shadow-md sticky top-0 z-30">
         <div className="flex items-center gap-2">
-          <img src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" alt="Logo" className="h-8 w-auto" />
+          <img 
+            src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
+            alt="Logo" 
+            className="h-8 w-auto" 
+            referrerPolicy="no-referrer"
+          />
           <span className="font-bold text-xs uppercase tracking-widest">Painel ZIP</span>
         </div>
         <button 
@@ -344,7 +359,12 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         lg:relative lg:translate-x-0 lg:flex
       `}>
         <div className="p-6 border-b border-red-500/30">
-          <img src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" alt="Logo" className="h-20 w-auto mx-auto" />
+          <img 
+            src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
+            alt="Logo" 
+            className="h-20 w-auto mx-auto" 
+            referrerPolicy="no-referrer"
+          />
           <p className="text-[10px] text-center font-bold text-red-100 mt-2 uppercase tracking-widest">Painel Corporativo</p>
         </div>
 
@@ -666,6 +686,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         residents={pastAssemblies.find(a => a.id === selectedReportId)!.residentsSnapshot}
                         showDelinquents={showDelinquentsInReport}
                         assemblyType={pastAssemblies.find(a => a.id === selectedReportId)!.type}
+                        isForPDF={isGeneratingPDF}
                       />
                     </div>
                   </div>

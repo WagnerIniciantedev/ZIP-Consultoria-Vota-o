@@ -4,7 +4,8 @@ import { Poll, VoteRecord, Resident, PollCalculationType, User, AssemblyType } f
 import { Button, Card, Badge, Input } from '../ui';
 import { exportVotesToCSV, addLog, savePolls, cleanText } from '../../services/dataService';
 import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { ArrowLeft, PlayCircle, PauseCircle, StopCircle, Download, Eye, EyeOff, Plus, Users, Maximize2, Minimize2 } from 'lucide-react';
+import { ArrowLeft, PlayCircle, PauseCircle, StopCircle, Download, Eye, EyeOff, Plus, Users, Maximize2, Minimize2, Tablet, X } from 'lucide-react';
+import { UrnaEletronica } from '../UrnaEletronica';
 
 interface ResultsPanelProps {
   poll: Poll;
@@ -19,6 +20,7 @@ interface ResultsPanelProps {
   residentsCount: number;
   isZoomMode?: boolean;
   setIsZoomMode?: (val: boolean) => void;
+  onVoteSubmit: (pollId: string, unit: string, optionId: string, isDelinquent: boolean, zoomName?: string) => Promise<void> | void;
 }
 
 export const ResultsPanel: React.FC<ResultsPanelProps> = ({ 
@@ -33,16 +35,22 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
   setPolls,
   residentsCount,
   isZoomMode: isZoomModeProp = false,
-  setIsZoomMode: setIsZoomModeProp
+  setIsZoomMode: setIsZoomModeProp,
+  onVoteSubmit
 }) => {
   const [showDelinquentVotes, setShowDelinquentVotes] = useState(false);
   const [isConfirmingEnd, setIsConfirmingEnd] = useState(false);
   const [isAddingManual, setIsAddingManual] = useState(false);
   const [isZoomModeInternal, setIsZoomModeInternal] = useState(false);
+  const [isZoomPromptOpen, setIsZoomPromptOpen] = useState(false);
+  const [showZoomDetails, setShowZoomDetails] = useState(true);
   const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
+  const [isManualVoteFlowOpen, setIsManualVoteFlowOpen] = useState(false);
+  const [isManualChoiceOpen, setIsManualChoiceOpen] = useState(false);
 
   const isZoomMode = isZoomModeProp || isZoomModeInternal;
   const setIsZoomMode = setIsZoomModeProp || setIsZoomModeInternal;
+  const isHybrid = assemblyType === AssemblyType.HYBRID;
 
   // --- DATA CALCULATION ---
   const pollVotes = votes.filter(v => v.pollId === poll.id);
@@ -65,9 +73,17 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
         weight = 1 + (resident.hasHabiteSe ? 1 : 0);
       }
       
-      // Add proxy count to weight
+      // Add proxy count to weight ONLY for units that carry proxies
+      // We subtract the number of proxy units that ALREADY have a vote in this poll
+      // to avoid double counting when using "Vote in Block" or "Distinct Votes"
       if (resident.proxyCount && resident.proxyCount > 0) {
-        weight += resident.proxyCount;
+        const proxyUnitsList = (resident.proxyUnits || '').split(',').map(u => u.trim().toLowerCase()).filter(u => u);
+        const votedProxyUnitsCount = proxyUnitsList.filter(pUnit => 
+          pollVotes.some(vote => vote.unit.toLowerCase() === pUnit && !vote.isDelinquentVote)
+        ).length;
+        
+        const remainingProxies = Math.max(0, resident.proxyCount - votedProxyUnitsCount);
+        weight += remainingProxies;
       }
     }
 
@@ -88,12 +104,15 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
     const manualVal = poll.manualVotes?.[opt.id] || 0;
     const totalVal = onlineVal + manualVal;
     
+    const isFraction = poll.calculationType === PollCalculationType.FRACTION;
+    const percentValue = totalWeight > 0 ? (totalVal / totalWeight) * 100 : 0;
+    
     return {
       name: cleanText(opt.text),
       votos: Number(totalVal.toFixed(4)), 
       online: Number(onlineVal.toFixed(4)),
       presencial: Number(manualVal.toFixed(4)),
-      percent: totalWeight > 0 ? ((totalVal / totalWeight) * 100).toFixed(2) : "0.00"
+      percent: isFraction ? percentValue.toFixed(2) : Math.round(percentValue).toString()
     };
   });
 
@@ -163,86 +182,138 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
     setIsConfirmingEnd(true);
   };
 
+  const handleEnterZoom = (showDetails: boolean) => {
+    setShowZoomDetails(showDetails);
+    setIsZoomMode(true);
+    setIsZoomPromptOpen(false);
+  };
+
   if (isZoomMode) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-[#E60000] via-[#D00000] to-[#990000] z-[100] flex flex-col p-8 overflow-y-auto animate-in fade-in">
-        <div className="flex justify-between items-center mb-10 border-b border-white/20 pb-6">
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 z-[100] flex flex-col p-8 overflow-y-auto animate-in fade-in">
+        <div className="flex justify-between items-center mb-10 border-b border-white/10 pb-6">
           <div>
             <h1 className="text-4xl font-black text-white uppercase tracking-tight drop-shadow-md">{cleanText(poll.title)}</h1>
-            <p className="text-xl text-white/80 mt-2">{cleanText(poll.description)}</p>
+            <p className="text-xl text-slate-400 mt-2">{cleanText(poll.description)}</p>
           </div>
-          <Button 
-            variant="outline" 
-            onClick={() => setIsZoomMode(false)}
-            className="flex items-center gap-2 px-6 py-6 text-lg border-2 border-white/30 text-white hover:bg-white/10"
-          >
-            <Minimize2 size={24} /> Sair do Modo Zoom
-          </Button>
+          <div className="flex gap-4">
+            <Button 
+              variant="outline" 
+              onClick={() => setIsZoomMode(false)}
+              className="flex items-center gap-2 px-6 py-6 text-lg border-2 border-white/20 text-white hover:bg-white/10"
+            >
+              <Minimize2 size={24} /> Sair do Modo Zoom
+            </Button>
+          </div>
         </div>
 
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          <div className="h-[500px] w-full bg-white/10 backdrop-blur-sm rounded-3xl p-8 flex items-center justify-center border-2 border-white/20 shadow-2xl">
+        <div className={`flex-1 grid grid-cols-1 ${showZoomDetails ? 'lg:grid-cols-2' : 'max-w-4xl mx-auto w-full'} gap-12 items-center`}>
+          <div className={`${showZoomDetails ? 'h-[550px]' : 'h-[650px]'} w-full bg-slate-800/40 backdrop-blur-md rounded-3xl p-8 flex items-center justify-center border border-white/10 shadow-2xl transition-all duration-500`}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={chartData}
                   cx="50%"
                   cy="50%"
-                  labelLine={false}
-                  outerRadius={180}
+                  labelLine={true}
+                  outerRadius={showZoomDetails ? 180 : 220}
+                  stroke="#ffffff"
+                  strokeWidth={2}
                   fill="#8884d8"
                   dataKey="votos"
                   nameKey="name"
-                  label={({ percent }) => `${(percent * 100).toFixed(2)}%`}
+                  label={({ cx, cy, midAngle, outerRadius, percent, name }) => {
+                    const RADIAN = Math.PI / 180;
+                    // Point on the edge of the pie
+                    const sx = cx + outerRadius * Math.cos(-midAngle * RADIAN);
+                    const sy = cy + outerRadius * Math.sin(-midAngle * RADIAN);
+                    
+                    // Point for the label
+                    const labelRadius = outerRadius + 40;
+                    const x = cx + labelRadius * Math.cos(-midAngle * RADIAN);
+                    const y = cy + labelRadius * Math.sin(-midAngle * RADIAN);
+                    
+                    const isFraction = poll.calculationType === PollCalculationType.FRACTION;
+                    const displayPercent = isFraction ? (percent * 100).toFixed(2) : Math.round(percent * 100).toString();
+                    
+                    const textAnchor = x > cx ? 'start' : 'end';
+
+                    return (
+                      <g>
+                        <line x1={sx} y1={sy} x2={x} y2={y} stroke="white" strokeWidth={2} opacity={0.6} />
+                        <text 
+                          x={x + (x > cx ? 10 : -10)} 
+                          y={y} 
+                          fill="white" 
+                          textAnchor={textAnchor} 
+                          dominantBaseline="central"
+                          style={{ fontSize: showZoomDetails ? '20px' : '28px', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}
+                        >
+                          {`${name}: ${displayPercent}%`}
+                        </text>
+                      </g>
+                    );
+                  }}
                 >
                   {chartData.map((_entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip 
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  formatter={(value: number) => [value]} 
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', backgroundColor: '#1e293b', color: '#fff' }}
+                  itemStyle={{ color: '#fff' }}
+                  formatter={(_value: number, _name: string, props: any) => [`${props.payload.percent}%`, 'Participação']} 
                 />
               </PieChart>
             </ResponsiveContainer>
           </div>
 
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 gap-4">
-              {chartData.map((d, i) => (
-                <div key={i} className="bg-white/95 p-6 rounded-2xl border-2 flex items-center justify-between shadow-xl" style={{ borderColor: COLORS[i % COLORS.length] + '40' }}>
-                  <div className="flex items-center gap-4">
-                    <div className="w-6 h-6 rounded-full shadow-sm" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
-                    <div className="text-2xl font-bold text-gray-800">{d.name}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-4xl font-black" style={{ color: COLORS[i % COLORS.length] }}>{d.percent}%</div>
-                    <div className="text-sm font-medium text-gray-500">
-                      {d.votos} {poll.calculationType === PollCalculationType.FRACTION ? 'pontos' : 'votos'}
-                      {poll.manualVotes && Object.keys(poll.manualVotes).length > 0 && (
-                        <div className="text-xs mt-1 flex justify-end gap-3 opacity-70 font-bold">
-                          <span className="text-blue-600">Online: {d.online}</span>
-                          <span className="text-orange-600">Presencial: {d.presencial}</span>
-                        </div>
-                      )}
+          {showZoomDetails && (
+            <div className="space-y-4 animate-in slide-in-from-right-10 duration-500">
+              <div className="grid grid-cols-1 gap-3">
+                {chartData.map((d, i) => (
+                  <div key={i} className="bg-white p-5 rounded-2xl border-l-8 flex items-center justify-between shadow-2xl" style={{ borderLeftColor: COLORS[i % COLORS.length] }}>
+                    <div className="flex items-center gap-4">
+                      <div className="w-5 h-5 rounded-full shadow-sm" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
+                      <div className="text-3xl font-black text-slate-900 leading-tight">{d.name}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-6xl font-black tracking-tighter" style={{ color: COLORS[i % COLORS.length] }}>{d.percent}%</div>
                     </div>
                   </div>
+                ))}
+              </div>
+              
+              <div className="pt-8 border-t border-white/10 flex justify-center items-end">
+                <div className="text-center">
+                  <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Total de Participação</p>
+                  <p className="text-6xl font-black text-white drop-shadow-lg">100%</p>
                 </div>
-              ))}
-            </div>
-            
-            <div className="pt-8 border-t-2 border-white/10 flex justify-between items-end">
-              <div>
-                <p className="text-sm font-bold text-white/60 uppercase tracking-widest">Total de Participação</p>
-                <p className="text-5xl font-black text-white drop-shadow-sm">{Number(totalWeight.toFixed(4))}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-bold text-white/60 uppercase tracking-widest">Quórum Atual</p>
-                <p className="text-3xl font-bold text-white/90">{pollVotes.length} / {residentsCount}</p>
               </div>
             </div>
-          </div>
+          )}
         </div>
+      </div>
+    );
+  }
+
+  if (isManualVoteFlowOpen) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+          <Button onClick={() => setIsManualVoteFlowOpen(false)} variant="outline" className="flex items-center gap-2">
+            <ArrowLeft size={16} /> Voltar aos Resultados da Enquete
+          </Button>
+        </div>
+        <UrnaEletronica 
+          residents={residents}
+          polls={[poll]} // Only pass this specific poll to restrict it
+          votes={votes}
+          onVoteSubmit={onVoteSubmit}
+          onBack={() => setIsManualVoteFlowOpen(false)}
+          singlePollId={poll.id}
+          isStandalone={false}
+        />
       </div>
     );
   }
@@ -311,10 +382,13 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
              <Button onClick={handleExport} variant="outline" className="flex items-center gap-2">
                <Download size={18} /> Exportar Excel
              </Button>
-             <Button onClick={() => setIsZoomMode(true)} variant="primary" className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 border-indigo-600">
+             <Button onClick={() => setIsZoomPromptOpen(true)} variant="primary" className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 border-indigo-600">
                <Maximize2 size={18} /> Visualização Zoom
              </Button>
-             {assemblyType === AssemblyType.HYBRID && (
+             <Button onClick={() => setIsManualChoiceOpen(true)} variant="primary" className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 border-emerald-600">
+               <Tablet size={18} /> Votação Manual
+             </Button>
+             {false && (
                <Button onClick={startManualEdit} variant="primary" className="flex items-center gap-2">
                  <Plus size={18} /> Votos Presenciais
                </Button>
@@ -332,9 +406,13 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                      data={chartData}
                      cx="50%"
                      cy="50%"
-                     labelLine={false}
-                     outerRadius={90}
-                     label={({ percent }) => `${(percent * 100).toFixed(2)}%`}
+                     labelLine={true}
+                     outerRadius={65}
+                     label={({ percent, name }) => {
+                       const isFraction = poll.calculationType === PollCalculationType.FRACTION;
+                       const displayPercent = isFraction ? (percent * 100).toFixed(2) : Math.round(percent * 100).toString();
+                       return `${name}: ${displayPercent}%`;
+                     }}
                      fill="#8884d8"
                      dataKey="votos"
                      nameKey="name"
@@ -343,7 +421,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                      ))}
                    </Pie>
-                   <Tooltip formatter={(value: number) => [value]} />
+                   <Tooltip formatter={(_value: number, _name: string, props: any) => [`${props.payload.percent}%`, 'Participação']} />
                  </PieChart>
                </ResponsiveContainer>
            </div>
@@ -463,10 +541,14 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Unidade</th>
                   <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Morador</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Procurações</th>
                   <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nome Zoom</th>
                   <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Opção Escolhida</th>
                   <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                  {poll.calculationType !== PollCalculationType.NORMAL && (
+                  {(poll.calculationType !== PollCalculationType.NORMAL || pollVotes.some(v => {
+                    const r = residents.find(res => res.unit === v.unit);
+                    return r && (r.proxyCount || 0) > 0;
+                  })) && (
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Peso</th>
                   )}
                 </tr>
@@ -490,6 +572,11 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                       } else if (poll.calculationType === PollCalculationType.HABITE_SE) {
                         weight = 1 + (resident.hasHabiteSe ? 1 : 0);
                       }
+                      
+                      // Add proxy count to weight
+                      if (resident.proxyCount && resident.proxyCount > 0) {
+                        weight += resident.proxyCount;
+                      }
                     } else if (v.isDelinquentVote) {
                       weight = 0;
                     }
@@ -498,6 +585,13 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                       <tr key={idx} className={v.isDelinquentVote ? "bg-red-50" : ""}>
                         <td className="px-4 py-3 font-bold text-gray-900">{cleanText(v.unit)}</td>
                         <td className="px-4 py-3 text-gray-600">{cleanText(resident?.name || 'N/A')}</td>
+                        <td className="px-4 py-3">
+                          {resident?.proxyCount && resident.proxyCount > 0 ? (
+                            <div className="text-xs text-blue-600 font-bold">
+                              {resident.proxyCount} Proc. ({resident.proxyUnits})
+                            </div>
+                          ) : '-'}
+                        </td>
                         <td className="px-4 py-3 text-gray-600 italic">{cleanText(v.zoomName || '-')}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${v.isDelinquentVote ? 'bg-gray-200 text-gray-600' : 'bg-blue-100 text-blue-800'}`}>
@@ -508,10 +602,13 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                           {v.isDelinquentVote ? (
                             <Badge color="red">Inadimplente</Badge>
                           ) : (
-                            <Badge color="green">Válido</Badge>
+                            <Badge color="green">VÁLIDO</Badge>
                           )}
                         </td>
-                        {poll.calculationType !== PollCalculationType.NORMAL && (
+                        {(poll.calculationType !== PollCalculationType.NORMAL || pollVotes.some(v2 => {
+                          const r2 = residents.find(res => res.unit === v2.unit);
+                          return r2 && (r2.proxyCount || 0) > 0;
+                        })) && (
                           <td className="px-4 py-3 font-mono text-xs">
                             {weight.toFixed(4)}
                           </td>
@@ -527,6 +624,113 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
             * Esta lista é atualizada em tempo real conforme os condôminos confirmam seus votos.
           </div>
         </Card>
+
+        {isZoomPromptOpen && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-in zoom-in duration-300">
+              <div className="w-20 h-20 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Maximize2 size={40} />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">Visualização Zoom</h3>
+              <p className="text-gray-600 mb-8">
+                Deseja mostrar as opções e quantidades de votos em cada opção na tela cheia?
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <Button 
+                  onClick={() => handleEnterZoom(true)}
+                  className="bg-indigo-600 hover:bg-indigo-700 py-4 text-lg font-bold"
+                >
+                  Sim, mostrar
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => handleEnterZoom(false)}
+                  className="py-4 text-lg font-bold border-2"
+                >
+                  Não, só gráfico
+                </Button>
+              </div>
+              <button 
+                onClick={() => setIsZoomPromptOpen(false)}
+                className="mt-6 text-gray-400 hover:text-gray-600 text-sm font-medium"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isManualChoiceOpen && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8 animate-in zoom-in duration-300 relative border-t-4 border-red-600">
+              <button 
+                onClick={() => setIsManualChoiceOpen(false)}
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+                title="Fechar"
+              >
+                <X size={24} />
+              </button>
+
+              <h3 className="text-2xl font-bold text-gray-900 mb-2 flex items-center gap-2">
+                <Tablet className="text-red-600 animate-pulse" size={24} />
+                Votação Manual Presencial
+              </h3>
+              <p className="text-gray-500 text-sm mb-6">
+                Escolha o método mais adequado para registrar os votos coletados de forma presencial{isHybrid ? " (Modo Híbrido)" : ""}.
+              </p>
+
+              <div className="grid grid-cols-1 gap-4 mb-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsManualVoteFlowOpen(true);
+                    setIsManualChoiceOpen(false);
+                  }}
+                  className="p-5 rounded-xl border-2 border-slate-200 hover:border-red-600 hover:bg-rose-50/30 text-left transition-all group flex items-start gap-4"
+                >
+                  <div className="p-3 bg-red-100 text-red-600 rounded-lg group-hover:bg-red-600 group-hover:text-white transition-colors">
+                    <Tablet size={24} />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-extrabold text-lg text-slate-900">Urna Eletrônica Interativa</h4>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Ideal para votação auditável. Busque o morador por nome, CPF ou unidade e permita que ele externe seu voto diretamente.
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    startManualEdit();
+                    setIsManualChoiceOpen(false);
+                  }}
+                  className="p-5 rounded-xl border-2 border-slate-200 hover:border-red-600 hover:bg-rose-50/30 text-left transition-all group flex items-start gap-4"
+                >
+                  <div className="p-3 bg-red-100 text-red-600 rounded-lg group-hover:bg-red-600 group-hover:text-white transition-colors">
+                    <Plus size={24} />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-extrabold text-lg text-slate-900">Digitar Totais Diretamente</h4>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Ideal para votação em papel. Digite o total de votos presenciais coletados fisicamente para cada opção desta enquete.
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              <div className="flex justify-end">
+                <Button 
+                  variant="outline"
+                  onClick={() => setIsManualChoiceOpen(false)}
+                  className="border-slate-200 text-slate-600"
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Resident, PollCalculationType, User } from '../../types';
-import { parseCSV, saveResidents, addLog } from '../../services/dataService'; // Import saveResidents directly
+import { parseCSV, saveResidents, addLog, grantProxy } from '../../services/dataService'; // Import saveResidents directly
 import { db, doc, setDoc } from '../../services/firebase';
 import { FileSpreadsheet, Download, AlertCircle, FileText, CheckCircle2, UploadCloud, Database, AlertTriangle } from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
@@ -86,6 +86,20 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
               });
               
               await Promise.all(savePromises);
+              
+              // 1.1. Process proxy relationships for all residents
+              const proxyPromises = cleanResidents
+                .filter((r: Resident) => r.proxyUnits && r.proxyUnits.trim())
+                .map((r: Resident) => {
+                  const targetUnits = r.proxyUnits!.split(',').map(u => u.trim()).filter(u => u);
+                  return grantProxy(safeKey, r.unit, targetUnits);
+                });
+              
+              if (proxyPromises.length > 0) {
+                await Promise.all(proxyPromises);
+                console.log(`[SetupPanel] Processed ${proxyPromises.length} proxy relationships.`);
+              }
+              
               console.log(`[SetupPanel] Explicit write to assemblies/${safeKey}/residents_list successful.`);
           }
           
@@ -350,6 +364,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Proprietário</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CPF</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Procurações</th>
                     {importType === PollCalculationType.FRACTION && (
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fração</th>
                     )}
@@ -369,6 +384,14 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                         ) : (
                             <Badge color="green">Adimplente</Badge>
                         )}
+                        </td>
+                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500">
+                          {r.proxyCount && r.proxyCount > 0 ? (
+                            <div className="flex flex-col">
+                              <span className="font-bold text-blue-600">{r.proxyCount} Proc.</span>
+                              <span className="text-[10px] truncate max-w-[100px]">{r.proxyUnits}</span>
+                            </div>
+                          ) : '-'}
                         </td>
                         {importType === PollCalculationType.FRACTION && (
                             <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600 font-mono">

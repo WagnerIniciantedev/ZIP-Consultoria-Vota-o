@@ -41,7 +41,7 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
   };
 
   return (
-    <div id="report-content" className={`bg-slate-100 font-sans ${isForPDF ? 'w-[794px] min-h-[1123px]' : 'w-full'} mx-auto overflow-hidden shadow-2xl border border-slate-200`}>
+    <div id="report-content" className={`bg-slate-100 font-sans ${isForPDF ? 'w-[794px]' : 'w-full mx-auto'} overflow-hidden shadow-2xl border border-slate-200`}>
       {/* Top Brand Bar */}
       <div className="h-3 bg-red-600 w-full"></div>
       
@@ -269,6 +269,7 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                       <tr>
                         <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Unidade</th>
                         <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Nome Morador</th>
+                        <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Procurações</th>
                         <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Identificação Zoom</th>
                         <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Tipo</th>
                         <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Opção Votada</th>
@@ -283,6 +284,11 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                           <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                             <td className="px-4 py-2 text-[11px] font-bold text-slate-900 border-r border-slate-100">{v.unit}</td>
                             <td className="px-4 py-2 text-[10px] text-slate-600 uppercase border-r border-slate-100">{cleanText(resident?.name || '-')}</td>
+                            <td className="px-4 py-2 text-[10px] text-slate-500 border-r border-slate-100">
+                              {resident?.proxyCount && resident.proxyCount > 0 ? (
+                                <span className="font-bold text-blue-600">{resident.proxyCount} ({resident.proxyUnits})</span>
+                              ) : '-'}
+                            </td>
                             <td className="px-4 py-2 text-[10px] text-slate-400 uppercase italic border-r border-slate-100">{cleanText(v.zoomName || resident?.zoomName || '-')}</td>
                             <td className="px-4 py-2 text-[10px] text-slate-400 font-bold border-r border-slate-100">ONLINE</td>
                             <td className="px-4 py-2 text-[10px] font-bold text-slate-900 uppercase border-r border-slate-100">{cleanText(opt?.text || '-')}</td>
@@ -357,6 +363,7 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                 <tr>
                   <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Unidade</th>
                   <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Nome do Proprietário</th>
+                  <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Procurações</th>
                   <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Nome do Zoom</th>
                   <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Enquetes Votadas</th>
                   <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Participação Total</th>
@@ -384,6 +391,11 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                       <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                         <td className="px-4 py-2 text-[11px] font-bold text-slate-900 border-r border-slate-100">{r.unit}</td>
                         <td className="px-4 py-2 text-[10px] text-slate-600 uppercase border-r border-slate-100">{cleanText(r.name)}</td>
+                        <td className="px-4 py-2 text-[10px] text-slate-500 border-r border-slate-100">
+                          {r.proxyCount && r.proxyCount > 0 ? (
+                            <span className="font-bold text-blue-600">{r.proxyCount} ({r.proxyUnits})</span>
+                          ) : '-'}
+                        </td>
                         <td className="px-4 py-2 text-[10px] text-slate-400 uppercase italic border-r border-slate-100">{cleanText(r.zoomName || '-')}</td>
                         <td className="px-4 py-2 text-[10px] text-slate-400 border-r border-slate-100">
                           <div className="flex flex-wrap gap-1">

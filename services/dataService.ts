@@ -506,8 +506,12 @@ export const getAssemblyId = (): string => {
   return localStorage.getItem(STORAGE_KEYS.ASSEMBLY_ID) || '';
 };
 
-export const identifyResident = async (assemblyId: string, unit: string, cpfPart: string): Promise<{ resident: Resident | null, siblings: Resident[] }> => {
-  if (!db || !assemblyId) return { resident: null, siblings: [] };
+export const identifyResident = async (assemblyId: string, unit: string, cpfPart: string): Promise<{ 
+  resident: Resident | null, 
+  siblings: Resident[],
+  proxyOwners: Record<string, Resident> 
+}> => {
+  if (!db || !assemblyId) return { resident: null, siblings: [], proxyOwners: {} };
 
   const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
   
@@ -516,14 +520,14 @@ export const identifyResident = async (assemblyId: string, unit: string, cpfPart
     const residentRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', unit.toLowerCase());
     const snap = await getDoc(residentRef);
     
-    if (!snap.exists()) return { resident: null, siblings: [] };
+    if (!snap.exists()) return { resident: null, siblings: [], proxyOwners: {} };
     
     const resident = snap.data() as Resident;
     
     // 2. Validate CPF (first 5 digits)
     const recordCpf = (resident.cpf || '').replace(/\D/g, '');
     if (!recordCpf.startsWith(cpfPart)) {
-      return { resident: null, siblings: [] };
+      return { resident: null, siblings: [], proxyOwners: {} };
     }
 
     // 3. Find siblings (other units with same CPF)
@@ -532,14 +536,83 @@ export const identifyResident = async (assemblyId: string, unit: string, cpfPart
     const querySnap = await getDocs(q);
     
     const siblings: Resident[] = [];
-    querySnap.forEach((doc: any) => {
-      siblings.push(doc.data() as Resident);
-    });
+    const proxyOwners: Record<string, Resident> = {};
 
-    return { resident, siblings };
+    for (const docSnap of querySnap.docs) {
+      const sib = docSnap.data() as Resident;
+      siblings.push(sib);
+      
+      if (sib.proxyOwnerUnit) {
+        const ownerRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', sib.proxyOwnerUnit.toLowerCase());
+        const ownerSnap = await getDoc(ownerRef);
+        if (ownerSnap.exists()) {
+          proxyOwners[sib.unit] = ownerSnap.data() as Resident;
+        }
+      }
+    }
+
+    return { resident, siblings, proxyOwners };
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, `${ASSEMBLIES_COLLECTION}/${safeAssemblyId}/residents_list`);
-    return { resident: null, siblings: [] };
+    return { resident: null, siblings: [], proxyOwners: {} };
+  }
+};
+
+export const revokeProxy = async (assemblyId: string, unit: string, proxyOwnerUnit: string) => {
+  if (!db || !assemblyId) return;
+  const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+  
+  try {
+    // 1. Remove proxyOwnerUnit from the unit
+    const unitRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', unit.toLowerCase());
+    await setDoc(unitRef, { proxyOwnerUnit: null }, { merge: true });
+
+    // 2. Update the proxy owner's proxyUnits list and count
+    const ownerRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', proxyOwnerUnit.toLowerCase());
+    const ownerSnap = await getDoc(ownerRef);
+    
+    if (ownerSnap.exists()) {
+      const ownerData = ownerSnap.data() as Resident;
+      const currentUnits = (ownerData.proxyUnits || '').split(',').map(u => u.trim()).filter(u => u !== unit);
+      const newProxyCount = Math.max(0, (ownerData.proxyCount || 0) - 1);
+      
+      await setDoc(ownerRef, { 
+        proxyUnits: currentUnits.join(', '),
+        proxyCount: newProxyCount
+      }, { merge: true });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `${ASSEMBLIES_COLLECTION}/${safeAssemblyId}/residents_list`);
+  }
+};
+
+export const grantProxy = async (assemblyId: string, proxyOwnerUnit: string, targetUnits: string[]) => {
+  if (!db || !assemblyId) return;
+  const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+  
+  try {
+    // 1. Update each target unit to point to the proxy owner
+    for (const unit of targetUnits) {
+      const unitRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', unit.toLowerCase());
+      await setDoc(unitRef, { proxyOwnerUnit }, { merge: true });
+    }
+
+    // 2. Update the proxy owner
+    const ownerRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', proxyOwnerUnit.toLowerCase());
+    const ownerSnap = await getDoc(ownerRef);
+    
+    if (ownerSnap.exists()) {
+      const ownerData = ownerSnap.data() as Resident;
+      const existingUnits = (ownerData.proxyUnits || '').split(',').map(u => u.trim()).filter(u => u);
+      const allUnits = Array.from(new Set([...existingUnits, ...targetUnits]));
+      
+      await setDoc(ownerRef, { 
+        proxyUnits: allUnits.join(', '),
+        proxyCount: allUnits.length
+      }, { merge: true });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `${ASSEMBLIES_COLLECTION}/${safeAssemblyId}/residents_list`);
   }
 };
 
