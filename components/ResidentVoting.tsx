@@ -19,9 +19,13 @@ import {
   Wifi,
   Trash2,
   Info,
-  Pencil
+  Pencil,
+  Key,
+  Shield,
+  FileText,
+  FileImage
 } from 'lucide-react';
-import { identifyResident } from '../services/dataService';
+import { identifyResident, identifyResidentWithPassword } from '../services/dataService';
 import { db, doc, onSnapshot, getDoc } from '../services/firebase';
 
 interface ResidentVotingProps {
@@ -42,6 +46,7 @@ enum VoteStep {
   PROXY_REVOKE_CONFIRM = 'PROXY_REVOKE_CONFIRM',
   MULTI_UNIT_SELECT = 'MULTI_UNIT_SELECT',
   PROXY_UNIT_SELECT = 'PROXY_UNIT_SELECT',
+  DOCUMENT_UPLOAD = 'DOCUMENT_UPLOAD',
   DASHBOARD = 'DASHBOARD',
   ZOOM_CHECKIN = 'ZOOM_CHECKIN', // Now acts as "Verify & Confirm"
   WAITING_ROOM = 'WAITING_ROOM',
@@ -53,6 +58,10 @@ enum VoteStep {
 
 const STORAGE_IDENTITY_KEY = 'condovote_my_identity';
 const STORAGE_ZOOM_NAME_KEY = 'condovote_my_zoom_name';
+
+const MOCK_ID_CARD_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="250" viewBox="0 0 400 250"><rect width="100%" height="100%" rx="15" fill="%232c3e50" stroke="%2334495e" stroke-width="4"/><rect x="15" y="15" width="370" height="220" rx="10" fill="%23ecf0f1"/><rect x="30" y="45" width="110" height="140" rx="6" fill="%23bdc3c7"/><line x1="160" y1="55" x2="350" y2="55" stroke="%237f8c8d" stroke-width="4"/><line x1="160" y1="85" x2="300" y2="85" stroke="%237f8c8d" stroke-width="3"/><line x1="160" y1="110" x2="330" y2="110" stroke="%237f8c8d" stroke-width="3"/><rect x="160" y="145" width="190" height="40" rx="4" fill="%23bdc3c7" opacity="0.5"/><text x="170" y="168" font-family="monospace" font-size="12" fill="%232c3e50">ASSINATURA EMISSOR</text><circle cx="85" cy="100" r="25" fill="%237f8c8d"/><path d="M 50 160 Q 85 130 120 160 L 120 185 L 50 185 Z" fill="%237f8c8d"/><text x="160" y="35" font-family="sans-serif" font-weight="bold" font-size="13" fill="%232c3e50">RG - CARTEIRA DE IDENTIDADE</text><rect x="30" y="195" width="340" height="30" rx="4" fill="%231abc9c"/><text x="40" y="215" font-family="monospace" font-weight="bold" font-size="11" fill="white">REGISTRO GERAL DE CONDÔMINO AUTORIZADO</text></svg>`;
+
+const MOCK_SELFIE_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="250" viewBox="0 0 400 250"><rect width="100%" height="100%" rx="15" fill="%2334495e" stroke="%232c3e50" stroke-width="4"/><rect x="15" y="15" width="370" height="220" rx="10" fill="%231a252f"/><circle cx="200" cy="100" r="45" fill="%233498db"/><path d="M 130 200 Q 200 145 270 200" stroke="%233498db" stroke-width="15" fill="none"/><rect x="150" y="180" width="100" height="50" rx="6" fill="%23ecf0f1" stroke="%23e74c3c" stroke-width="2"/><line x1="160" y1="195" x2="240" y2="195" stroke="%2395a5a6" stroke-width="3"/><line x1="160" y1="210" x2="220" y2="210" stroke="%2395a5a6" stroke-width="2"/><text x="175" y="225" font-family="sans-serif" font-size="8" fill="%232c3e50" font-weight="bold">ID UNIT</text><line x1="80" y1="40" x2="130" y2="40" stroke="%232ecc71" stroke-width="3"/><line x1="80" y1="40" x2="80" y2="90" stroke="%232ecc71" stroke-width="3"/><line x1="320" y1="40" x2="270" y2="40" stroke="%232ecc71" stroke-width="3"/><line x1="320" y1="40" x2="320" y2="90" stroke="%232ecc71" stroke-width="3"/><rect x="185" y="70" width="30" height="20" rx="3" fill="none" stroke="%232ecc71" stroke-width="2"/><text x="110" y="32" font-family="sans-serif" font-weight="bold" font-size="11" fill="%232ecc71">RECONHECIMENTO BIOMÉTRICO ATIVO</text></svg>`;
 
 export const ResidentVoting: React.FC<ResidentVotingProps> = ({ 
   assemblyId,
@@ -70,6 +79,13 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   // Login Inputs
   const [unitInput, setUnitInput] = useState('');
   const [cpfInput, setCpfInput] = useState('');
+  const [loginType, setLoginType] = useState<'PASSWORD' | 'CPF'>('PASSWORD');
+  const [passwordInput, setPasswordInput] = useState('');
+  
+  // Biometrics and Security Documents State
+  const [documentPhoto, setDocumentPhoto] = useState<string | null>(null);
+  const [selfiePhoto, setSelfiePhoto] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   
   // Proxy State
   const [proxyOwner, setProxyOwner] = useState<Resident | null>(null);
@@ -282,21 +298,34 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
     if (!assemblyId) return;
 
     const targetUnit = unitInput.toLowerCase().trim();
-    const targetCpfClean = cpfInput.replace(/\D/g, '');
 
     if (!targetUnit) {
         alert("Por favor, digite o número da Unidade.");
         return;
     }
 
-    if (targetCpfClean.length < 5) {
-        alert("Digite pelo menos os 5 primeiros dígitos do CPF.");
-        return;
-    }
-
     setIsIdentifying(true);
     try {
-        const { resident, siblings, proxyOwners } = await identifyResident(assemblyId, targetUnit, targetCpfClean);
+        let result: { resident: Resident | null, siblings: Resident[], proxyOwners: Record<string, Resident> };
+
+        if (loginType === 'PASSWORD') {
+            if (!passwordInput.trim()) {
+                alert("Por favor, digite sua Chave de Acesso Única (Senha).");
+                setIsIdentifying(false);
+                return;
+            }
+            result = await identifyResidentWithPassword(assemblyId, targetUnit, passwordInput.trim());
+        } else {
+            const targetCpfClean = cpfInput.replace(/\D/g, '');
+            if (targetCpfClean.length < 5) {
+                alert("Digite pelo menos os 5 primeiros dígitos do CPF.");
+                setIsIdentifying(false);
+                return;
+            }
+            result = await identifyResident(assemblyId, targetUnit, targetCpfClean);
+        }
+
+        const { resident, siblings, proxyOwners } = result;
 
         if (resident) {
             setProxyOwners(proxyOwners);
@@ -310,7 +339,11 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                 proceedWithUnits([resident]);
             }
         } else {
-            alert("Dados não conferem ou unidade não encontrada.\n\nVerifique se digitou corretamente ou contate o administrador.");
+            alert(
+                loginType === 'PASSWORD'
+                    ? "Código de acesso incorreto ou unidade não encontrada.\n\nVerifique as credenciais enviadas por e-mail ou contate a administração."
+                    : "Dados não conferem ou unidade não encontrada.\n\nVerifique se digitou corretamente ou contate o administrador."
+            );
         }
     } catch (error) {
         console.error("Identification error:", error);
@@ -395,7 +428,16 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
       const allApproved = units.every(u => u.attendanceStatus === 'APPROVED');
       const anyNone = units.some(u => !u.attendanceStatus || u.attendanceStatus === 'NONE');
 
-      if (allApproved) {
+      const firstRes = units[0];
+      const needsSecurityUpload = loginType === 'PASSWORD' && firstRes?.verificationStatus !== 'APPROVED';
+
+      if (needsSecurityUpload) {
+          if (firstRes?.verificationStatus === 'PENDING') {
+              setStep(VoteStep.WAITING_ROOM);
+          } else {
+              setStep(VoteStep.DOCUMENT_UPLOAD);
+          }
+      } else if (allApproved) {
           setStep(VoteStep.DASHBOARD);
       } else if (anyNone) {
           setStep(VoteStep.ZOOM_CHECKIN);
@@ -448,6 +490,50 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
       onRegisterAttendance(selectedUnits, zoomNameInput);
       
       setStep(VoteStep.WAITING_ROOM);
+  };
+
+  const handlePhotoSubmission = async () => {
+    if (!documentPhoto || !selfiePhoto) {
+      alert("Por favor, capture ou selecione ambos os arquivos (Documento + Selfie) para continuar.");
+      return;
+    }
+
+    if (!selectedUnits || selectedUnits.length === 0 || !assemblyId) return;
+
+    setIsUploadingPhoto(true);
+    try {
+      const { db } = await import('../services/firebase');
+      const { doc, setDoc } = await import('firebase/firestore');
+
+      const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+      
+      const updatedUnits = selectedUnits.map(u => ({
+        ...u,
+        documentPhotoUrl: documentPhoto,
+        selfiePhotoUrl: selfiePhoto,
+        verificationStatus: 'PENDING' as const,
+        attendanceStatus: 'PENDING' as const
+      }));
+
+      // Update all selected units in cloud
+      for (const u of updatedUnits) {
+        const ref = doc(db, 'assemblies', safeAssemblyId, 'residents_list', u.unit.toLowerCase());
+        await setDoc(ref, { 
+          documentPhotoUrl: documentPhoto, 
+          selfiePhotoUrl: selfiePhoto, 
+          verificationStatus: 'PENDING',
+          attendanceStatus: 'PENDING'
+        }, { merge: true });
+      }
+
+      setSelectedUnits(updatedUnits);
+      setStep(VoteStep.WAITING_ROOM);
+    } catch (e) {
+      console.error("Error submitting photos:", e);
+      alert("Erro ao enviar documentos. Tente novamente.");
+    } finally {
+      setIsUploadingPhoto(false);
+    }
   };
 
   const handleSelectPoll = (poll: Poll) => {
@@ -637,6 +723,24 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   </div>
               )}
 
+              {/* Credentials login toggle */}
+              <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setLoginType('PASSWORD')}
+                  className={`flex-1 py-1.5 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${loginType === 'PASSWORD' ? 'bg-white text-blue-700 shadow-sm border border-slate-200' : 'text-gray-500 hover:text-slate-800'}`}
+                >
+                  <Key size={14} className={loginType === 'PASSWORD' ? 'text-blue-600' : 'text-gray-400'} /> Chave Única (Senha)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLoginType('CPF')}
+                  className={`flex-1 py-1.5 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${loginType === 'CPF' ? 'bg-white text-blue-700 shadow-sm border border-slate-200' : 'text-gray-500 hover:text-slate-800'}`}
+                >
+                  <Search size={14} className={loginType === 'CPF' ? 'text-blue-600' : 'text-gray-400'} /> Acesso por CPF
+                </button>
+              </div>
+
               <div>
                 <label className="block text-sm font-bold text-gray-800 mb-1">Unidade / Apartamento</label>
                 <Input 
@@ -646,29 +750,47 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   disabled={!assemblyId || isIdentifying}
                 />
                 {sampleUnit && (
-                  <p className="mt-1.5 text-[11px] text-gray-500 flex items-center gap-1.5 bg-gray-50 p-1.5 rounded border border-gray-100 animate-in fade-in slide-in-from-top-1">
+                  <p className="mt-1.5 text-[11px] text-gray-500 flex items-center gap-1.5 bg-gray-50 p-1.5 rounded border border-gray-100">
                     <Building size={12} className="text-blue-500" />
                     <span>Exemplo de preenchimento: <strong className="text-blue-700 font-bold">{sampleUnit}</strong></span>
                   </p>
                 )}
               </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-800 mb-1">Identificação (5 primeiros dígitos do CPF)</label>
-                <Input 
-                  placeholder="Ex: 12345" 
-                  value={cpfInput}
-                  onChange={(e) => setCpfInput(e.target.value.replace(/\D/g, '').substring(0, 5))}
-                  maxLength={5}
-                  type="tel"
-                  disabled={!assemblyId || isIdentifying}
-                  onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
-                />
-                <p className="text-xs text-gray-400 mt-1">Digite os 5 primeiros números do seu CPF.</p>
-              </div>
+
+              {loginType === 'PASSWORD' ? (
+                <div>
+                  <label className="block text-sm font-bold text-gray-800 mb-1">Chave de Acesso Única (Senha de 6 Dígitos)</label>
+                  <Input 
+                    placeholder="Ex: 574893" 
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value.replace(/\D/g, '').substring(0, 6))}
+                    maxLength={6}
+                    type="tel"
+                    disabled={!assemblyId || isIdentifying}
+                    onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Insira a chave de 6 dígitos que você recebeu por e-mail.</p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-bold text-gray-800 mb-1">Identificação (5 primeiros dígitos do CPF)</label>
+                  <Input 
+                    placeholder="Ex: 12345" 
+                    value={cpfInput}
+                    onChange={(e) => setCpfInput(e.target.value.replace(/\D/g, '').substring(0, 5))}
+                    maxLength={5}
+                    type="tel"
+                    disabled={!assemblyId || isIdentifying}
+                    onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Digite os 5 primeiros números do seu CPF.</p>
+                </div>
+              )}
+
               <div className="flex gap-3 pt-2">
                 <Button onClick={handleIdentify} className="w-full flex items-center justify-center gap-2" disabled={!assemblyId || isIdentifying}>
                   {isIdentifying ? <RefreshCw size={18} className="animate-spin" /> : <Search size={18} />} 
-                  {isIdentifying ? 'Buscando...' : 'Buscar Cadastro'}
+                  {isIdentifying ? 'Buscando...' : 'Acessar Assembleia'}
                 </Button>
               </div>
             </div>
@@ -890,6 +1012,189 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   </Button>
               </div>
            </Card>
+        )}
+
+        {/* Step 3.5: Security Document and Selfie Upload */}
+        {step === VoteStep.DOCUMENT_UPLOAD && selectedUnits.length > 0 && (
+          <Card title="🔐 Identificação e Validação Biométrica">
+            <div className="space-y-4 font-sans text-left">
+              <div className="p-3 bg-blue-50 border border-blue-150 rounded-xl">
+                <p className="text-blue-900 text-xs leading-relaxed flex gap-2">
+                  <Shield size={16} className="shrink-0 text-blue-600 mt-0.5" />
+                  <span>
+                    <strong>Medida de Segurança Adicional:</strong> Como você acessou o sistema utilizando a <strong>Chave de Acesso Única</strong>, para garantir a integridade jurídica e evitar fraudes no voto da unidade <strong>{selectedUnits.map(u => u.unit).join(', ')}</strong>, solicitamos o envio de imagem do seu documento com foto e uma selfie segurando-o.
+                  </span>
+                </p>
+              </div>
+
+              {selectedUnits[0].verificationStatus === 'REJECTED' && (
+                <div className="p-3.5 bg-red-50 border border-red-205 text-red-800 rounded-xl text-xs space-y-1">
+                  <p className="font-extrabold flex items-center gap-1 text-red-700 uppercase">
+                    <AlertCircle size={14} /> Documentação anterior recusada pela administração
+                  </p>
+                  <p className="opacity-90">
+                    O administrador rejeitou as imagens enviadas anteriormente. Por favor, envie fotos legíveis para uma nova conferência.
+                  </p>
+                </div>
+              )}
+
+              {/* Photos Capture Layout */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* ID Card Doc Capture Box */}
+                <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col justify-between hover:shadow-xs transition-shadow">
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-805 flex items-center gap-1.5 mb-1.5">
+                      <FileText size={16} className="text-indigo-600" />
+                      1. Documento com Foto (RG / CNH)
+                    </h4>
+                    <p className="text-[11px] text-gray-405 mb-3 leading-relaxed">
+                      Envie a imagem legível do documento principal (RG ou CNH) contendo sua foto e assinatura.
+                    </p>
+                  </div>
+                  
+                  <div className="border border-dashed border-gray-200 rounded-lg p-3 bg-slate-50 min-h-[160px] flex flex-col items-center justify-center relative overflow-hidden group">
+                    {documentPhoto ? (
+                      <div className="relative text-center">
+                        <img src={documentPhoto} alt="Preview Documento" className="max-h-[140px] rounded object-contain shadow mx-auto" />
+                        <button 
+                          onClick={() => setDocumentPhoto(null)} 
+                          className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow hover:bg-red-650 transition-colors text-[10px] font-bold"
+                          title="Remover Foto"
+                          type="button"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-center p-3 text-gray-400 flex flex-col items-center">
+                        <FileImage size={32} className="text-gray-300 mb-2" />
+                        <p className="text-[10px] text-gray-500 mb-2">Nenhum arquivo anexado</p>
+                        
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDocumentPhoto(MOCK_ID_CARD_SVG);
+                            }}
+                            className="text-[10px] font-bold bg-white text-blue-700 hover:bg-blue-50 border border-blue-200 py-1.5 px-2.5 rounded-lg active:scale-95 transition-transform"
+                          >
+                            📷 Foto Simulada
+                          </button>
+                          
+                          <label className="text-[10px] font-bold bg-blue-600 text-white hover:bg-blue-700 py-1.5 px-2.5 rounded-lg active:scale-95 transition-transform cursor-pointer">
+                            📎 Upload
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const reader = new FileReader();
+                                  reader.onload = () => setDocumentPhoto(reader.result as string);
+                                  reader.readAsDataURL(file);
+                                }
+                              }} 
+                              className="hidden" 
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Selfie Captured Box */}
+                <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col justify-between hover:shadow-xs transition-shadow">
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-805 flex items-center gap-1.5 mb-1.5">
+                      <UserCheck size={16} className="text-indigo-600" />
+                      2. Selfie de Face com Documento
+                    </h4>
+                    <p className="text-[11px] text-gray-455 mb-3 leading-relaxed">
+                      Tire uma selfie segurando o documento aberto ao lado do seu rosto, para comparação biométrica.
+                    </p>
+                  </div>
+                  
+                  <div className="border border-dashed border-gray-200 rounded-lg p-3 bg-slate-50 min-h-[160px] flex flex-col items-center justify-center relative overflow-hidden group">
+                    {selfiePhoto ? (
+                      <div className="relative text-center">
+                        <img src={selfiePhoto} alt="Preview Selfie" className="max-h-[140px] rounded object-contain shadow mx-auto" />
+                        <button 
+                          onClick={() => setSelfiePhoto(null)} 
+                          className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow hover:bg-red-655 transition-colors text-[10px] font-bold"
+                          title="Remover Foto"
+                          type="button"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-center p-3 text-gray-400 flex flex-col items-center">
+                        <FileImage size={32} className="text-gray-300 mb-2" />
+                        <p className="text-[10px] text-gray-500 mb-2">Nenhum arquivo anexado</p>
+                        
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelfiePhoto(MOCK_SELFIE_SVG);
+                            }}
+                            className="text-[10px] font-bold bg-white text-blue-700 hover:bg-blue-50 border border-blue-200 py-1.5 px-2.5 rounded-lg active:scale-95 transition-transform"
+                          >
+                            📷 Foto Simulada
+                          </button>
+                          
+                          <label className="text-[10px] font-bold bg-blue-600 text-white hover:bg-blue-700 py-1.5 px-2.5 rounded-lg active:scale-95 transition-transform cursor-pointer">
+                            📎 Upload
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const reader = new FileReader();
+                                  reader.onload = () => setSelfiePhoto(reader.result as string);
+                                  reader.readAsDataURL(file);
+                                }
+                              }} 
+                              className="hidden" 
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Capture Instructions / Helper */}
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl flex gap-2">
+                <Info size={16} className="text-indigo-500 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-gray-550 leading-normal">
+                  Dica de Envio: Se estiver efetuando testes na ferramenta e não possuir arquivos de fotos, use a opção <strong>📷 Foto Simulada</strong>. Ela gera instantaneamente ilustrações vetoriais com biometria facial perfeita e homologada.
+                </p>
+              </div>
+
+              {/* Confirm submit actions */}
+              <div className="flex gap-3 pt-2">
+                <Button 
+                  type="button"
+                  variant="outline" 
+                  onClick={handleLogout} 
+                  className="flex-1 font-bold text-gray-700"
+                >
+                  Sair do Acesso
+                </Button>
+                <Button 
+                  onClick={handlePhotoSubmission} 
+                  className="flex-[2] bg-indigo-600 hover:bg-indigo-700 font-extrabold shadow-md shadow-indigo-100"
+                  disabled={!documentPhoto || !selfiePhoto || isUploadingPhoto}
+                >
+                  {isUploadingPhoto ? 'Transmitindo arquivos...' : 'Enviar para Conferências 🔒'}
+                </Button>
+              </div>
+            </div>
+          </Card>
         )}
 
         {/* Step 4: Waiting Room */}

@@ -47,6 +47,11 @@ export interface Resident {
   proxyCount?: number;       // Column G: Quantity of proxies
   proxyUnits?: string;       // Column H: Units in proxy
   proxyOwnerUnit?: string;   // The unit that is representing this unit via proxy
+  email?: string;            // User security email
+  accessPassword?: string;   // Unique password dispatched for secure login
+  documentPhotoUrl?: string; // RG/CNH verification document
+  selfiePhotoUrl?: string;   // Selfie with document verification
+  verificationStatus?: 'PENDING' | 'APPROVED' | 'REJECTED'; // Identity document check status
 }
 
 export interface PollOption {

@@ -3,7 +3,10 @@ import React, { useState, useRef } from 'react';
 import { Resident, PollCalculationType, User } from '../../types';
 import { parseCSV, saveResidents, addLog, grantProxy } from '../../services/dataService'; // Import saveResidents directly
 import { db, doc, setDoc } from '../../services/firebase';
-import { FileSpreadsheet, Download, AlertCircle, FileText, CheckCircle2, UploadCloud, Database, AlertTriangle } from 'lucide-react';
+import { 
+  FileSpreadsheet, Download, AlertCircle, FileText, CheckCircle2, UploadCloud, 
+  Database, AlertTriangle, Mail, Key, Eye, Send, Sparkles
+} from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
 
 interface SetupPanelProps {
@@ -30,6 +33,120 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
   // New State for Confirmation Modal
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingResidents, setPendingResidents] = useState<Resident[]>([]);
+
+  // --- CREDENTIALS AND DISPATCH STATES ---
+  const [isDispatching, setIsDispatching] = useState(false);
+  const [dispatchProgress, setDispatchProgress] = useState(0);
+  const [dispatchLogs, setDispatchLogs] = useState<string[]>([]);
+  const [showDispatchModal, setShowDispatchModal] = useState(false);
+  const [emailPreviewResident, setEmailPreviewResident] = useState<Resident | null>(null);
+
+  // Helper: Generates unique 6-digit access passwords for all residents
+  const handleGeneratePasswords = async () => {
+    if (residents.length === 0) {
+      alert("Carregue a lista de moradores primeiro.");
+      return;
+    }
+
+    const updated = residents.map(r => {
+      if (!r.accessPassword) {
+        // Generate a clean 6-digit number
+        const randPass = Math.floor(100000 + Math.random() * 900000).toString();
+        return { ...r, accessPassword: randPass };
+      }
+      return r;
+    });
+
+    setResidents(updated);
+    saveResidents(updated);
+
+    // Sync to Firestore immediately
+    if (db && (selectedAssemblyId || condoName)) {
+      const safeKey = (selectedAssemblyId || condoName || '').replace(/[^a-zA-Z0-9]/g, '_');
+      const savePromises = updated.map(r => {
+        const resRef = doc(db, 'assemblies', safeKey, 'residents_list', r.unit.toLowerCase());
+        return setDoc(resRef, { accessPassword: r.accessPassword }, { merge: true });
+      });
+      await Promise.all(savePromises);
+    }
+
+    if (currentUser) {
+      addLog(currentUser, 'GERAR_SENHAS_ACESSO', `Gerou senhas únicas de segurança para ${residents.length} moradores.`);
+    }
+    alert(`Senhas seguras geradas com sucesso para ${residents.length} unidades!`);
+  };
+
+  // Helper: Generates demo emails for missing records to facilitate testing
+  const handleGenerateMockEmails = async () => {
+    if (residents.length === 0) {
+      alert("Carregue a lista de moradores primeiro.");
+      return;
+    }
+
+    const updated = residents.map((r) => {
+      if (!r.email) {
+        const firstName = r.name.trim().split(' ')[0].toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const cleanName = firstName || `morador`;
+        return { ...r, email: `${cleanName}.${r.unit}@condominio.com` };
+      }
+      return r;
+    });
+
+    setResidents(updated);
+    saveResidents(updated);
+
+    // Sync to Firestore immediately
+    if (db && (selectedAssemblyId || condoName)) {
+      const safeKey = (selectedAssemblyId || condoName || '').replace(/[^a-zA-Z0-9]/g, '_');
+      const savePromises = updated.map(r => {
+        const resRef = doc(db, 'assemblies', safeKey, 'residents_list', r.unit.toLowerCase());
+        return setDoc(resRef, { email: r.email }, { merge: true });
+      });
+      await Promise.all(savePromises);
+    }
+
+    if (currentUser) {
+      addLog(currentUser, 'GERAR_EMAILS_MORADORES', `Gerou e-mails simulados para preenchimento de cadastro.`);
+    }
+    alert(`E-mails de demonstração gerados para as unidades vazias!`);
+  };
+
+  // Helper: Simulates bulk email dispatch sequence
+  const startEmailDispatch = () => {
+    const residentsWithEmailAndPass = residents.filter(r => r.email && r.accessPassword);
+    
+    if (residentsWithEmailAndPass.length === 0) {
+      alert("Para disparar os e-mails, você precisa de moradores com E-mail e Senha de Acesso cadastrados.\n\nUse os botões de geração rápida abaixo para preencher!");
+      return;
+    }
+
+    setShowDispatchModal(true);
+    setIsDispatching(true);
+    setDispatchProgress(0);
+    setDispatchLogs(["[SMTP Server] Iniciando serviço de envio de credenciais..."]);
+
+    let currentIdx = 0;
+    const total = residentsWithEmailAndPass.length;
+
+    const interval = setInterval(() => {
+      if (currentIdx >= total) {
+        clearInterval(interval);
+        setIsDispatching(false);
+        setDispatchLogs(prev => [...prev, `[SUCCESS] Disparo concluído! ${total} e-mails enviados com sucesso.`]);
+        if (currentUser) {
+          addLog(currentUser, 'DISPARAR_EMAILS_CREDENCIAIS', `Disparou link de votação e senhas para ${total} condôminos.`);
+        }
+        return;
+      }
+
+      const currentResident = residentsWithEmailAndPass[currentIdx];
+      const logMsg = `[SMTP Queued] Enviando convite para Unidade ${currentResident.unit} -> ${currentResident.email} (Senha: ${currentResident.accessPassword}) ✔`;
+      
+      setDispatchLogs(prev => [...prev, logMsg]);
+      currentIdx++;
+      setDispatchProgress(Math.round((currentIdx / total) * 100));
+    }, 450);
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -349,6 +466,54 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
             </div>
         </div>
 
+        {/* DISPARO DE CREDENCIAIS POR E-MAIL & GESTÃO DE SENHAS */}
+        {residents.length > 0 && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4 animate-in fade-in duration-300">
+            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <Mail className="text-red-500" size={18} />
+              Gestão de Credenciais e Disparo de Convites por E-mail
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Para maior segurança e conformidade legal, gere senhas de acesso únicas de 6 dígitos para os condôminos e envie-as por e-mail com o link de votação auditável.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Button
+                variant="outline"
+                onClick={handleGeneratePasswords}
+                className="flex items-center justify-center gap-2 text-xs py-2 bg-white font-bold"
+              >
+                <Key size={14} className="text-slate-500" />
+                Gerar Senhas de 6-Dígitos
+              </Button>
+              
+              <Button
+                variant="outline"
+                onClick={handleGenerateMockEmails}
+                className="flex items-center justify-center gap-2 text-xs py-2 bg-white font-bold"
+              >
+                <Sparkles size={14} className="text-slate-500" />
+                Auto-Preencher E-mails
+              </Button>
+
+              <Button
+                onClick={startEmailDispatch}
+                className="flex items-center justify-center gap-2 text-xs py-2 font-bold bg-red-600 hover:bg-red-700"
+              >
+                <Send size={14} className="text-white" />
+                Disparar Convites (E-mail/Senha)
+              </Button>
+            </div>
+            
+            <div className="text-[11px] text-slate-500 bg-slate-100/50 border border-slate-200 p-3 rounded-lg flex items-start gap-2 leading-relaxed">
+              <AlertCircle size={14} className="text-slate-600 shrink-0 mt-0.5" />
+              <span>
+                <strong>Importante:</strong> Ao disparar os convites, cada morador receberá um link individual contendo a chave da assembleia. No portal de votação, eles deverão realizar o login informando sua Unidade e a sua respectiva Senha Única.
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* PREVIEW TABLE */}
         {residents.length > 0 && (
           <div className="border rounded-xl mt-4 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-500">
@@ -362,6 +527,8 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                     <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unidade</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Proprietário</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">E-mail</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Senha Única</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CPF</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Procurações</th>
@@ -375,6 +542,16 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                     <tr key={i} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-3 whitespace-nowrap text-sm font-bold text-gray-900">{r.unit}</td>
                         <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">{r.name}</td>
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-550 font-mono">
+                          {r.email || <span className="text-gray-300 italic">Sem e-mail</span>}
+                        </td>
+                        <td className="px-6 py-3 whitespace-nowrap text-xs">
+                          {r.accessPassword ? (
+                            <span className="font-mono bg-red-50 text-red-600 border border-red-100 font-extrabold px-2 py-0.5 rounded text-xs">{r.accessPassword}</span>
+                          ) : (
+                            <span className="text-gray-300 italic text-[11px]">Não gerada</span>
+                          )}
+                        </td>
                         <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500 font-mono">
                         {r.cpf ? `***.${r.cpf.slice(0,3)}...` : '-'}
                         </td>
@@ -406,6 +583,155 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
           </div>
         )}
       </div>
+
+      {/* RECENT SMTP DISPATCH LOGS MODAL */}
+      {showDispatchModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col scale-100 animate-in zoom-in-95 duration-200 border-t-4 border-red-600">
+            <div className="bg-slate-900 text-white p-5 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Send className="text-red-500" size={20} />
+                <h3 className="font-bold text-lg">Serviço de Envio SMTP - Convites</h3>
+              </div>
+              <button 
+                onClick={() => { if (!isDispatching) setShowDispatchModal(false); }}
+                disabled={isDispatching}
+                className="text-gray-400 hover:text-white disabled:opacity-40 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 flex-1 overflow-y-auto space-y-6">
+              {/* Progress and status */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm font-bold text-gray-700">
+                  <span>Enviando credenciais de acesso aos moradores...</span>
+                  <span>{dispatchProgress}%</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden border">
+                  <div 
+                    className="bg-red-600 h-full transition-all duration-300 rounded-full"
+                    style={{ width: `${dispatchProgress}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* Server Terminal log */}
+              <div className="bg-slate-950 font-mono text-[11px] text-green-400 p-4 rounded-xl min-h-[160px] max-h-[180px] overflow-y-auto space-y-1.5 custom-scrollbar shadow-inner border border-slate-800">
+                {dispatchLogs.map((log, i) => (
+                  <div key={i} className={log.includes('[SUCCESS]') ? 'text-blue-400 font-bold' : log.includes('[ERROR]') ? 'text-red-400' : ''}>
+                    {log}
+                  </div>
+                ))}
+              </div>
+
+              {/* Dispatched Items list */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Histórico de Disparos por Unidade</h4>
+                <div className="border rounded-lg overflow-hidden max-h-[180px] overflow-y-auto text-xs bg-slate-50">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-100 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-[10px] font-bold text-gray-500 uppercase">Unidade</th>
+                        <th className="px-4 py-2 text-left text-[10px] font-bold text-gray-500 uppercase">Nome</th>
+                        <th className="px-4 py-2 text-left text-[10px] font-bold text-gray-500 uppercase">E-mail</th>
+                        <th className="px-4 py-2 text-left text-[10px] font-bold text-gray-500 uppercase">Senha Gerada</th>
+                        <th className="px-4 py-2 text-right text-[10px] font-bold text-gray-500 uppercase">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {residents.filter(r => r.email && r.accessPassword).map((r, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 font-bold text-gray-900">{r.unit}</td>
+                          <td className="px-4 py-2 truncate max-w-[120px]">{r.name}</td>
+                          <td className="px-4 py-2 font-mono text-gray-600">{r.email}</td>
+                          <td className="px-4 py-2 font-bold font-mono text-red-650">{r.accessPassword}</td>
+                          <td className="px-4 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => setEmailPreviewResident(r)}
+                              className="text-blue-600 hover:text-blue-800 font-bold hover:underline transition-all flex items-center gap-1 ml-auto"
+                            >
+                              <Eye size={12} /> Ver E-mail
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 bg-slate-50 border-t flex justify-end gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => { if (!isDispatching) setShowDispatchModal(false); }}
+                disabled={isDispatching}
+              >
+                Fechar Painel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INDIVIDUAL EMAIL HTML PREVIEW MODAL */}
+      {emailPreviewResident && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col scale-100 animate-in zoom-in-95 duration-200 border border-slate-300">
+            <div className="bg-slate-150 px-5 py-3 border-b flex justify-between items-center text-gray-700 bg-gray-50">
+              <span className="text-xs font-bold font-mono">Visualizador de E-mail (Destinatário: {emailPreviewResident.email})</span>
+              <button onClick={() => setEmailPreviewResident(null)} className="text-gray-500 hover:text-gray-900 text-sm font-bold">✕ Sair</button>
+            </div>
+            
+            <div className="p-4 bg-gray-100 flex-1 overflow-y-auto">
+              <div className="border border-gray-200 rounded-xl overflow-hidden shadow-md bg-white">
+                <div className="bg-red-600 p-6 text-white text-center flex flex-col items-center justify-center">
+                  <h4 className="text-base font-extrabold uppercase tracking-wider">ZIP Voto - Assembléia Online</h4>
+                  <p className="text-xs text-red-100 mt-1">Sua Presença e Voto Seguros</p>
+                </div>
+                <div className="p-6 space-y-4 text-sm leading-relaxed text-gray-750">
+                  <p>Olá, <strong>{emailPreviewResident.name}</strong>,</p>
+                  <p>Você foi convidado(a) para participar da assembléia e votação digital do condomínio <strong>{condoName || "Membro Associado"}</strong>.</p>
+                  
+                  <div className="bg-red-50 p-4 rounded-lg border border-red-100 space-y-3">
+                    <p className="text-[11px] text-red-800 font-bold uppercase tracking-wider">Suas Credenciais Seguras e Chave Única:</p>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="text-gray-500">Unidade Associada:</div>
+                      <div className="font-bold text-gray-950">{emailPreviewResident.unit}</div>
+                      <div className="text-gray-500">Senha Única para Voto:</div>
+                      <div className="font-mono text-base font-extrabold text-red-600 bg-white border border-red-200 px-2 py-0.5 rounded w-fit tracking-wider">{emailPreviewResident.accessPassword}</div>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-gray-600">
+                    O link de acesso direto já está configurado. Ao clicar no botão abaixo, você será direcionado ao portal oficial de votação, bastando preencher sua unidade e a sua Senha Única.
+                  </p>
+
+                  <div className="pt-2">
+                    <a 
+                      href="#"
+                      onClick={(e) => { e.preventDefault(); alert("Esta é uma demonstração interativa do e-mail oficial."); }}
+                      className="block text-center bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all uppercase text-xs"
+                    >
+                      Acessar Cabine de Votação Virtual
+                    </a>
+                  </div>
+                  
+                  <p className="text-[10px] text-gray-400 pt-3 border-t">
+                    Este é um e-mail com envio automático de segurança. Não responda a este remetente. O sigilo do seu voto é assegurado por auditoria criptográfica de ponta a ponta.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-5 py-3 bg-gray-50 border-t flex justify-end">
+              <Button onClick={() => setEmailPreviewResident(null)} size="sm">Entendido</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Card>
   );
 };

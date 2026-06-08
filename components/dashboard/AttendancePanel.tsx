@@ -3,7 +3,10 @@ import React, { useState } from 'react';
 import { Resident, User } from '../../types';
 import { Button, Input, Card } from '../ui';
 import { exportAttendanceCSV, saveResidents, addLog } from '../../services/dataService';
-import { FileSpreadsheet, Clock, CheckCircle2, Ban, LogOut, Pencil, Edit3, RefreshCcw } from 'lucide-react';
+import { 
+  FileSpreadsheet, Clock, CheckCircle2, Ban, LogOut, Pencil, Edit3, RefreshCcw,
+  FileImage, Eye, Shield, ShieldCheck, UserCheck, AlertCircle, FileText
+} from 'lucide-react';
 
 interface AttendancePanelProps {
   residents: Resident[];
@@ -28,6 +31,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
     proxyUnits: string
   } | null>(null);
   const [confirmBlockUnit, setConfirmBlockUnit] = useState<string | null>(null);
+  const [inspectingResident, setInspectingResident] = useState<Resident | null>(null);
 
   const pendingResidents = residents.filter(r => r.attendanceStatus === 'PENDING');
   const approvedResidents = residents.filter(r => r.attendanceStatus === 'APPROVED');
@@ -60,6 +64,51 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
     if (currentUser) {
       addLog(currentUser, 'APROVAR_MORADOR', `Aprovou entrada da unidade: ${unit}`);
     }
+  };
+
+  const handleApproveDocument = (unit: string) => {
+    const resident = residents.find(r => r.unit === unit);
+    if (!resident) return;
+
+    const updatedResident = { 
+      ...resident, 
+      verificationStatus: 'APPROVED' as const, 
+      attendanceStatus: 'APPROVED' as const, 
+      checkInTimestamp: Date.now() 
+    };
+    const updated = residents.map(r => r.unit === unit ? updatedResident : r);
+    
+    setResidents(updated);
+    saveResidents(updated);
+    updateResidentInCloud(updatedResident);
+
+    if (currentUser) {
+      addLog(currentUser, 'APROVAR_DOCUMENTO_MORADOR', `Aprovou RG/Selfie e entrada da unidade: ${unit}`);
+    }
+    setInspectingResident(null);
+    alert(`Documentação da unidade ${unit} aprovada com SUCESSO!`);
+  };
+
+  const handleRejectDocument = (unit: string) => {
+    const resident = residents.find(r => r.unit === unit);
+    if (!resident) return;
+
+    const updatedResident = { 
+      ...resident, 
+      verificationStatus: 'REJECTED' as const, 
+      attendanceStatus: 'NONE' as const 
+    };
+    const updated = residents.map(r => r.unit === unit ? updatedResident : r);
+    
+    setResidents(updated);
+    saveResidents(updated);
+    updateResidentInCloud(updatedResident);
+
+    if (currentUser) {
+      addLog(currentUser, 'REPROVAR_DOCUMENTO_MORADOR', `Rejeitou RG/Selfie da unidade: ${unit}`);
+    }
+    setInspectingResident(null);
+    alert(`Documentação da unidade ${unit} REJEITADA. O morador foi notificado.`);
   };
 
   const handleBlockResident = (unit: string) => {
@@ -239,7 +288,142 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
       )}
 
       <div className="flex justify-between items-center">
-         <h2 className="text-xl font-bold text-gray-800">Controle de Presença (Sala de Espera)</h2>
+          <h2 className="text-xl font-bold text-gray-800">Controle de Presença (Sala de Espera)</h2>
+
+          {/* Security Document Audit Modal */}
+          {inspectingResident && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-gray-155 transform animate-in zoom-in-95 duration-200">
+                {/* Header */}
+                <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-500 rounded-lg text-white">
+                      <Shield size={22} className="animate-pulse" />
+                    </div>
+                    <div>
+                      <h3 className="text-base md:text-lg font-bold">Auditoria de Segurança Digital</h3>
+                      <p className="text-xs text-slate-400 font-sans">Verificação biométrica e documental do condômino</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setInspectingResident(null)}
+                    className="text-slate-400 hover:text-white bg-slate-805 hover:bg-slate-800 px-3 py-1.5 rounded-lg transition-colors text-xs font-semibold"
+                  >
+                    ✕ Fechar
+                  </button>
+                </div>
+
+                {/* Content Body */}
+                <div className="p-6 overflow-y-auto space-y-6 bg-slate-50 flex-1">
+                  {/* Resident info summary card */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm font-sans">
+                    <div>
+                      <span className="text-[10px] text-gray-450 uppercase font-bold tracking-wider">Unidade / Bloco</span>
+                      <p className="text-lg font-bold text-slate-900 flex items-center gap-1.5">
+                        <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-550 animate-ping"></span>
+                        {inspectingResident.unit}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-450 uppercase font-bold tracking-wider">Nome do Proprietário</span>
+                      <p className="text-lg font-semibold text-slate-800 truncate">{inspectingResident.name}</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-450 uppercase font-bold tracking-wider">Status de Entrada</span>
+                      <p className="text-sm mt-1">
+                        <span className="bg-amber-100 text-amber-800 text-xs py-1 px-2.5 rounded-full font-bold">
+                          Aguardando Verificação
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Photos comparison grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* ID photo frame */}
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col">
+                      <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                        <FileText size={16} className="text-indigo-500" />
+                        1. Documento com Foto (RG / CNH)
+                      </h4>
+                      <div className="border border-dashed border-gray-200 rounded-lg p-2 bg-slate-50 flex-1 flex items-center justify-center min-h-[250px] relative overflow-hidden group">
+                        {inspectingResident.documentPhotoUrl ? (
+                          <img 
+                            src={inspectingResident.documentPhotoUrl} 
+                            alt="Documento de Identidade de Amostra" 
+                            referrerPolicy="no-referrer"
+                            className="max-h-[280px] rounded-lg object-contain shadow-md scale-100 group-hover:scale-[1.02] transition-transform duration-250 cursor-pointer"
+                          />
+                        ) : (
+                          <div className="text-center p-6 text-gray-400">
+                            <FileImage size={48} className="mx-auto mb-2 text-gray-300" />
+                            <p className="text-xs font-sans">Foto não encontrada</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Selfie photo frame */}
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col">
+                      <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                        <UserCheck size={16} className="text-indigo-500" />
+                        2. Selfie Segurando o Documento
+                      </h4>
+                      <div className="border border-dashed border-gray-200 rounded-lg p-2 bg-slate-50 flex-1 flex items-center justify-center min-h-[250px] relative overflow-hidden group">
+                        {inspectingResident.selfiePhotoUrl ? (
+                          <img 
+                            src={inspectingResident.selfiePhotoUrl} 
+                            alt="Selfie Biométrica de Amostra" 
+                            referrerPolicy="no-referrer"
+                            className="max-h-[280px] rounded-lg object-contain shadow-md scale-100 group-hover:scale-[1.02] transition-transform duration-250 cursor-pointer"
+                          />
+                        ) : (
+                          <div className="text-center p-6 text-gray-400">
+                            <FileImage size={48} className="mx-auto mb-2 text-gray-300" />
+                            <p className="text-xs font-sans">Selfie não encontrada</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Security Advisory notice */}
+                  <div className="p-3.5 bg-blue-50 rounded-xl border border-blue-100 flex gap-2.5">
+                    <AlertCircle className="text-blue-500 shrink-0 mt-0.5" size={16} />
+                    <p className="text-[11px] text-blue-800 leading-relaxed font-sans">
+                      <strong>Responsabilidade de Auditoria:</strong> Ao aprovar esta documentação, você atesta para fins de ata que a assinatura digital baseada em face-matching foi verificada com sucesso para a unidade <strong>{inspectingResident.unit}</strong>.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Footer actions */}
+                <div className="p-6 bg-slate-100 border-t border-gray-200 flex justify-between gap-3 flex-wrap">
+                  <Button 
+                    variant="outline"
+                    onClick={() => setInspectingResident(null)}
+                    className="px-5 font-bold text-slate-705"
+                  >
+                    Voltar
+                  </Button>
+                  <div className="flex gap-3">
+                    <Button 
+                      onClick={() => handleRejectDocument(inspectingResident.unit)}
+                      variant="danger"
+                      className="px-6 font-bold flex items-center gap-1 bg-red-650 hover:bg-red-700"
+                    >
+                      ✕ Rejeitar Documento
+                    </Button>
+                    <Button 
+                      onClick={() => handleApproveDocument(inspectingResident.unit)}
+                      className="px-6 font-bold flex items-center gap-1.5 bg-green-600 hover:bg-green-700 shadow-md shadow-green-200"
+                    >
+                      <ShieldCheck size={18} /> Aprovar Documentação
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
          {approvedResidents.length > 0 && (
            <Button onClick={handleExportAttendance} variant="outline" className="text-sm flex items-center gap-2">
              <FileSpreadsheet size={16} /> Baixar Lista de Presença
@@ -260,7 +444,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
                    <div>
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-lg text-gray-900">{r.unit}</span>
-                        <span className="text-gray-600">- {r.name}</span>
+                        <span className="text-gray-600">- {r.name}</span>{r.documentPhotoUrl && <span className="bg-blue-100 text-blue-800 text-[10px] py-0.5 px-2 font-bold inline-flex items-center gap-1 rounded border border-blue-200 ml-2 animate-pulse"><FileImage size={11} className="text-blue-600" /> RG + Selfie Pendentes</span>}
                       </div>
                       <div className="text-sm text-gray-500 mt-1 flex items-center gap-2 group">
                          <span className="font-semibold text-blue-700">Zoom:</span> {r.zoomName}
@@ -286,6 +470,15 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
                         </div>
                    ) : (
                        <div className="flex gap-2 mt-3 md:mt-0">
+                          {r.documentPhotoUrl && (
+                            <Button 
+                              onClick={() => setInspectingResident(r)}
+                              variant="outline" 
+                              className="text-sm flex items-center gap-1 border-blue-200 hover:bg-blue-50 text-blue-700 font-bold"
+                            >
+                               <Eye size={16} /> Verificar Fotos
+                            </Button>
+                          )}
                           <Button onClick={() => setConfirmBlockUnit(r.unit)} variant="danger" className="text-sm flex items-center gap-1">
                              <Ban size={16} /> Bloquear
                           </Button>

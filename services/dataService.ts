@@ -506,6 +506,75 @@ export const getAssemblyId = (): string => {
   return localStorage.getItem(STORAGE_KEYS.ASSEMBLY_ID) || '';
 };
 
+export const identifyResidentWithPassword = async (assemblyId: string, unit: string, passwordPart: string): Promise<{
+  resident: Resident | null,
+  siblings: Resident[],
+  proxyOwners: Record<string, Resident>
+}> => {
+  if (!assemblyId) return { resident: null, siblings: [], proxyOwners: {} };
+
+  // Fallback to local storage if Firestore isn't connected or configured yet
+  if (!db) {
+    const list = getResidents();
+    const resident = list.find(r => r.unit.toLowerCase() === unit.toLowerCase() && (r.accessPassword || '').trim().toUpperCase() === passwordPart.trim().toUpperCase());
+    if (!resident) return { resident: null, siblings: [], proxyOwners: {} };
+    
+    // Check siblings in local
+    const siblings = list.filter(r => r.cpf === resident.cpf);
+    const proxyOwners: Record<string, Resident> = {};
+    for (const sib of siblings) {
+      if (sib.proxyOwnerUnit) {
+        const owner = list.find(r => r.unit.toLowerCase() === sib.proxyOwnerUnit?.toLowerCase());
+        if (owner) proxyOwners[sib.unit] = owner;
+      }
+    }
+    return { resident, siblings, proxyOwners };
+  }
+
+  const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+  
+  try {
+    const residentRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', unit.toLowerCase());
+    const snap = await getDoc(residentRef);
+    
+    if (!snap.exists()) return { resident: null, siblings: [], proxyOwners: {} };
+    
+    const resident = snap.data() as Resident;
+    
+    const recordPassword = (resident.accessPassword || '').trim().toUpperCase();
+    const inputPassword = passwordPart.trim().toUpperCase();
+    
+    if (recordPassword !== inputPassword) {
+      return { resident: null, siblings: [], proxyOwners: {} };
+    }
+
+    const residentsRef = collection(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list');
+    const q = query(residentsRef, where("cpf", "==", resident.cpf));
+    const querySnap = await getDocs(q);
+    
+    const siblings: Resident[] = [];
+    const proxyOwners: Record<string, Resident> = {};
+
+    for (const docSnap of querySnap.docs) {
+      const sib = docSnap.data() as Resident;
+      siblings.push(sib);
+      
+      if (sib.proxyOwnerUnit) {
+        const ownerRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', sib.proxyOwnerUnit.toLowerCase());
+        const ownerSnap = await getDoc(ownerRef);
+        if (ownerSnap.exists()) {
+          proxyOwners[sib.unit] = ownerSnap.data() as Resident;
+        }
+      }
+    }
+
+    return { resident, siblings, proxyOwners };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, `${ASSEMBLIES_COLLECTION}/${safeAssemblyId}/residents_list`);
+    return { resident: null, siblings: [], proxyOwners: {} };
+  }
+};
+
 export const identifyResident = async (assemblyId: string, unit: string, cpfPart: string): Promise<{ 
   resident: Resident | null, 
   siblings: Resident[],
