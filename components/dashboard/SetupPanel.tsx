@@ -1,11 +1,11 @@
 
 import React, { useState, useRef } from 'react';
 import { Resident, PollCalculationType, User } from '../../types';
-import { parseCSV, saveResidents, addLog, grantProxy } from '../../services/dataService'; // Import saveResidents directly
+import { parseCSV, saveResidents, addLog, grantProxy, getDelinquencyModifications, saveDelinquencyModifications } from '../../services/dataService'; // Import saveResidents directly
 import { db, doc, setDoc } from '../../services/firebase';
 import { 
   FileSpreadsheet, Download, AlertCircle, FileText, CheckCircle2, UploadCloud, 
-  Database, AlertTriangle, Mail, Key, Eye, Send, Sparkles
+  Database, AlertTriangle, Mail, Key, Eye, Send, Sparkles, Search, UserMinus, X
 } from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
 
@@ -41,6 +41,10 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [emailPreviewResident, setEmailPreviewResident] = useState<Resident | null>(null);
 
+  // --- DELINQUENCY MODIFICATIONS STATES ---
+  const [showDelinquentModal, setShowDelinquentModal] = useState(false);
+  const [delinquentSearchQuery, setDelinquentSearchQuery] = useState('');
+
   // Helper: Generates unique 6-digit access passwords for all residents
   const handleGeneratePasswords = async () => {
     if (residents.length === 0) {
@@ -74,6 +78,43 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
       addLog(currentUser, 'GERAR_SENHAS_ACESSO', `Gerou senhas únicas de segurança para ${residents.length} moradores.`);
     }
     alert(`Senhas seguras geradas com sucesso para ${residents.length} unidades!`);
+  };
+
+  const handleToggleDelinquentStatus = async (residentToToggle: Resident) => {
+    const previousStatus = residentToToggle.isDelinquent || false;
+    const newStatus = !previousStatus;
+
+    // Log delinquency modification
+    const currentMods = getDelinquencyModifications();
+    currentMods.push({
+      unit: residentToToggle.unit,
+      name: residentToToggle.name,
+      previousStatus,
+      newStatus,
+      timestamp: Date.now()
+    });
+    saveDelinquencyModifications(currentMods);
+
+    const updated = residents.map(r => {
+      if (r.unit.toLowerCase() === residentToToggle.unit.toLowerCase()) {
+        return { ...r, isDelinquent: newStatus };
+      }
+      return r;
+    });
+
+    setResidents(updated);
+    saveResidents(updated);
+
+    // Sync to Firestore immediately
+    if (db && (selectedAssemblyId || condoName)) {
+      const safeKey = (selectedAssemblyId || condoName || '').replace(/[^a-zA-Z0-9]/g, '_');
+      const resRef = doc(db, 'assemblies', safeKey, 'residents_list', residentToToggle.unit.toLowerCase());
+      await setDoc(resRef, { isDelinquent: newStatus }, { merge: true });
+    }
+
+    if (currentUser) {
+      addLog(currentUser, newStatus ? 'ADICIONAR_INADIMPLENTE' : 'REMOVER_INADIMPLENTE', `${newStatus ? 'Adicionou' : 'Removeu'} inadimplência para unidade ${residentToToggle.unit}.`);
+    }
   };
 
   // Helper: Generates demo emails for missing records to facilitate testing
@@ -514,6 +555,32 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
           </div>
         )}
 
+        {/* GESTÃO MANUAL DE INADIMPLÊNCIA */}
+        {residents.length > 0 && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4 mt-4 animate-in fade-in duration-300">
+            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <AlertTriangle className="text-red-500" size={18} />
+              Gestão Manual de Inadimplência
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Adicione ou remova condôminos da lista de inadimplência individualmente. As alterações serão salvas imediatamente e listadas de forma detalhada no relatório da assembleia.
+            </p>
+
+            <div className="flex">
+              <Button
+                onClick={() => {
+                  setDelinquentSearchQuery('');
+                  setShowDelinquentModal(true);
+                }}
+                className="flex items-center justify-center gap-2 text-xs py-2 pb-2 bg-slate-900 text-white font-bold hover:bg-slate-800"
+              >
+                <UserMinus size={14} className="text-red-500" />
+                Adicionar ou Retirar Inadimplentes
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* PREVIEW TABLE */}
         {residents.length > 0 && (
           <div className="border rounded-xl mt-4 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-500">
@@ -557,9 +624,15 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                         </td>
                         <td className="px-6 py-3 whitespace-nowrap text-sm">
                         {r.isDelinquent ? (
-                            <Badge color="red">Inadimplente</Badge>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-4 h-4 rounded border-2 border-red-500 bg-red-500 text-white flex items-center justify-center text-[10px] font-bold">✓</span>
+                              <Badge color="red">Inadimplente (Ativo)</Badge>
+                            </div>
                         ) : (
-                            <Badge color="green">Adimplente</Badge>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-4 h-4 rounded border border-gray-300 bg-white flex items-center justify-center text-[10px] font-bold text-transparent">✓</span>
+                              <Badge color="green">No Sistema (Inativo)</Badge>
+                            </div>
                         )}
                         </td>
                         <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500">
@@ -728,6 +801,107 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
             </div>
             <div className="px-5 py-3 bg-gray-50 border-t flex justify-end">
               <Button onClick={() => setEmailPreviewResident(null)} size="sm">Entendido</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MANUAL DELINQUENCY MANAGEMENT MODAL */}
+      {showDelinquentModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full max-h-[85vh] overflow-hidden flex flex-col scale-100 animate-in zoom-in-95 duration-200 border-t-4 border-red-600">
+            {/* Header */}
+            <div className="bg-slate-900 text-white p-5 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="text-red-500" size={20} />
+                <h3 className="font-bold text-lg">Alterar Status de Inadimplência</h3>
+              </div>
+              <button 
+                onClick={() => setShowDelinquentModal(false)}
+                className="text-gray-400 hover:text-white font-bold hover:scale-105 transition-all"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Sub-Header / Search Input */}
+            <div className="p-5 border-b bg-slate-50 space-y-3">
+              <p className="text-xs text-slate-500">
+                Pesquise o morador pelo nome ou pelo número da unidade para marcar ou retirar a inadimplência.
+              </p>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                  <Search size={16} />
+                </span>
+                <input
+                  type="text"
+                  placeholder="Pesquisar por Unidade ou Nome do proprietário..."
+                  value={delinquentSearchQuery}
+                  onChange={(e) => setDelinquentSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 text-gray-900 bg-white"
+                />
+              </div>
+            </div>
+
+            {/* Results list */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-2 custom-scrollbar min-h-[250px] max-h-[450px]">
+              {residents.filter(r => {
+                const query = delinquentSearchQuery.toLowerCase().trim();
+                if (!query) return true;
+                return r.unit.toLowerCase().includes(query) || r.name.toLowerCase().includes(query);
+              }).length === 0 ? (
+                <div className="text-center py-10 text-slate-400 text-xs italic">
+                  Nenhum morador encontrado para a pesquisa.
+                </div>
+              ) : (
+                residents
+                  .filter(r => {
+                    const query = delinquentSearchQuery.toLowerCase().trim();
+                    if (!query) return true;
+                    return r.unit.toLowerCase().includes(query) || r.name.toLowerCase().includes(query);
+                  })
+                  .map((r, idx) => (
+                    <div 
+                      key={idx} 
+                      className="flex items-center justify-between p-3 border border-slate-100 rounded-xl hover:bg-slate-50/50 transition-all"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-slate-900">Unidade {r.unit}</span>
+                          {r.isDelinquent ? (
+                            <div className="flex items-center gap-1.5 inline-flex">
+                              <span className="w-4 h-4 rounded border-2 border-red-500 bg-red-500 text-white flex items-center justify-center text-[10px] font-bold">✓</span>
+                              <Badge color="red">Inadimplente (Ativo)</Badge>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 inline-flex">
+                              <span className="w-4 h-4 rounded border border-gray-300 bg-white flex items-center justify-center text-[10px] font-bold text-transparent">✓</span>
+                              <Badge color="green">No Sistema (Inativo)</Badge>
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">{r.name}</p>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        variant={r.isDelinquent ? "outline" : "danger"}
+                        onClick={() => handleToggleDelinquentStatus(r)}
+                        className="text-xs font-bold shrink-0 min-w-[150px] py-1.5"
+                      >
+                        {r.isDelinquent ? 'Remover Inadimplência' : 'Marcar Inadimplente'}
+                      </Button>
+                    </div>
+                  ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-5 bg-slate-50 border-t flex justify-between items-center text-xs text-slate-400">
+              <span>Total de moradores: {residents.length}</span>
+              <Button onClick={() => setShowDelinquentModal(false)} variant="outline" size="sm">
+                Concluir e Fechar
+              </Button>
             </div>
           </div>
         </div>

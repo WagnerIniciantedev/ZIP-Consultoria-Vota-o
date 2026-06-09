@@ -16,7 +16,8 @@ import {
   addLog,
   getLogs, saveLogs, registerAdminUid, setAdminStatus, clearAdminStatus,
   testConnection,
-  clearErrorLogs
+  clearErrorLogs,
+  getDelinquencyModifications
 } from './services/dataService';
 import { ActiveAssembly } from './types';
 import { onSnapshot, doc, setDoc, collection } from 'firebase/firestore';
@@ -30,7 +31,7 @@ import { ResidentVoting } from './components/ResidentVoting';
 import { UrnaEletronica } from './components/UrnaEletronica';
 import { Button, Input, Card } from './components/ui';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
-import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, RefreshCw, Building2 } from 'lucide-react';
+import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, RefreshCw } from 'lucide-react';
 
 const App: React.FC = () => {
   
@@ -75,6 +76,7 @@ const App: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('t');
     let isResidentAccess = params.get('access') === 'resident';
+    let isUrnaAccess = params.get('access') === 'urna';
     let urlAssemblyId = params.get('assemblyId');
 
     if (token) {
@@ -83,6 +85,7 @@ const App: React.FC = () => {
         const cleanToken = token.startsWith('ZV_') ? token.substring(3) : token;
         const decoded = JSON.parse(atob(cleanToken));
         if (decoded.a === 'r') isResidentAccess = true;
+        if (decoded.a === 'u') isUrnaAccess = true;
         if (decoded.id) urlAssemblyId = decoded.id;
       } catch (e) {
         console.error("Invalid token format");
@@ -103,8 +106,8 @@ const App: React.FC = () => {
     const savedSampleUnit = localStorage.getItem('condovote_sample_unit');
     if (savedSampleUnit) setSampleUnit(savedSampleUnit);
 
-    // Don't set initial active status from local storage if we have a resident link
-    if (!isResidentAccess) {
+    // Don't set initial active status from local storage if we have a resident or urna link
+    if (!isResidentAccess && !isUrnaAccess) {
       setIsAssemblyActive(getAssemblyStatus());
     }
 
@@ -133,6 +136,24 @@ const App: React.FC = () => {
         }
       }
       setCurrentView(AppView.VOTE_IDENTIFY);
+    } else if (isUrnaAccess) {
+      // Clear any stale admin session
+      clearSession();
+      setCurrentUser(null);
+      setAdminStatus(false);
+
+      if (urlAssemblyId) {
+        setSelectedAssemblyId(urlAssemblyId);
+        saveAssemblyId(urlAssemblyId);
+        const active = getActiveAssemblies();
+        const found = active.find((a: any) => a.id === urlAssemblyId);
+        if (found) {
+          setCondoName(found.condoName);
+        } else {
+          setCondoName(urlAssemblyId.replace(/_/g, ' '));
+        }
+      }
+      setCurrentView(AppView.URNA_ELETRONICA);
     } else if (savedUser) {
       setCurrentUser(savedUser);
       setCurrentView(AppView.COMPANY_DASHBOARD);
@@ -515,7 +536,8 @@ const App: React.FC = () => {
         votes: [...votes], 
         residentsSnapshot: [...residents],
         type: assemblyType || undefined,
-        logs: currentLogs
+        logs: currentLogs,
+        delinquencyModifications: getDelinquencyModifications()
       };
       
       const newPastAssemblies = [assemblySnapshot, ...pastAssemblies];
@@ -712,24 +734,7 @@ const App: React.FC = () => {
                 <Button type="submit" className="w-full bg-[#E60000] hover:bg-red-700 text-white font-bold py-3.5 shadow-lg active:scale-95 transition-all text-sm">ENTRAR</Button>
               </form>
 
-              {isAssemblyActive && (
-                <div className="mt-6">
-                  <div className="relative mb-6">
-                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
-                    <div className="relative flex justify-center text-[10px] uppercase tracking-widest text-gray-400"><span className="px-2 bg-white">OU</span></div>
-                  </div>
-                  <Button 
-                    onClick={() => setCurrentView(AppView.VOTE_IDENTIFY)}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 shadow-lg active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
-                  >
-                    <Building2 size={18} />
-                    SOU MORADOR / QUERO VOTAR
-                  </Button>
-                  <p className="text-center text-[10px] text-green-600 font-bold mt-2 animate-pulse">
-                    VOTAÇÃO EM ABERTO: {condoName}
-                  </p>
-                </div>
-              )}
+
 
               <div className="mt-8 relative">
                   <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>

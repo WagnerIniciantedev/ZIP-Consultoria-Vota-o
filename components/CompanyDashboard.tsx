@@ -687,6 +687,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         showDelinquents={showDelinquentsInReport}
                         assemblyType={pastAssemblies.find(a => a.id === selectedReportId)!.type}
                         isForPDF={isGeneratingPDF}
+                        delinquencyModifications={pastAssemblies.find(a => a.id === selectedReportId)!.delinquencyModifications || []}
                       />
                     </div>
                   </div>

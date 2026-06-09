@@ -1,5 +1,5 @@
 
-import { Resident, Poll, VoteRecord, User, AssemblyRecord, ErrorLog } from '../types';
+import { Resident, Poll, VoteRecord, User, AssemblyRecord, ErrorLog, DelinquencyModification } from '../types';
 import { doc, setDoc, deleteDoc, getDoc, collection, query, where, getDocs, getDocFromServer, arrayUnion } from 'firebase/firestore';
 import { db, auth } from './firebase';
 
@@ -713,6 +713,15 @@ export const getAssemblies = (): AssemblyRecord[] => {
   return data ? JSON.parse(data) : [];
 };
 
+export const saveDelinquencyModifications = (modifications: DelinquencyModification[]) => {
+  localStorage.setItem('condovote_delinquency_modifications', JSON.stringify(modifications));
+};
+
+export const getDelinquencyModifications = (): DelinquencyModification[] => {
+  const data = localStorage.getItem('condovote_delinquency_modifications');
+  return data ? JSON.parse(data) : [];
+};
+
 export const clearAllData = async (specificName?: string) => {
   // LIMPA APENAS DADOS DA ASSEMBLEIA, MANTÉM USUÁRIOS
   localStorage.removeItem(STORAGE_KEYS.RESIDENTS);
@@ -721,6 +730,7 @@ export const clearAllData = async (specificName?: string) => {
   localStorage.removeItem(STORAGE_KEYS.CONDO_NAME);
   localStorage.removeItem(STORAGE_KEYS.IS_ASSEMBLY_ACTIVE);
   localStorage.removeItem(STORAGE_KEYS.ASSEMBLY_START_TIME);
+  localStorage.removeItem('condovote_delinquency_modifications');
   
   if (db && isAdminUser && isCloudRegistered) {
      const nameToClear = specificName || localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup';

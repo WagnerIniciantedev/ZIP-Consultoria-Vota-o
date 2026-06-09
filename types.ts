@@ -114,6 +114,14 @@ export interface SystemLog {
   assemblyId?: string;
 }
 
+export interface DelinquencyModification {
+  unit: string;
+  name: string;
+  previousStatus: boolean;
+  newStatus: boolean;
+  timestamp: number;
+}
+
 export interface AssemblyRecord {
   id: string;
   condoName: string;
@@ -124,4 +132,5 @@ export interface AssemblyRecord {
   type?: AssemblyType;
   logs?: SystemLog[];
   startedBy?: string;
+  delinquencyModifications?: DelinquencyModification[];
 }

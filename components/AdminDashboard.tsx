@@ -82,6 +82,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // TOUR STATE
   const [isTourOpen, setIsTourOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedUrna, setCopiedUrna] = useState(false);
 
   // --- Auth Checks ---
   // (Removed unused isSuperUser)
@@ -121,6 +122,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyUrnaLink = () => {
+    const safeKey = selectedAssemblyId || condoName.trim().replace(/[^a-zA-Z0-9]/g, '_');
+    // Token with action 'u' for Urna access
+    const data = { a: 'u', id: safeKey, ts: Date.now() };
+    const token = btoa(JSON.stringify(data));
+    const url = `${window.location.origin}?t=ZV_${token}`;
+    navigator.clipboard.writeText(url);
+    setCopiedUrna(true);
+    setTimeout(() => setCopiedUrna(false), 2000);
   };
 
   const tourSteps: TourStep[] = [
@@ -212,6 +224,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               >
                 {copied ? <Check size={16} /> : <Share2 size={16} />} 
                 {copied ? 'Link Copiado!' : 'Copiar Link de Votação'}
+              </Button>
+
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleCopyUrnaLink}
+                className={`hidden sm:flex items-center gap-2 transition-all ${copiedUrna ? 'bg-green-50 border-green-200 text-green-600' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+              >
+                {copiedUrna ? <Check size={16} /> : <Tablet size={16} />} 
+                {copiedUrna ? 'Link da Urna Copiado!' : 'Copiar Link da Urna'}
               </Button>
 
               <Button 

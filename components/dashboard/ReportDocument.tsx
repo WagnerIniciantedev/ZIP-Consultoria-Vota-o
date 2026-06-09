@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Poll, VoteRecord, Resident, PollCalculationType, AssemblyType } from '../../types';
+import { Poll, VoteRecord, Resident, PollCalculationType, AssemblyType, DelinquencyModification } from '../../types';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { cleanText } from '../../services/dataService';
 
@@ -13,6 +13,7 @@ interface ReportDocumentProps {
   isForPDF?: boolean;
   showDelinquents?: boolean;
   assemblyType?: AssemblyType | null;
+  delinquencyModifications?: DelinquencyModification[];
 }
 
 const COLORS = ['#DC2626', '#EA580C', '#D97706', '#65A30D', '#059669', '#2563EB', '#7C3AED', '#DB2777'];
@@ -25,7 +26,8 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
   residents,
   isForPDF = false,
   showDelinquents = true,
-  assemblyType = null
+  assemblyType = null,
+  delinquencyModifications = []
 }) => {
   const totalUnits = new Set(residents.map(r => r.unit)).size;
   const participatingUnits = new Set(votes.map(v => v.unit)).size;
@@ -470,6 +472,83 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Delinquency Modifications Section */}
+        {delinquencyModifications && delinquencyModifications.length > 0 && (
+          <div className="mt-32 break-inside-avoid page-break-inside-avoid">
+            <div className="flex items-center gap-6 mb-12">
+              <div className="text-7xl font-black text-slate-100 leading-none select-none">
+                {String(polls.length + 2).padStart(2, '0')}
+              </div>
+              <div className="flex-1 border-l-4 border-red-600 pl-8">
+                <p className="text-[11px] font-black text-red-600 uppercase tracking-[0.5em] mb-2">Relatório de Alterações</p>
+                <h2 className="text-4xl font-black text-slate-900 uppercase tracking-tighter leading-none mb-4">Atualizações de Inadimplência</h2>
+                <p className="text-base text-slate-500 font-medium leading-relaxed italic max-w-2xl">
+                  Registro de alterações manuais de status de adimplência/inadimplência de condôminos efetuados na mesa diretora antes ou durante a assembleia.
+                </p>
+              </div>
+            </div>
+
+            <div className="border border-slate-200 rounded-sm overflow-hidden">
+              <div className="bg-slate-900 px-4 py-3 flex justify-between items-center">
+                <h4 className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Histórico de Modificações de Inadimplência</h4>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  Total de Alterações: {delinquencyModifications.length}
+                </span>
+              </div>
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-100 border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Unidade</th>
+                    <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Nome do Condômino</th>
+                    <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Status Anterior</th>
+                    <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Ação / Alteração</th>
+                    <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest border-r border-slate-200">Sinalizador (Inadimplência)</th>
+                    <th className="px-4 py-2 text-[9px] font-black text-slate-500 uppercase tracking-widest">Data / Hora</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {delinquencyModifications.map((m, i) => (
+                    <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                      <td className="px-4 py-2 text-[11px] font-bold text-slate-900 border-r border-slate-100">{m.unit}</td>
+                      <td className="px-4 py-2 text-[10px] text-slate-600 uppercase border-r border-slate-100">{cleanText(m.name)}</td>
+                      <td className="px-4 py-2 text-[10px] text-slate-500 border-r border-slate-100 uppercase">
+                        {m.previousStatus ? (
+                          <span className="text-red-500 font-bold">Inadimplente</span>
+                        ) : (
+                          <span className="text-green-500 font-bold">Adimplente</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-[10px] text-slate-500 border-r border-slate-100 uppercase font-bold italic">
+                        {m.newStatus === true ? (
+                          <span className="text-red-600">ADICIONADO</span>
+                        ) : (
+                          <span className="text-green-600">RETIRADO</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-[10px] border-r border-slate-100">
+                        {m.newStatus ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-block w-3.5 h-3.5 border border-red-600 bg-red-600 text-white text-[9px] leading-tight flex items-center justify-center font-bold rounded-sm">✓</span>
+                            <span className="text-red-600 font-black text-[9px] tracking-wider">ATIVO</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-block w-3.5 h-3.5 border border-slate-300 bg-white text-transparent text-[9px] leading-tight flex items-center justify-center font-bold rounded-sm">✓</span>
+                            <span className="text-slate-400 font-normal text-[9px] tracking-wider">INATIVO (NO SISTEMA)</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-[10px] text-slate-400">
+                        {new Date(m.timestamp).toLocaleString('pt-BR')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="mt-40 pt-16 border-t-8 border-slate-900 flex justify-between items-start">
