@@ -722,6 +722,40 @@ export const getDelinquencyModifications = (): DelinquencyModification[] => {
   return data ? JSON.parse(data) : [];
 };
 
+export const getHideDelinquency = (): boolean => {
+  return localStorage.getItem('condovote_hide_delinquency') === 'true';
+};
+
+export const setHideDelinquency = async (val: boolean) => {
+  localStorage.setItem('condovote_hide_delinquency', val ? 'true' : 'false');
+  if (db && isAdminUser) {
+    const assemblyId = localStorage.getItem('condovote_assembly_id') || localStorage.getItem('condovote_condo_name') || 'setup';
+    const safeKey = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+    try {
+      await setDoc(doc(db, 'assemblies', safeKey), { hideDelinquency: val }, { merge: true });
+    } catch (e) {
+      console.error("[setHideDelinquency] Error synching with Firebase:", e);
+    }
+  }
+};
+
+export const getHideDelinquencyColumn = (): boolean => {
+  return localStorage.getItem('condovote_hide_delinquency_column') === 'true';
+};
+
+export const setHideDelinquencyColumn = async (val: boolean) => {
+  localStorage.setItem('condovote_hide_delinquency_column', val ? 'true' : 'false');
+  if (db && isAdminUser) {
+    const assemblyId = localStorage.getItem('condovote_assembly_id') || localStorage.getItem('condovote_condo_name') || 'setup';
+    const safeKey = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+    try {
+      await setDoc(doc(db, 'assemblies', safeKey), { hideDelinquencyColumn: val }, { merge: true });
+    } catch (e) {
+      console.error("[setHideDelinquencyColumn] Error synching with Firebase:", e);
+    }
+  }
+};
+
 export const clearAllData = async (specificName?: string) => {
   // LIMPA APENAS DADOS DA ASSEMBLEIA, MANTÉM USUÁRIOS
   localStorage.removeItem(STORAGE_KEYS.RESIDENTS);

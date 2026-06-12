@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Resident, PollCalculationType, User } from '../../types';
-import { parseCSV, saveResidents, addLog, grantProxy, getDelinquencyModifications, saveDelinquencyModifications } from '../../services/dataService'; // Import saveResidents directly
+import { parseCSV, saveResidents, addLog, grantProxy, getDelinquencyModifications, saveDelinquencyModifications, getHideDelinquency, setHideDelinquency, getHideDelinquencyColumn, setHideDelinquencyColumn } from '../../services/dataService'; // Import saveResidents directly
 import { db, doc, setDoc } from '../../services/firebase';
 import { 
   FileSpreadsheet, Download, AlertCircle, FileText, CheckCircle2, UploadCloud, 
@@ -44,6 +44,25 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
   // --- DELINQUENCY MODIFICATIONS STATES ---
   const [showDelinquentModal, setShowDelinquentModal] = useState(false);
   const [delinquentSearchQuery, setDelinquentSearchQuery] = useState('');
+
+  // --- VISIBILITY FLAGS STATES ---
+  const [hideDelinquencyState, setHideDelinquencyState] = useState(getHideDelinquency());
+  const [hideDelinquencyColumnState, setHideDelinquencyColumnState] = useState(getHideDelinquencyColumn());
+
+  React.useEffect(() => {
+    setHideDelinquencyState(getHideDelinquency());
+    setHideDelinquencyColumnState(getHideDelinquencyColumn());
+  }, [residents]);
+
+  const handleToggleHideDelinquency = (val: boolean) => {
+    setHideDelinquencyState(val);
+    setHideDelinquency(val);
+  };
+
+  const handleToggleHideDelinquencyColumn = (val: boolean) => {
+    setHideDelinquencyColumnState(val);
+    setHideDelinquencyColumn(val);
+  };
 
   // Helper: Generates unique 6-digit access passwords for all residents
   const handleGeneratePasswords = async () => {
@@ -555,8 +574,49 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
           </div>
         )}
 
+        {/* CONFIGURAÇÃO AVANÇADA DE VISIBILIDADE (Apenas TI) */}
+        {currentUser?.role === 'TI' && residents.length > 0 && (
+          <div className="bg-purple-50/50 border border-purple-200 rounded-xl p-5 space-y-4 mt-4 animate-in fade-in duration-300">
+            <h3 className="text-sm font-bold text-purple-950 flex items-center gap-2">
+              <Sparkles className="text-purple-600 animate-pulse" size={18} />
+              Configuração de Visibilidade (Restrito - TI / Suporte)
+            </h3>
+            <p className="text-xs text-purple-700 leading-relaxed font-medium">
+              Como TI / Administrador do Sistema, você pode optar por ocultar ou reexibir os recursos de inadimplência para os administradores comuns e as tabelas públicas.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="flex items-start gap-3 p-3 bg-white border border-purple-100 rounded-xl cursor-pointer hover:bg-purple-50 hover:border-purple-300 transition-all select-none">
+                <input
+                  type="checkbox"
+                  checked={hideDelinquencyState}
+                  onChange={(e) => handleToggleHideDelinquency(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 rounded border-purple-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                />
+                <div>
+                  <span className="text-xs font-bold text-slate-800 block">Sinalizador: Ocultar Painel de Gestão</span>
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">Oculta o painel de alteração manual de inadimplência para administradores sem permissão TI.</span>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-3 p-3 bg-white border border-purple-100 rounded-xl cursor-pointer hover:bg-purple-50 hover:border-purple-300 transition-all select-none">
+                <input
+                  type="checkbox"
+                  checked={hideDelinquencyColumnState}
+                  onChange={(e) => handleToggleHideDelinquencyColumn(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 rounded border-purple-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                />
+                <div>
+                  <span className="text-xs font-bold text-slate-800 block font-sans">Sinalizador: Ocultar Colunas na Tabela</span>
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">Oculta o indicador e o status de inadimplemento na tabela de visualização para administradores comuns.</span>
+                </div>
+              </label>
+            </div>
+          </div>
+        )}
+
         {/* GESTÃO MANUAL DE INADIMPLÊNCIA */}
-        {residents.length > 0 && (
+        {residents.length > 0 && !(currentUser?.role !== 'TI' && hideDelinquencyState) && (
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4 mt-4 animate-in fade-in duration-300">
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <AlertTriangle className="text-red-500" size={18} />
@@ -597,7 +657,9 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">E-mail</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Senha Única</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CPF</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    {!(currentUser?.role !== 'TI' && hideDelinquencyColumnState) && (
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider font-bold">Status</th>
+                    )}
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Procurações</th>
                     {importType === PollCalculationType.FRACTION && (
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fração</th>
@@ -622,19 +684,21 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                         <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500 font-mono">
                         {r.cpf ? `***.${r.cpf.slice(0,3)}...` : '-'}
                         </td>
-                        <td className="px-6 py-3 whitespace-nowrap text-sm">
-                        {r.isDelinquent ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className="w-4 h-4 rounded border-2 border-red-500 bg-red-500 text-white flex items-center justify-center text-[10px] font-bold">✓</span>
-                              <Badge color="red">Inadimplente (Ativo)</Badge>
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-1.5">
-                              <span className="w-4 h-4 rounded border border-gray-300 bg-white flex items-center justify-center text-[10px] font-bold text-transparent">✓</span>
-                              <Badge color="green">No Sistema (Inativo)</Badge>
-                            </div>
+                        {!(currentUser?.role !== 'TI' && hideDelinquencyColumnState) && (
+                          <td className="px-6 py-3 whitespace-nowrap text-sm">
+                          {r.isDelinquent ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-4 h-4 rounded border-2 border-red-500 bg-red-500 text-white flex items-center justify-center text-[10px] font-bold">✓</span>
+                                <Badge color="red">Inadimplente (Ativo)</Badge>
+                              </div>
+                          ) : (
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-4 h-4 rounded border border-gray-300 bg-white flex items-center justify-center text-[10px] font-bold text-transparent">✓</span>
+                                <Badge color="green">No Sistema (Inativo)</Badge>
+                              </div>
+                          )}
+                          </td>
                         )}
-                        </td>
                         <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500">
                           {r.proxyCount && r.proxyCount > 0 ? (
                             <div className="flex flex-col">
@@ -807,7 +871,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
       )}
 
       {/* MANUAL DELINQUENCY MANAGEMENT MODAL */}
-      {showDelinquentModal && (
+      {showDelinquentModal && !(currentUser?.role !== 'TI' && hideDelinquencyState) && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full max-h-[85vh] overflow-hidden flex flex-col scale-100 animate-in zoom-in-95 duration-200 border-t-4 border-red-600">
             {/* Header */}

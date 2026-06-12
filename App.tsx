@@ -344,6 +344,13 @@ const App: React.FC = () => {
             if (data.startedBy) setStartedBy(data.startedBy);
             if (data.residentsCount) setResidentsCount(data.residentsCount);
             
+            if (data.hideDelinquency !== undefined) {
+                localStorage.setItem('condovote_hide_delinquency', data.hideDelinquency ? 'true' : 'false');
+            }
+            if (data.hideDelinquencyColumn !== undefined) {
+                localStorage.setItem('condovote_hide_delinquency_column', data.hideDelinquencyColumn ? 'true' : 'false');
+            }
+            
             if (data.isActive !== undefined) {
                 setIsAssemblyActive(data.isActive);
                 if (data.isActive === false && !currentUser) {
