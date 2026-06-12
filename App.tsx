@@ -413,6 +413,120 @@ const App: React.FC = () => {
     };
   }, [selectedAssemblyId, currentView === AppView.ADMIN_DASHBOARD, isAuthReady]); 
 
+  // --- AUTOMATIC UPDATE & DEPLOYMENT DETECTOR ---
+  useEffect(() => {
+    let active = true;
+    let initialScripts: string[] = [];
+    let initialStyles: string[] = [];
+
+    const getCurrentAssets = () => {
+      const scripts = Array.from(document.querySelectorAll('script'))
+        .map(s => s.getAttribute('src'))
+        .filter((src): src is string => !!src && (src.includes('/assets/') || src.endsWith('.js') || src.startsWith('/assets/index-')));
+      const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+        .map(l => l.getAttribute('href'))
+        .filter((href): href is string => !!href && (href.includes('/assets/') || href.endsWith('.css') || href.startsWith('/assets/index-')));
+      return { scripts, styles };
+    };
+
+    // Store initial loaded assets in memory
+    const assets = getCurrentAssets();
+    initialScripts = assets.scripts;
+    initialStyles = assets.styles;
+
+    console.log("[AutoUpdater] Current loaded assets at startup:", { initialScripts, initialStyles });
+
+    const checkUpdates = async () => {
+      if (!active) return;
+      
+      // ONLY check and show the banner if we have an authenticated user and are on an administrative view!
+      const isAdminView = currentView === AppView.ADMIN_DASHBOARD || currentView === AppView.COMPANY_DASHBOARD;
+      if (!currentUser || !isAdminView) {
+        return;
+      }
+
+      try {
+        const url = window.location.origin + '/index.html?t=' + Date.now();
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) return;
+        
+        const html = await response.text();
+        
+        // Extract script sources pointing to assets
+        const scriptRegex = /src=["']([^"']+\.[jJ][sS][^"']*)["']/gi;
+        const fetchedScripts: string[] = [];
+        let match;
+        while ((match = scriptRegex.exec(html)) !== null) {
+          fetchedScripts.push(match[1]);
+        }
+
+        // Extract style sources pointing to stylesheet assets
+        const linkRegex = /href=["']([^"']+\.[cC][sS][sS][^"']*)["']/gi;
+        const fetchedStyles: string[] = [];
+        while ((match = linkRegex.exec(html)) !== null) {
+          fetchedStyles.push(match[1]);
+        }
+
+        // We only check for mismatches if we actually have assets in the bundle
+        if (initialScripts.length > 0 && fetchedScripts.length > 0) {
+          const hasNewScript = fetchedScripts.some(s => !initialScripts.includes(s));
+          const hasNewStyle = fetchedStyles.some(s => !initialStyles.includes(s));
+          
+          if (hasNewScript || hasNewStyle) {
+            console.log("[AutoUpdater] New deployment detected!", { fetchedScripts, fetchedStyles });
+            
+            // Show a visual toast/reloading indicator, then reload
+            if (!document.getElementById('app-update-banner')) {
+              const banner = document.createElement('div');
+              banner.id = 'app-update-banner';
+              banner.className = 'fixed top-4 left-1/2 -translate-x-1/2 z-[9999] bg-gradient-to-r from-red-600 to-indigo-600 text-white px-5 py-3 rounded-full flex items-center gap-3 shadow-2xl font-bold text-xs border border-white/20 animate-bounce';
+              banner.innerHTML = `
+                <span class="relative flex h-2 w-2">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                </span>
+                Nova versão disponível! Atualizando o sistema...
+              `;
+              document.body.appendChild(banner);
+              
+              setTimeout(() => {
+                window.location.reload();
+              }, 2500);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[AutoUpdater] Error checking updates:", err);
+      }
+    };
+
+    // Set up check interval (every 30 seconds for quick reactive updates)
+    const interval = setInterval(checkUpdates, 30 * 1000);
+
+    // Dynamic chunk loading error handler: intercepts and recovers from bundle loading failures
+    const handleChunkError = (e: ErrorEvent) => {
+      const msg = e.message || '';
+      const isChunkError = /chunk|loading|css|js|module/i.test(msg) || (e.error && /chunk|loading/i.test(e.error.message || ''));
+      if (isChunkError) {
+        console.warn("[AutoUpdater] Captured chunk load failure. Reloading app to fetch newest bundles...");
+        window.location.reload();
+      }
+    };
+    
+    window.addEventListener('error', handleChunkError, true);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+      window.removeEventListener('error', handleChunkError, true);
+      // Clean up the banner dynamically if they logged out or navigated away from dashboard
+      const existingBanner = document.getElementById('app-update-banner');
+      if (existingBanner) {
+        existingBanner.remove();
+      }
+    };
+  }, [currentUser, currentView]);
+
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
