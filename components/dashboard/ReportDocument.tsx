@@ -33,6 +33,28 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
   const participatingUnits = new Set(votes.map(v => v.unit)).size;
   const quorumPercent = totalUnits > 0 ? ((participatingUnits / totalUnits) * 100).toFixed(1) : 0;
 
+  // Overall assembly unique units split
+  const uniqueInPersonUnits = new Set<string>();
+  const uniqueOnlineUnits = new Set<string>();
+
+  votes.forEach(v => {
+    // Only count active votes or delinquent-released if showDelinquents matches filter
+    const isDelinquent = v.isDelinquentVote;
+    const isReleased = v.isDelinquentReleased;
+    if (!showDelinquents && isDelinquent && !isReleased) {
+      return; 
+    }
+    
+    if (v.zoomName === "VOTO PRESENCIAL") {
+      uniqueInPersonUnits.add(v.unit);
+    } else {
+      uniqueOnlineUnits.add(v.unit);
+    }
+  });
+
+  const overallInPersonCount = uniqueInPersonUnits.size;
+  const overallOnlineCount = uniqueOnlineUnits.size;
+
   const getAssemblyTypeLabel = (type: AssemblyType | null) => {
     switch (type) {
       case AssemblyType.ONLINE: return "Online";
@@ -117,6 +139,22 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
           </div>
         </div>
 
+        {assemblyType === AssemblyType.HYBRID && (
+          <div className="bg-slate-900 border-t-2 border-red-600 px-8 py-4 -mt-20 mb-20 flex justify-between items-center text-white text-xs rounded-b-sm">
+            <span className="font-bold tracking-wider text-slate-400 uppercase text-[9px]">Distribuição de Presença (Canais de Captação)</span>
+            <div className="flex gap-8">
+              <span className="font-bold">
+                <span className="text-red-500 mr-2 font-black">●</span>
+                PRESENCIAL: <strong className="text-white text-sm font-black ml-1">{overallInPersonCount}</strong> {overallInPersonCount === 1 ? 'Unidade' : 'Unidades'}
+              </span>
+              <span className="font-bold">
+                <span className="text-indigo-400 mr-2 font-black">●</span>
+                ONLINE: <strong className="text-white text-sm font-black ml-1">{overallOnlineCount}</strong> {overallOnlineCount === 1 ? 'Unidade' : 'Unidades'}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Polls Results */}
         <div className="space-y-32">
           {polls.map((poll, index) => {
@@ -128,8 +166,12 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
 
             const validVotes = pollVotes.filter(v => !v.isDelinquentVote || v.isDelinquentReleased);
             
-            const dataMap = new Map<string, number>();
-            poll.options.forEach(opt => dataMap.set(opt.id, 0));
+            const onlineDataMap = new Map<string, number>();
+            const presencialDataMap = new Map<string, number>();
+            poll.options.forEach(opt => {
+              onlineDataMap.set(opt.id, 0);
+              presencialDataMap.set(opt.id, 0);
+            });
             
             let totalWeight = 0;
             validVotes.forEach(v => {
@@ -140,33 +182,42 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                 else if (poll.calculationType === PollCalculationType.HABITE_SE) weight = 1 + (resident.hasHabiteSe ? 1 : 0);
                 if (resident.proxyCount && resident.proxyCount > 0) weight += resident.proxyCount;
               }
-              const current = dataMap.get(v.optionId) || 0;
-              dataMap.set(v.optionId, current + weight);
+              
+              if (v.zoomName === "VOTO PRESENCIAL") {
+                const current = presencialDataMap.get(v.optionId) || 0;
+                presencialDataMap.set(v.optionId, current + weight);
+              } else {
+                const current = onlineDataMap.get(v.optionId) || 0;
+                onlineDataMap.set(v.optionId, current + weight);
+              }
               totalWeight += weight;
             });
 
-            // Add manual votes
+            // Add manual votes to presencial
             if (poll.manualVotes) {
               Object.entries(poll.manualVotes).forEach(([optId, count]) => {
-                const current = dataMap.get(optId) || 0;
-                dataMap.set(optId, current + count);
+                const current = presencialDataMap.get(optId) || 0;
+                presencialDataMap.set(optId, current + count);
                 totalWeight += count;
               });
             }
 
             const chartData = poll.options.map(opt => {
-              const onlineVal = dataMap.get(opt.id) || 0;
-              const manualVal = poll.manualVotes?.[opt.id] || 0;
-              const totalVal = onlineVal + manualVal;
+              const onlineVal = onlineDataMap.get(opt.id) || 0;
+              const presencialVal = presencialDataMap.get(opt.id) || 0;
+              const totalVal = onlineVal + presencialVal;
               
               return {
                 name: cleanText(opt.text),
                 votos: Number(totalVal.toFixed(4)),
                 online: Number(onlineVal.toFixed(4)),
-                presencial: Number(manualVal.toFixed(4)),
+                presencial: Number(presencialVal.toFixed(4)),
                 percent: totalWeight > 0 ? ((totalVal / totalWeight) * 100).toFixed(2) : "0.00"
               };
             });
+
+            const pollTotalOnline = chartData.reduce((acc, d) => acc + d.online, 0);
+            const pollTotalPresencial = chartData.reduce((acc, d) => acc + d.presencial, 0);
 
             const winner = [...chartData].sort((a, b) => Number(b.votos) - Number(a.votos))[0];
 
@@ -246,6 +297,35 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                   </div>
                 </div>
 
+                {assemblyType === AssemblyType.HYBRID && (
+                  <div className="mt-6 bg-red-50/50 border border-red-100 p-6 rounded-sm grid grid-cols-2 gap-8 divide-x divide-red-100 break-inside-avoid page-break-inside-avoid">
+                    <div className="flex flex-col justify-between">
+                      <p className="text-[10px] font-black text-red-500 uppercase tracking-widest leading-none mb-2">Votos Presenciais</p>
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-3xl font-black text-slate-800">{Number(pollTotalPresencial.toFixed(4))}</p>
+                        <span className="text-xs text-slate-400 font-bold">
+                          {poll.calculationType === PollCalculationType.FRACTION ? 'Coeficiente' : poll.calculationType === PollCalculationType.HABITE_SE ? 'Votos Ponderados' : 'Votos'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-semibold mt-1">
+                        Total de votos coletados fisicamente via mesa presencial (Fichas) ou Urna Eletrônica local.
+                      </p>
+                    </div>
+                    <div className="flex flex-col justify-between pl-8">
+                      <p className="text-[10px] font-black text-red-500 uppercase tracking-widest leading-none mb-2">Votos Online</p>
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-3xl font-black text-slate-800">{Number(pollTotalOnline.toFixed(4))}</p>
+                        <span className="text-xs text-slate-400 font-bold">
+                          {poll.calculationType === PollCalculationType.FRACTION ? 'Coeficiente' : poll.calculationType === PollCalculationType.HABITE_SE ? 'Votos Ponderados' : 'Votos'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-semibold mt-1">
+                        Total de votos coletados digitalmente através de dispositivos de moradores da assembleia virtual.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Winner Badge */}
                 {totalWeight > 0 && winner && (
                   <div className="mt-8 bg-slate-900 p-6 rounded-sm flex items-center justify-between border-l-8 border-red-600">
@@ -292,7 +372,9 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                               ) : '-'}
                             </td>
                             <td className="px-4 py-2 text-[10px] text-slate-400 uppercase italic border-r border-slate-100">{cleanText(v.zoomName || resident?.zoomName || '-')}</td>
-                            <td className="px-4 py-2 text-[10px] text-slate-400 font-bold border-r border-slate-100">ONLINE</td>
+                            <td className="px-4 py-2 text-[10px] text-slate-500 font-bold border-r border-slate-100">
+                              {v.zoomName === "VOTO PRESENCIAL" ? "PRESENCIAL (Urna)" : "ONLINE"}
+                            </td>
                             <td className="px-4 py-2 text-[10px] font-bold text-slate-900 uppercase border-r border-slate-100">{cleanText(opt?.text || '-')}</td>
                             <td className="px-4 py-2 text-[9px] font-black">
                               {v.isDelinquentVote ? (
@@ -321,9 +403,10 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                         return (
                           <tr key={`manual-${idx}`} className="bg-slate-50">
                             <td className="px-4 py-2 text-[11px] font-bold text-slate-900 border-r border-slate-100">-</td>
-                            <td className="px-4 py-2 text-[10px] text-slate-600 uppercase border-r border-slate-100">Votos Presenciais</td>
+                            <td className="px-4 py-2 text-[10px] text-slate-600 uppercase border-r border-slate-100">Mesa Presencial</td>
                             <td className="px-4 py-2 text-[10px] text-slate-400 uppercase italic border-r border-slate-100">-</td>
-                            <td className="px-4 py-2 text-[10px] text-slate-400 font-bold border-r border-slate-100">PRESENCIAL</td>
+                            <td className="px-4 py-2 text-[10px] text-slate-400 uppercase italic border-r border-slate-100">Fichas Físicas</td>
+                            <td className="px-4 py-2 text-[10px] text-slate-500 font-bold border-r border-slate-100">PRESENCIAL (Fichas)</td>
                             <td className="px-4 py-2 text-[10px] font-bold text-slate-900 uppercase border-r border-slate-100">{cleanText(opt?.text || '-')}</td>
                             <td className="px-4 py-2 text-[9px] font-black text-slate-600">
                               {count} {poll.calculationType === PollCalculationType.FRACTION ? 'PONTOS' : 'VOTOS'}
@@ -333,7 +416,7 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                       })}
                       {pollVotes.length === 0 && (!poll.manualVotes || Object.keys(poll.manualVotes).length === 0) && (
                         <tr>
-                          <td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-xs italic">Nenhum voto registrado para esta enquete.</td>
+                          <td colSpan={7} className="px-4 py-8 text-center text-slate-400 text-xs italic">Nenhum voto registrado para esta enquete.</td>
                         </tr>
                       )}
                     </tbody>

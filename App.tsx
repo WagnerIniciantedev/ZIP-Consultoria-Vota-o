@@ -36,7 +36,34 @@ import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, RefreshCw } from 'lucide-react
 const App: React.FC = () => {
   
   // --- STATE MANAGEMENT ---
-  const [currentView, setCurrentView] = useState<AppView>(AppView.ADMIN_LOGIN);
+  const [currentView, setCurrentView] = useState<AppView>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('t');
+    let isResidentAccess = params.get('access') === 'resident';
+    let isUrnaAccess = params.get('access') === 'urna';
+
+    if (token) {
+      try {
+        const cleanToken = token.startsWith('ZV_') ? token.substring(3) : token;
+        const decoded = JSON.parse(atob(cleanToken));
+        if (decoded.a === 'r') isResidentAccess = true;
+        if (decoded.a === 'u') isUrnaAccess = true;
+      } catch (e) {
+        console.error("Invalid token format in lazy init", e);
+      }
+    }
+
+    if (isResidentAccess) return AppView.VOTE_IDENTIFY;
+    if (isUrnaAccess) return AppView.URNA_ELETRONICA;
+
+    const savedUserStr = sessionStorage.getItem('condovote_user') || localStorage.getItem('condovote_user');
+    if (savedUserStr) {
+      return AppView.COMPANY_DASHBOARD;
+    }
+
+    return AppView.ADMIN_LOGIN;
+  });
+
   const [residents, setResidents] = useState<Resident[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
   const [votes, setVotes] = useState<VoteRecord[]>([]);
@@ -57,7 +84,35 @@ const App: React.FC = () => {
   const [hasPermissionError, setHasPermissionError] = useState<boolean>(false);
 
   // Auth State
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('t');
+    let isResidentAccess = params.get('access') === 'resident';
+    let isUrnaAccess = params.get('access') === 'urna';
+
+    if (token) {
+      try {
+        const cleanToken = token.startsWith('ZV_') ? token.substring(3) : token;
+        const decoded = JSON.parse(atob(cleanToken));
+        if (decoded.a === 'r') isResidentAccess = true;
+        if (decoded.a === 'u') isUrnaAccess = true;
+      } catch (e) {}
+    }
+
+    if (isResidentAccess || isUrnaAccess) {
+      return null;
+    }
+
+    const savedUserStr = sessionStorage.getItem('condovote_user') || localStorage.getItem('condovote_user');
+    if (savedUserStr) {
+      try {
+        return JSON.parse(savedUserStr);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPass, setAdminPass] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -833,7 +888,7 @@ const App: React.FC = () => {
 
   if (currentView === AppView.ADMIN_LOGIN) {
     return (
-      <div className="min-h-screen bg-[#E60000] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      <div className="min-h-screen bg-[#FE0000] flex flex-col items-center justify-center p-4 relative overflow-hidden">
         {/* Background Decorative Elements */}
         <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-white/5 rounded-full blur-3xl"></div>
         <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-black/10 rounded-full blur-3xl"></div>
@@ -888,7 +943,7 @@ const App: React.FC = () => {
                   <label htmlFor="remember-me" className="ml-2 text-sm font-medium text-gray-700 cursor-pointer">Permanecer conectado</label>
                 </div>
                 {loginError && <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-red-600 text-sm font-medium animate-bounce">{loginError}</div>}
-                <Button type="submit" className="w-full bg-[#E60000] hover:bg-red-700 text-white font-bold py-3.5 shadow-lg active:scale-95 transition-all text-sm">ENTRAR</Button>
+                <Button type="submit" className="w-full bg-[#FE0000] hover:bg-red-750 text-white font-bold py-3.5 shadow-lg active:scale-95 transition-all text-sm">ENTRAR</Button>
               </form>
 
 
