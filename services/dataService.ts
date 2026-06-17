@@ -867,7 +867,7 @@ export const parseCSV = (csvText: string): Resident[] => {
 };
 
 export const exportVotesToCSV = (votes: VoteRecord[], residents: Resident[], poll: Poll) => {
-  const headers = ['UNIDADE', 'NOME', 'OPCAO VOTADA', 'INADIMPLENTE', 'DATA/HORA'];
+  const headers = ['UNIDADE', 'NOME', 'OPCAO VOTADA', 'INADIMPLENTE', 'LIBERADO_RECURSO', 'MOTIVO_LIBERACAO', 'DATA/HORA'];
   const pollVotes = votes.filter(v => v.pollId === poll.id);
   
   const rows = pollVotes.map(vote => {
@@ -878,9 +878,11 @@ export const exportVotesToCSV = (votes: VoteRecord[], residents: Resident[], pol
     const name = (r?.name || '?').toUpperCase();
     const option = (o?.text || '?').toUpperCase();
     const isDelinquent = vote.isDelinquentVote ? 'SIM' : 'NAO';
+    const released = vote.isDelinquentReleased ? 'SIM' : 'NAO';
+    const reason = (vote.delinquentReleaseReason || '').toUpperCase();
     const date = new Date(vote.timestamp).toLocaleString().toUpperCase();
     
-    return [unit, name, option, isDelinquent, date].join(';');
+    return [unit, name, option, isDelinquent, released, reason, date].join(';');
   });
 
   const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');

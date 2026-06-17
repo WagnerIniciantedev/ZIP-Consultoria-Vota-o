@@ -6,8 +6,8 @@ import { Search, User, CheckCircle2, ArrowLeft, X, ShieldAlert } from 'lucide-re
 const maskCpf = (cpf?: string) => {
   if (!cpf) return '';
   const digits = cpf.replace(/\D/g, '');
-  if (digits.length <= 5) return digits;
-  return digits.slice(0, 5) + '******';
+  if (digits.length <= 3) return digits + '*'.repeat(11 - digits.length);
+  return digits.slice(0, 3) + '.***.***-**';
 };
 
 interface UrnaEletronicaProps {
@@ -219,11 +219,6 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
                     <div>
                       <span className="font-bold text-gray-900 text-lg block">Unidade {r.unit}</span>
                       <span className="text-sm text-gray-500">{r.name}</span>
-                    </div>
-                    <div className="text-right">
-                      {r.cpf && (
-                        <p className="text-xs font-mono text-gray-500">CPF: {maskCpf(r.cpf)}</p>
-                      )}
                     </div>
                   </button>
                 ))}

@@ -123,10 +123,10 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
             let pollVotes = votes.filter(v => v.pollId === poll.id);
             
             if (!showDelinquents) {
-              pollVotes = pollVotes.filter(v => !v.isDelinquentVote);
+              pollVotes = pollVotes.filter(v => !v.isDelinquentVote || v.isDelinquentReleased);
             }
 
-            const validVotes = pollVotes.filter(v => !v.isDelinquentVote);
+            const validVotes = pollVotes.filter(v => !v.isDelinquentVote || v.isDelinquentReleased);
             
             const dataMap = new Map<string, number>();
             poll.options.forEach(opt => dataMap.set(opt.id, 0));
@@ -296,7 +296,18 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                             <td className="px-4 py-2 text-[10px] font-bold text-slate-900 uppercase border-r border-slate-100">{cleanText(opt?.text || '-')}</td>
                             <td className="px-4 py-2 text-[9px] font-black">
                               {v.isDelinquentVote ? (
-                                <span className="text-red-600">INADIMPLENTE</span>
+                                v.isDelinquentReleased ? (
+                                  <div className="flex flex-col">
+                                    <span className="text-emerald-600 font-bold">CONSIDERADO</span>
+                                    {v.delinquentReleaseReason && (
+                                      <span className="text-[8px] text-emerald-500 font-normal leading-tight block uppercase normal-case">
+                                        Motivo: {v.delinquentReleaseReason}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-red-600">INADIMPLENTE</span>
+                                )
                               ) : (
                                 <span className="text-green-600">VÁLIDO</span>
                               )}

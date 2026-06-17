@@ -48,6 +48,7 @@ interface AdminDashboardProps {
   startedBy?: string;
   onGoToUrna: () => void;
   onVoteSubmit: (pollId: string, unit: string, optionId: string, isDelinquent: boolean, zoomName?: string) => Promise<void> | void;
+  onReleaseDelinquentVote?: (pollId: string, unit: string, reason: string) => Promise<void> | void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -72,7 +73,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   assemblyType,
   startedBy,
   onGoToUrna,
-  onVoteSubmit
+  onVoteSubmit,
+  onReleaseDelinquentVote
 }) => {
   const [activeTab, setActiveTab] = useState<'setup_excel' | 'create_poll' | 'manage_polls' | 'attendance' | 'end_assembly'>('setup_excel');
   const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
@@ -421,6 +423,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  isZoomMode={isZoomMode}
                  setIsZoomMode={setIsZoomMode}
                  onVoteSubmit={onVoteSubmit}
+                 onReleaseDelinquentVote={onReleaseDelinquentVote}
               />
             )}
 

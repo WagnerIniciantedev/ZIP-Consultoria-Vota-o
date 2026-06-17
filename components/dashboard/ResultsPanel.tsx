@@ -21,6 +21,7 @@ interface ResultsPanelProps {
   isZoomMode?: boolean;
   setIsZoomMode?: (val: boolean) => void;
   onVoteSubmit: (pollId: string, unit: string, optionId: string, isDelinquent: boolean, zoomName?: string) => Promise<void> | void;
+  onReleaseDelinquentVote?: (pollId: string, unit: string, reason: string) => Promise<void> | void;
 }
 
 export const ResultsPanel: React.FC<ResultsPanelProps> = ({ 
@@ -36,7 +37,8 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
   residentsCount,
   isZoomMode: isZoomModeProp = false,
   setIsZoomMode: setIsZoomModeProp,
-  onVoteSubmit
+  onVoteSubmit,
+  onReleaseDelinquentVote
 }) => {
   const [showDelinquentVotes, setShowDelinquentVotes] = useState(false);
   const [isConfirmingEnd, setIsConfirmingEnd] = useState(false);
@@ -47,6 +49,10 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
   const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
   const [isManualVoteFlowOpen, setIsManualVoteFlowOpen] = useState(false);
   const [isManualChoiceOpen, setIsManualChoiceOpen] = useState(false);
+  
+  // States for Releasing Delinquent Votes
+  const [releasingVote, setReleasingVote] = useState<VoteRecord | null>(null);
+  const [releaseReason, setReleaseReason] = useState("");
 
   const isZoomMode = isZoomModeProp || isZoomModeInternal;
   const setIsZoomMode = setIsZoomModeProp || setIsZoomModeInternal;
@@ -54,8 +60,8 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
 
   // --- DATA CALCULATION ---
   const pollVotes = votes.filter(v => v.pollId === poll.id);
-  const validVotes = pollVotes.filter(v => !v.isDelinquentVote);
-  const delinquentVotes = pollVotes.filter(v => v.isDelinquentVote);
+  const validVotes = pollVotes.filter(v => !v.isDelinquentVote || v.isDelinquentReleased);
+  const delinquentVotes = pollVotes.filter(v => v.isDelinquentVote && !v.isDelinquentReleased);
 
   const onlineDataMap = new Map<string, number>();
   poll.options.forEach(opt => onlineDataMap.set(opt.id, 0));
@@ -79,7 +85,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
       if (resident.proxyCount && resident.proxyCount > 0) {
         const proxyUnitsList = (resident.proxyUnits || '').split(',').map(u => u.trim().toLowerCase()).filter(u => u);
         const votedProxyUnitsCount = proxyUnitsList.filter(pUnit => 
-          pollVotes.some(vote => vote.unit.toLowerCase() === pUnit && !vote.isDelinquentVote)
+          pollVotes.some(vote => vote.unit.toLowerCase() === pUnit && (!vote.isDelinquentVote || vote.isDelinquentReleased))
         ).length;
         
         const remainingProxies = Math.max(0, resident.proxyCount - votedProxyUnitsCount);
@@ -566,7 +572,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                     const opt = poll.options.find(o => o.id === v.optionId);
                     
                     let weight = 1;
-                    if (resident && !v.isDelinquentVote) {
+                    if (resident && (!v.isDelinquentVote || v.isDelinquentReleased)) {
                       if (poll.calculationType === PollCalculationType.FRACTION) {
                         weight = resident.fraction || 0;
                       } else if (poll.calculationType === PollCalculationType.HABITE_SE) {
@@ -577,12 +583,12 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                       if (resident.proxyCount && resident.proxyCount > 0) {
                         weight += resident.proxyCount;
                       }
-                    } else if (v.isDelinquentVote) {
+                    } else if (v.isDelinquentVote && !v.isDelinquentReleased) {
                       weight = 0;
                     }
 
                     return (
-                      <tr key={idx} className={v.isDelinquentVote ? "bg-red-50" : ""}>
+                      <tr key={idx} className={v.isDelinquentVote ? (v.isDelinquentReleased ? "bg-emerald-50/50" : "bg-red-50") : ""}>
                         <td className="px-4 py-3 font-bold text-gray-900">{cleanText(v.unit)}</td>
                         <td className="px-4 py-3 text-gray-600">{cleanText(resident?.name || 'N/A')}</td>
                         <td className="px-4 py-3">
@@ -594,13 +600,31 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                         </td>
                         <td className="px-4 py-3 text-gray-600 italic">{cleanText(v.zoomName || '-')}</td>
                         <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${v.isDelinquentVote ? 'bg-gray-200 text-gray-600' : 'bg-blue-100 text-blue-800'}`}>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${v.isDelinquentVote && !v.isDelinquentReleased ? 'bg-gray-200 text-gray-600' : 'bg-blue-100 text-blue-800'}`}>
                             {cleanText(opt?.text || 'N/A')}
                           </span>
                         </td>
                         <td className="px-4 py-3">
                           {v.isDelinquentVote ? (
-                            <Badge color="red">Inadimplente</Badge>
+                            v.isDelinquentReleased ? (
+                              <div className="flex flex-col gap-0.5">
+                                <Badge color="green">CONSIDERADO</Badge>
+                                <span className="text-[10px] text-emerald-700 font-medium max-w-[160px] truncate" title={v.delinquentReleaseReason}>
+                                  Motivo: {v.delinquentReleaseReason}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-start gap-1">
+                                <Badge color="red">Inadimplente</Badge>
+                                <button
+                                  type="button"
+                                  onClick={() => setReleasingVote(v)}
+                                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer p-0 bg-transparent border-0"
+                                >
+                                  Considerar Voto
+                                </button>
+                              </div>
+                            )
                           ) : (
                             <Badge color="green">VÁLIDO</Badge>
                           )}
@@ -624,6 +648,78 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
             * Esta lista é atualizada em tempo real conforme os condôminos confirmam seus votos.
           </div>
         </Card>
+
+        {releasingVote && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in zoom-in duration-300">
+              <div className="flex justify-between items-center border-b pb-3 mb-4">
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <PlayCircle className="text-indigo-600" size={20} />
+                  Considerar Voto - Unidade {releasingVote.unit}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReleasingVote(null);
+                    setReleaseReason("");
+                  }}
+                  className="text-gray-400 hover:text-gray-600 focus:outline-none"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Ao liberar o voto desta unidade inadimplente, o sistema passará a considerá-lo como <strong>VOTO VÁLIDO</strong> para os cálculos e gráficos em tempo real desta enquete.
+                </p>
+                <div>
+                  <label htmlFor="reason-input" className="block text-xs font-semibold text-gray-700 uppercase mb-1.5">
+                    Motivo da Liberação *
+                  </label>
+                  <Input
+                    id="reason-input"
+                    type="text"
+                    required
+                    placeholder="Ex: Apresentou comprovante, acordo firmado..."
+                    value={releaseReason}
+                    onChange={(e) => setReleaseReason(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => {
+                    setReleasingVote(null);
+                    setReleaseReason("");
+                  }}
+                  className="flex-1"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={async () => {
+                    if (!releaseReason.trim()) {
+                      alert("Por favor, informe o motivo da liberação.");
+                      return;
+                    }
+                    if (onReleaseDelinquentVote) {
+                      await onReleaseDelinquentVote(releasingVote.pollId, releasingVote.unit, releaseReason);
+                    }
+                    setReleasingVote(null);
+                    setReleaseReason("");
+                  }}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+                >
+                  Confirmar Liberação
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isZoomPromptOpen && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in fade-in">

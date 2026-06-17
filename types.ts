@@ -79,6 +79,9 @@ export interface VoteRecord {
   timestamp: number;
   isDelinquentVote: boolean;
   zoomName?: string; // Name used in the platform
+  isDelinquentReleased?: boolean;
+  delinquentReleaseReason?: string;
+  delinquentReleasedBy?: string;
 }
 
 export interface ErrorLog {

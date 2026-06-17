@@ -760,6 +760,42 @@ const App: React.FC = () => {
     }
   };
 
+  const handleReleaseDelinquentVote = async (pollId: string, unit: string, reason: string) => {
+    let voteToUpdate: VoteRecord | null = null;
+    
+    setVotes(prev => {
+      const updated = prev.map(v => {
+        if (v.pollId === pollId && v.unit === unit) {
+          const uv = {
+            ...v,
+            isDelinquentReleased: true,
+            delinquentReleaseReason: reason,
+            delinquentReleasedBy: currentUser?.name || 'Administrador'
+          };
+          voteToUpdate = uv;
+          return uv;
+        }
+        return v;
+      });
+      saveVotes(updated);
+      return updated;
+    });
+
+    if (voteToUpdate && db && (selectedAssemblyId || condoName)) {
+      const currentId = selectedAssemblyId || condoName;
+      const safeKey = currentId.replace(/[^a-zA-Z0-9]/g, '_');
+      const voteRef = doc(db, 'assemblies', safeKey, 'votes', `${pollId}_${unit.replace(/[^a-zA-Z0-9]/g, '_')}`);
+      try {
+        await setDoc(voteRef, voteToUpdate, { merge: true });
+        if (currentUser) {
+          addLog(currentUser, 'LIBERAÇÃO_INADIMPLENTE', `Liberou o voto da unidade ${unit} na enquete ${pollId}. Motivo: ${reason}`);
+        }
+      } catch (err) {
+        console.error("Erro ao sincronizar liberação de voto:", err);
+      }
+    }
+  };
+
   const handleRegisterAttendance = async (targetAssemblyId: string, units: Resident[], zoomName: string) => {
     if (db && targetAssemblyId) {
       // Update local state first for immediate feedback
@@ -1081,6 +1117,7 @@ const App: React.FC = () => {
         startedBy={startedBy}
         onGoToUrna={() => setCurrentView(AppView.URNA_ELETRONICA)}
         onVoteSubmit={handleVoteSubmit}
+        onReleaseDelinquentVote={handleReleaseDelinquentVote}
       />
       </div>
     );
