@@ -1,7 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { Resident, Poll, VoteRecord } from '../types';
-import { Button, Card, Badge, Input } from './ui';
+import { Button, Card, Input } from './ui';
 import { Search, User, CheckCircle2, ArrowLeft, X, ShieldAlert } from 'lucide-react';
+
+const maskCpf = (cpf?: string) => {
+  if (!cpf) return '';
+  const digits = cpf.replace(/\D/g, '');
+  if (digits.length <= 5) return digits;
+  return digits.slice(0, 5) + '******';
+};
 
 interface UrnaEletronicaProps {
   residents: Resident[];
@@ -214,11 +221,8 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
                       <span className="text-sm text-gray-500">{r.name}</span>
                     </div>
                     <div className="text-right">
-                      <Badge color={r.isDelinquent ? 'red' : 'green'} className="mb-1">
-                        {r.isDelinquent ? 'Inadimplente' : 'De Adimplente'}
-                      </Badge>
                       {r.cpf && (
-                        <p className="text-xs text-gray-400">CPF: {r.cpf}</p>
+                        <p className="text-xs font-mono text-gray-500">CPF: {maskCpf(r.cpf)}</p>
                       )}
                     </div>
                   </button>
@@ -252,15 +256,9 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
                 <span className="text-xs text-gray-500 uppercase font-black">Nome Completo</span>
                 <span className="font-bold text-slate-800 text-right">{selectedResident.name}</span>
               </div>
-              <div className="flex justify-between items-center border-b pb-2">
+              <div className="flex justify-between items-center transition-all">
                 <span className="text-xs text-gray-500 uppercase font-black">Documento (CPF)</span>
-                <span className="font-mono text-slate-800 font-bold">{selectedResident.cpf || "Não Informado"}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-500 uppercase font-black">Situação de Voto</span>
-                <Badge color={selectedResident.isDelinquent ? 'red' : 'green'}>
-                  {selectedResident.isDelinquent ? 'Inadimplente (Não computa)' : 'Voto Autorizado'}
-                </Badge>
+                <span className="font-mono text-slate-800 font-bold">{maskCpf(selectedResident.cpf) || "Não Informado"}</span>
               </div>
             </div>
 
@@ -284,9 +282,6 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
                 <h4 className="font-black text-xl">Unidade {selectedResident.unit}</h4>
                 <p className="text-xs text-slate-400">{selectedResident.name}</p>
               </div>
-              {selectedResident.isDelinquent && (
-                <Badge color="red" className="animate-pulse">Voto de Auditoria (Inadimplente)</Badge>
-              )}
             </div>
 
             <div className="space-y-3">

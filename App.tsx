@@ -384,11 +384,11 @@ const App: React.FC = () => {
         }
     });
 
-    // 4. RESIDENTS & VOTES LISTENER (Admin only)
+    // 4. RESIDENTS & VOTES LISTENER (Admin & Urna)
     let unsubResidents = () => {};
     let unsubVotes = () => {};
 
-    if (currentView === AppView.ADMIN_DASHBOARD) {
+    if (currentView === AppView.ADMIN_DASHBOARD || currentView === AppView.URNA_ELETRONICA) {
         const residentsRef = collection(db, 'assemblies', safeKey, 'residents_list');
         unsubResidents = onSnapshot(residentsRef, (snap: any) => {
             const list: Resident[] = [];
@@ -411,7 +411,7 @@ const App: React.FC = () => {
         unsubResidents();
         unsubVotes();
     };
-  }, [selectedAssemblyId, currentView === AppView.ADMIN_DASHBOARD, isAuthReady]); 
+  }, [selectedAssemblyId, currentView, isAuthReady]); 
 
   // --- AUTOMATIC UPDATE & DEPLOYMENT DETECTOR ---
   useEffect(() => {
