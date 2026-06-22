@@ -38,6 +38,41 @@ let errorThrottle = {
   lastTime: 0
 };
 
+export function safeStringify(value: any, space?: string | number): string {
+  const seen = new WeakSet();
+  return JSON.stringify(value, (_key, val) => {
+    if (val && typeof val === 'object') {
+      if (seen.has(val)) {
+        return undefined; // skip circular reference
+      }
+      seen.add(val);
+      
+      // Prevent serialization of Firestore/Firebase instances or other SDK internals
+      const proto = Object.getPrototypeOf(val);
+      if (proto && proto !== Object.prototype && proto !== Array.prototype) {
+        if (
+          val.firestore || 
+          val._firestore || 
+          val._database || 
+          val._delegate ||
+          val.constructor?.name === 'Y2' ||
+          val.constructor?.name === 'Ka' ||
+          (val.constructor && 
+           val.constructor.name !== 'Object' && 
+           val.constructor.name !== 'Array' &&
+           (val.constructor.name.length <= 3 || 
+            val.constructor.name.includes('Firestore') || 
+            val.constructor.name.includes('Firebase') ||
+            val.constructor.name.includes('Auth')))
+        ) {
+          return undefined; // skip Firestore / Firebase / Auth complex objects
+        }
+      }
+    }
+    return val;
+  }, space);
+}
+
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const now = Date.now();
   const errorMessage = error instanceof Error ? error.message : String(error);
@@ -46,7 +81,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   if (errorMessage.includes('resource-exhausted') || errorMessage.includes('Quota exceeded')) {
     console.error("❌ CRITICAL: Firestore Quota Exceeded. Stopping all cloud operations.");
     isCloudRegistered = false; // Disable further syncs
-    throw new Error("QUOTA_EXCEEDED");
+    throw new Error("QUOTA_DEATH");
   }
   
   // Throttle errors: if more than 5 errors in 10 seconds, stop logging to Firestore
@@ -76,7 +111,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   }
   
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.error('Firestore Error: ', safeStringify(errInfo));
 
   // Prevent infinite loop if logging the error itself fails
   if (!isLoggingError && errorThrottle.count <= 5 && !errorMessage.includes('permission-denied')) {
@@ -106,7 +141,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     }
   }
 
-  throw new Error(JSON.stringify(errInfo));
+  throw new Error(safeStringify(errInfo));
 }
 
 // --- CONNECTION TEST ---
@@ -182,19 +217,8 @@ const syncToCloud = (key: string, data: any, specificAssemblyId?: string) => {
 
         if (fieldName && fieldName !== 'residents' && fieldName !== 'votes') {
             try {
-                // Use a more robust cleaning method to avoid circular references
-                // This also handles the "Unsupported field value: undefined" error
-                const cleanData = JSON.parse(JSON.stringify(data, (_, value) => {
-                    // Filter out Firebase internal objects if they somehow leaked in
-                    // Y2 and Ka are common internal Firebase class names that cause circular errors
-                    if (value && typeof value === 'object') {
-                        const constructorName = value.constructor?.name;
-                        if (constructorName === 'Y2' || constructorName === 'Ka' || value._firestore || value.firestore) {
-                            return undefined;
-                        }
-                    }
-                    return value;
-                }));
+                // Use the ultra-robust safeStringify to avoid circular reference and Firebase leaks
+                const cleanData = JSON.parse(safeStringify(data));
                 const docRef = doc(db, ASSEMBLIES_COLLECTION, safeKey);
                 setDoc(docRef, { [fieldName]: cleanData }, { merge: true })
                    .catch(err => handleFirestoreError(err, OperationType.WRITE, `${ASSEMBLIES_COLLECTION}/${safeKey}`));
@@ -834,13 +858,18 @@ export const parseCSV = (csvText: string): Resident[] => {
   
   // Detect header
   let startIndex = 0;
+  let headerCols: string[] = [];
   if (lines[0]) {
     const firstLine = lines[0].toLowerCase();
     if (firstLine.includes('cpf') || firstLine.includes('unidade') || firstLine.includes('nome')) {
       startIndex = 1;
+      headerCols = lines[0].split(/[;,]/).map(h => h.trim().toLowerCase());
     }
   }
 
+  // To maintain backward compatibility, we check if the header has "email" or "e-mail"
+  const hasEmailInHeader = headerCols.some(h => h.includes('email') || h.includes('e-mail'));
+  
   for (let i = startIndex; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
@@ -850,17 +879,34 @@ export const parseCSV = (csvText: string): Resident[] => {
     const cols = line.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
     
     if (cols.length >= 3) {
-      residents.push({ 
-        unit: normalizeString(cols[1]), 
-        name: normalizeString(cols[2]).toUpperCase(), // Standardize names to uppercase
-        isDelinquent: (cols[3] || '').toUpperCase().trim() === 'SIM', 
-        hasHabiteSe: (cols[4] || '').toUpperCase().trim() === 'SIM', 
-        fraction: parseFloat((cols[5] || '1').replace(',', '.')) || 1.0,
-        cpf: (cols[0] || '').replace(/\D/g, ''), 
-        attendanceStatus: 'NONE',
-        proxyCount: parseInt((cols[6] || '0').trim(), 10) || 0,
-        proxyUnits: (cols[7] || '').trim()
-      });
+      if (hasEmailInHeader) {
+        // If has e-mail in header, use the new 9-column structure
+        residents.push({ 
+          unit: normalizeString(cols[1]), 
+          name: normalizeString(cols[2]).toUpperCase(), // Standardize names to uppercase
+          email: (cols[3] || '').trim(),
+          isDelinquent: (cols[4] || '').toUpperCase().trim() === 'SIM', 
+          hasHabiteSe: (cols[5] || '').toUpperCase().trim() === 'SIM', 
+          fraction: parseFloat((cols[6] || '1').replace(',', '.')) || 1.0,
+          cpf: (cols[0] || '').replace(/\D/g, ''), 
+          attendanceStatus: 'NONE',
+          proxyCount: parseInt((cols[7] || '0').trim(), 10) || 0,
+          proxyUnits: (cols[8] || '').trim()
+        });
+      } else {
+        // Safe fallback to old 8-column structure (without E-mail column)
+        residents.push({ 
+          unit: normalizeString(cols[1]), 
+          name: normalizeString(cols[2]).toUpperCase(), // Standardize names to uppercase
+          isDelinquent: (cols[3] || '').toUpperCase().trim() === 'SIM', 
+          hasHabiteSe: (cols[4] || '').toUpperCase().trim() === 'SIM', 
+          fraction: parseFloat((cols[5] || '1').replace(',', '.')) || 1.0,
+          cpf: (cols[0] || '').replace(/\D/g, ''), 
+          attendanceStatus: 'NONE',
+          proxyCount: parseInt((cols[6] || '0').trim(), 10) || 0,
+          proxyUnits: (cols[7] || '').trim()
+        });
+      }
     }
   }
   return residents;

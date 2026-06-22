@@ -78,6 +78,11 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
   const handleConfirmResident = () => {
     if (!selectedResident) return;
     
+    if (availablePolls.length === 0) {
+      setShowError("Aguardando ativação da enquete.");
+      return;
+    }
+    
     // Find polls that the selected resident hasn't voted in yet
     const unvotedPolls = availablePolls.filter(p => !hasResidentVoted(selectedResident.unit, p.id));
     

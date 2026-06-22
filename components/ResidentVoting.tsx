@@ -95,6 +95,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   const [isRevoking, setIsRevoking] = useState(false);
   const [isDistinctVoting, setIsDistinctVoting] = useState(false);
   const [distinctVoteIndex, setDistinctVoteIndex] = useState(0);
+  const [boothUnits, setBoothUnits] = useState<Resident[]>([]);
   
   // Multi Unit State
   const [multiUnitCandidates, setMultiUnitCandidates] = useState<Resident[]>([]);
@@ -537,43 +538,41 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   };
 
   const handleSelectPoll = (poll: Poll) => {
-    const allUnits = [...selectedUnits, ...proxyUnitsToVote];
-    const allVoted = allUnits.every(u => hasVoted(poll.id, u.unit));
-    if (allVoted) {
+    const unvotedUnits = [...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(poll.id, u.unit));
+    if (unvotedUnits.length === 0) {
       alert("Todas as suas unidades já votaram nesta enquete.");
       return;
     }
+    setBoothUnits(unvotedUnits);
     setSelectedPoll(poll);
-    
-    if (allUnits.length > 1) {
-      // Ask if they want to vote all at once or distinctly
-      setStep(VoteStep.BOOTH); // Default to booth, but I'll add the toggle there
-    } else {
-      setStep(VoteStep.BOOTH);
-    }
+    setDistinctVoteIndex(0);
+    setIsDistinctVoting(false);
+    setStep(VoteStep.BOOTH);
   };
 
   const submitVote = () => {
-    if (selectedOption && selectedPoll) {
-      const allUnits = [...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit));
-      
+    if (selectedOption && selectedPoll && boothUnits.length > 0) {
       if (isDistinctVoting) {
-        const currentUnit = allUnits[distinctVoteIndex];
-        onVoteSubmit(selectedPoll.id, currentUnit.unit, selectedOption, currentUnit.isDelinquent, zoomNameInput);
+        const currentUnit = boothUnits[distinctVoteIndex];
+        if (currentUnit) {
+          onVoteSubmit(selectedPoll.id, currentUnit.unit, selectedOption, currentUnit.isDelinquent, zoomNameInput);
+        }
         
-        if (distinctVoteIndex + 1 < allUnits.length) {
+        if (distinctVoteIndex + 1 < boothUnits.length) {
           setDistinctVoteIndex(distinctVoteIndex + 1);
           setSelectedOption(null);
         } else {
           setStep(VoteStep.SUCCESS);
           setDistinctVoteIndex(0);
           setIsDistinctVoting(false);
+          setBoothUnits([]);
         }
       } else {
-        allUnits.forEach(u => {
+        boothUnits.forEach(u => {
           onVoteSubmit(selectedPoll.id, u.unit, selectedOption, u.isDelinquent, zoomNameInput);
         });
         setStep(VoteStep.SUCCESS);
+        setBoothUnits([]);
       }
     }
   };
@@ -1345,7 +1344,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
         )}
 
         {/* Step 6: Voting Booth */}
-        {step === VoteStep.BOOTH && (selectedUnits.length > 0 || proxyUnitsToVote.length > 0) && selectedPoll && (
+        {step === VoteStep.BOOTH && boothUnits.length > 0 && selectedPoll && (
           <Card title="Cédula de Votação">
             <div className="space-y-6">
               <div>
@@ -1353,13 +1352,14 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   setStep(VoteStep.LIST);
                   setDistinctVoteIndex(0);
                   setIsDistinctVoting(false);
+                  setBoothUnits([]);
                 }}>
                   <ArrowLeft size={12} /> Voltar para Lista
                 </Button>
                 <h2 className="text-xl font-bold text-gray-900 mb-2">{selectedPoll.title}</h2>
                 
                 {/* Voting Mode Toggle */}
-                {([...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit)).length > 1) && (
+                {boothUnits.length > 1 && (
                   <div className="flex bg-gray-100 p-1 rounded-lg mb-4">
                     <button 
                       onClick={() => {
@@ -1382,12 +1382,12 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                 <div className="bg-red-50 text-red-800 text-sm p-3 rounded-lg mb-2 border border-red-100">
                     {isDistinctVoting ? (
                       <>
-                        Votando agora pela unidade: <strong>{[...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit))[distinctVoteIndex]?.unit}</strong>
-                        <p className="text-[10px] mt-1 opacity-70">Passo {distinctVoteIndex + 1} de {[...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit)).length}</p>
+                        Votando agora pela unidade: <strong>{boothUnits[distinctVoteIndex]?.unit}</strong>
+                        <p className="text-[10px] mt-1 opacity-70">Passo {distinctVoteIndex + 1} de {boothUnits.length}</p>
                       </>
                     ) : (
                       <>
-                        Votando por: <strong>{[...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit)).map(u => u.unit).join(', ')}</strong>
+                        Votando por: <strong>{boothUnits.map(u => u.unit).join(', ')}</strong>
                       </>
                     )}
                 </div>
@@ -1423,6 +1423,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   setStep(VoteStep.LIST);
                   setDistinctVoteIndex(0);
                   setIsDistinctVoting(false);
+                  setBoothUnits([]);
                 }} className="flex-1">
                   Cancelar
                 </Button>
@@ -1432,7 +1433,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                   disabled={!selectedOption}
                 >
                   {isDistinctVoting 
-                    ? (distinctVoteIndex + 1 === [...selectedUnits, ...proxyUnitsToVote].filter(u => !hasVoted(selectedPoll.id, u.unit)).length ? 'Finalizar Votação' : 'Próxima Unidade')
+                    ? (distinctVoteIndex + 1 === boothUnits.length ? 'Finalizar Votação' : 'Próxima Unidade')
                     : 'Confirmar Voto(s)'
                   }
                 </Button>

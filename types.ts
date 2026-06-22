@@ -52,6 +52,9 @@ export interface Resident {
   documentPhotoUrl?: string; // RG/CNH verification document
   selfiePhotoUrl?: string;   // Selfie with document verification
   verificationStatus?: 'PENDING' | 'APPROVED' | 'REJECTED'; // Identity document check status
+  emailStatus?: 'PENDING' | 'SENT' | 'FAILED' | 'SENDING'; // Email delivery status
+  emailError?: string;       // Failure description if email sending failed
+  emailSentAt?: number;      // Timestamp of dispatch
 }
 
 export interface PollOption {
@@ -82,6 +85,9 @@ export interface VoteRecord {
   isDelinquentReleased?: boolean;
   delinquentReleaseReason?: string;
   delinquentReleasedBy?: string;
+  isManual?: boolean;   // If vote was cast manually via Urna / Admin
+  userAgent?: string;   // Browser context of voter
+  sessionId?: string;   // Voter specific session ID
 }
 
 export interface ErrorLog {
