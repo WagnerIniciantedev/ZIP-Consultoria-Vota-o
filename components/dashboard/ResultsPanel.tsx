@@ -123,7 +123,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
       votos: Number(totalVal.toFixed(4)), 
       online: Number(onlineVal.toFixed(4)),
       presencial: Number(manualVal.toFixed(4)),
-      percent: isFraction ? percentValue.toFixed(2) : Math.round(percentValue).toString()
+      percentage: Math.round(percentValue).toString()
     };
   });
 
@@ -346,7 +346,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                   fill="#8884d8"
                   dataKey="votos"
                   nameKey="name"
-                  label={({ cx, cy, midAngle, outerRadius, percent, name }) => {
+                  label={({ cx, cy, midAngle, outerRadius, percent, name, payload }) => {
                     const RADIAN = Math.PI / 180;
                     // Point on the edge of the pie
                     const sx = cx + outerRadius * Math.cos(-midAngle * RADIAN);
@@ -358,7 +358,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                     const y = cy + labelRadius * Math.sin(-midAngle * RADIAN);
                     
                     const isFraction = poll.calculationType === PollCalculationType.FRACTION;
-                    const displayPercent = isFraction ? (percent * 100).toFixed(2) : Math.round(percent * 100).toString();
+                    const displayPercent = payload?.percentage !== undefined ? payload.percentage : Math.round((percent || 0) * 100).toString();
                     
                     const textAnchor = x > cx ? 'start' : 'end';
 
@@ -386,7 +386,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                 <Tooltip 
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', backgroundColor: '#1e293b', color: '#fff' }}
                   itemStyle={{ color: '#fff' }}
-                  formatter={(_value: number, _name: string, props: any) => [`${props.payload.percent}%`, 'Participação']} 
+                  formatter={(_value: number, _name: string, props: any) => [`${props.payload.percentage}%`, 'Participação']}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -402,7 +402,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                       <div className="text-3xl font-black text-slate-900 leading-tight">{d.name}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-6xl font-black tracking-tighter" style={{ color: COLORS[i % COLORS.length] }}>{d.percent}%</div>
+                      <div className="text-6xl font-black tracking-tighter" style={{ color: COLORS[i % COLORS.length] }}>{d.percentage}%</div>
                     </div>
                   </div>
                 ))}
@@ -539,9 +539,9 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                      cy="50%"
                      labelLine={true}
                      outerRadius={65}
-                     label={({ percent, name }) => {
+                     label={({ percent, name, payload }) => {
                        const isFraction = poll.calculationType === PollCalculationType.FRACTION;
-                       const displayPercent = isFraction ? (percent * 100).toFixed(2) : Math.round(percent * 100).toString();
+                       const displayPercent = payload?.percentage !== undefined ? payload.percentage : Math.round((percent || 0) * 100).toString();
                        return `${name}: ${displayPercent}%`;
                      }}
                      fill="#8884d8"
@@ -552,7 +552,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                      ))}
                    </Pie>
-                   <Tooltip formatter={(_value: number, _name: string, props: any) => [`${props.payload.percent}%`, 'Participação']} />
+                   <Tooltip formatter={(_value: number, _name: string, props: any) => [`${props.payload.percentage}%`, 'Participação']} />
                  </PieChart>
                </ResponsiveContainer>
            </div>
@@ -564,7 +564,7 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                      style={{ backgroundColor: COLORS[i % COLORS.length] }}
                    ></div>
                    <div className="text-sm font-medium text-gray-600 truncate pl-4">{d.name}</div>
-                   <div className="text-xl font-bold text-gray-900">{d.percent}%</div>
+                   <div className="text-xl font-bold text-gray-900">{d.percentage}%</div>
                    <div className="text-xs text-gray-500">
                      {d.votos} {poll.calculationType === PollCalculationType.FRACTION ? 'pontos' : 'votos'}
                      {poll.manualVotes && Object.keys(poll.manualVotes).length > 0 && (

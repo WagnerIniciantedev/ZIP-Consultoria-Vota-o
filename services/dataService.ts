@@ -3,6 +3,21 @@ import { Resident, Poll, VoteRecord, User, AssemblyRecord, ErrorLog, Delinquency
 import { doc, setDoc, deleteDoc, getDoc, collection, query, where, getDocs, getDocFromServer, arrayUnion } from 'firebase/firestore';
 import { db, auth } from './firebase';
 
+// --- DEBOUNCE HELPER FOR PERFORMANCE OPTIMIZATION ---
+const debounce = <T extends (...args: any[]) => void>(func: T, wait: number): (...args: Parameters<T>) => void => {
+  let timeout: any;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      func(...args);
+    }, wait);
+  };
+};
+
+let cachedResidents: Resident[] | null = null;
+let cachedVotes: VoteRecord[] | null = null;
+let cachedLogs: any[] | null = null;
+
 // --- FIRESTORE ERROR HANDLING ---
 enum OperationType {
   CREATE = 'create',
@@ -282,14 +297,32 @@ export const getAssemblyStartTime = (): number => {
   return data ? parseInt(data) : 0;
 };
 
+const debouncedSaveResidents = debounce((residents: Resident[]) => {
+  try {
+    localStorage.setItem(STORAGE_KEYS.RESIDENTS, JSON.stringify(residents));
+  } catch (e) {
+    console.error("[debouncedSaveResidents] Error writing to localStorage:", e);
+  }
+}, 1000);
+
 export const saveResidents = (residents: Resident[]) => {
-  localStorage.setItem(STORAGE_KEYS.RESIDENTS, JSON.stringify(residents));
+  cachedResidents = residents;
+  debouncedSaveResidents(residents);
   syncToCloud(STORAGE_KEYS.RESIDENTS, residents);
 };
 
 export const getResidents = (): Resident[] => {
+  if (cachedResidents) return cachedResidents;
   const data = localStorage.getItem(STORAGE_KEYS.RESIDENTS);
-  return data ? JSON.parse(data) : [];
+  if (data) {
+    try {
+      cachedResidents = JSON.parse(data);
+      return cachedResidents || [];
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
 };
 
 export const savePolls = (polls: Poll[]) => {
@@ -302,18 +335,45 @@ export const getPolls = (): Poll[] => {
   return data ? JSON.parse(data) : [];
 };
 
+const debouncedSaveVotes = debounce((votes: VoteRecord[]) => {
+  try {
+    localStorage.setItem(STORAGE_KEYS.VOTES, JSON.stringify(votes));
+  } catch (e) {
+    console.error("[debouncedSaveVotes] Error writing to localStorage:", e);
+  }
+}, 1000);
+
 export const saveVotes = (votes: VoteRecord[]) => {
-  localStorage.setItem(STORAGE_KEYS.VOTES, JSON.stringify(votes));
+  cachedVotes = votes;
+  debouncedSaveVotes(votes);
   syncToCloud(STORAGE_KEYS.VOTES, votes);
 };
 
 export const getVotes = (): VoteRecord[] => {
+  if (cachedVotes) return cachedVotes;
   const data = localStorage.getItem(STORAGE_KEYS.VOTES);
-  return data ? JSON.parse(data) : [];
+  if (data) {
+    try {
+      cachedVotes = JSON.parse(data);
+      return cachedVotes || [];
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
 };
 
+const debouncedSaveLogs = debounce((logs: any[]) => {
+  try {
+    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
+  } catch (e) {
+    console.error("[debouncedSaveLogs] Error writing to localStorage:", e);
+  }
+}, 1000);
+
 export const saveLogs = (logs: any[], syncToCloud: boolean = true) => {
-  localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
+  cachedLogs = logs;
+  debouncedSaveLogs(logs);
   if (syncToCloud && db && isAdminUser && isCloudRegistered) {
     const ref = doc(db, SYSTEM_COLLECTION, 'logs');
     setDoc(ref, { 
@@ -326,8 +386,17 @@ export const saveLogs = (logs: any[], syncToCloud: boolean = true) => {
 };
 
 export const getLogs = (): any[] => {
+  if (cachedLogs) return cachedLogs;
   const data = localStorage.getItem(STORAGE_KEYS.LOGS);
-  return data ? JSON.parse(data) : [];
+  if (data) {
+    try {
+      cachedLogs = JSON.parse(data);
+      return cachedLogs || [];
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
 };
 
 export const addLog = (user: User, action: string, details?: string) => {
@@ -782,6 +851,9 @@ export const setHideDelinquencyColumn = async (val: boolean) => {
 
 export const clearAllData = async (specificName?: string) => {
   // LIMPA APENAS DADOS DA ASSEMBLEIA, MANTÉM USUÁRIOS
+  cachedResidents = null;
+  cachedVotes = null;
+  cachedLogs = null;
   localStorage.removeItem(STORAGE_KEYS.RESIDENTS);
   localStorage.removeItem(STORAGE_KEYS.POLLS);
   localStorage.removeItem(STORAGE_KEYS.VOTES);
@@ -826,6 +898,9 @@ export const generateFullBackup = () => {
 export const restoreFullBackup = (jsonText: string): boolean => {
   try {
     const data = JSON.parse(jsonText);
+    cachedResidents = null;
+    cachedVotes = null;
+    cachedLogs = null;
     if (data.residents) saveResidents(data.residents);
     if (data.polls) savePolls(data.polls);
     if (data.votes) saveVotes(data.votes);

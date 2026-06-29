@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord, SystemLog, AssemblyType, ErrorLog } from './types';
 import { 
   getResidents, saveResidents, 
@@ -32,6 +32,17 @@ import { UrnaEletronica } from './components/UrnaEletronica';
 import { Button, Input, Card } from './components/ui';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, RefreshCw } from 'lucide-react';
+
+// --- DEBOUNCE HELPER FOR PERFORMANCE OPTIMIZATION ---
+const debounce = <T extends (...args: any[]) => void>(func: T, wait: number): (...args: Parameters<T>) => void => {
+  let timeout: any;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      func(...args);
+    }, wait);
+  };
+};
 
 const App: React.FC = () => {
   
@@ -120,6 +131,11 @@ const App: React.FC = () => {
   const [loginError, setLoginError] = useState('');
   const [globalError, setGlobalError] = useState('');
   const [isConnected, setIsConnected] = useState(navigator.onLine);
+
+  const currentViewRef = useRef(currentView);
+  useEffect(() => {
+    currentViewRef.current = currentView;
+  }, [currentView]);
 
   // --- INITIAL LOAD ---
   useEffect(() => {
@@ -237,10 +253,9 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // --- 1. GLOBAL SYSTEM LISTENER (Users & Pointer) ---
+  // --- 1a. ADMIN REGISTRATION & STATUS (Runs only on login status change) ---
   useEffect(() => {
     if (!db || !isAuthReady) return;
-    setIsConnected(true);
 
     // Update admin status in dataService
     const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'TI';
@@ -249,6 +264,20 @@ const App: React.FC = () => {
     // Sincroniza o UID se estiver logado mas não registrado nesta sessão do Firebase
     if (isAdmin && auth?.currentUser && currentUser) {
         registerAdminUid(auth.currentUser.uid, currentUser.username.toLowerCase(), currentUser.role || 'ADMIN');
+    }
+  }, [isAuthReady, currentUser?.id, currentUser?.role]);
+
+  // --- 1b. GLOBAL SYSTEM LISTENER (Users & Pointer - Run only when active) ---
+  useEffect(() => {
+    if (!db || !isAuthReady) return;
+    setIsConnected(true);
+
+    const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'TI';
+
+    // Only register these users/global listeners if in admin login or company dashboard views!
+    const needsUsersAndGlobal = currentView === AppView.ADMIN_LOGIN || currentView === AppView.COMPANY_DASHBOARD;
+    if (!needsUsersAndGlobal) {
+        return;
     }
 
     const usersRef = doc(db, 'system', 'users');
@@ -282,7 +311,7 @@ const App: React.FC = () => {
         const data = docSnapshot.data();
         const val = data?.active_condo;
         // Only update condoName if we are in login view to avoid disrupting active sessions
-        if (val && val !== 'null' && currentView === AppView.ADMIN_LOGIN) {
+        if (val && val !== 'null' && currentViewRef.current === AppView.ADMIN_LOGIN) {
             setCondoName(val);
             if (data?.startedBy) setStartedBy(data.startedBy);
         }
@@ -294,11 +323,17 @@ const App: React.FC = () => {
         unsubUsers();
         unsubGlobal();
     };
-  }, [isAuthReady, !!currentUser]); // Removed currentView to prevent unnecessary re-subscriptions
+  }, [isAuthReady, currentView === AppView.ADMIN_LOGIN || currentView === AppView.COMPANY_DASHBOARD]);
 
   // --- 2. LOGS LISTENER (Global) ---
   useEffect(() => {
     if (!db || !isAuthReady) return;
+
+    // ONLY register these heavy listeners on the Company Dashboard view!
+    if (currentView !== AppView.COMPANY_DASHBOARD) {
+      return;
+    }
+
     const logsRef = doc(db, 'system', 'logs');
     const unsubLogs = onSnapshot(logsRef, (snap) => {
       if (snap.exists()) {
@@ -360,21 +395,23 @@ const App: React.FC = () => {
       unsubHistory();
       unsubErrorLogs();
     };
-  }, [isAuthReady]);
+  }, [isAuthReady, currentView === AppView.COMPANY_DASHBOARD]);
 
   // --- 3. ASSEMBLY SPECIFIC LISTENER ---
+  const isAssemblyView = currentView !== AppView.COMPANY_DASHBOARD && currentView !== AppView.ADMIN_LOGIN;
+
   useEffect(() => {
     if (!db || !isAuthReady) return;
 
-    // If we are in company dashboard, we don't need the assembly listener
-    if (currentView === AppView.COMPANY_DASHBOARD) {
+    // If we are in company dashboard or admin login, we don't need the assembly listener
+    if (!isAssemblyView) {
         setIsDataLoaded(true);
         setIsAssemblyActive(null);
         return;
     }
 
     const currentAssemblyId = selectedAssemblyId || localStorage.getItem('condovote_assembly_id');
-    if (!currentAssemblyId && currentView !== AppView.ADMIN_LOGIN) {
+    if (!currentAssemblyId) {
       setIsDataLoaded(true);
       return;
     }
@@ -382,7 +419,7 @@ const App: React.FC = () => {
     setIsDataLoaded(false);
     setIsAssemblyActive(null);
 
-    const safeKey = (currentAssemblyId || condoName || localStorage.getItem('condovote_condo_name') || 'setup').replace(/[^a-zA-Z0-9]/g, '_');
+    const safeKey = currentAssemblyId.replace(/[^a-zA-Z0-9]/g, '_');
     const assemblyRef = doc(db, 'assemblies', safeKey);
 
     const unsubAssembly = onSnapshot(assemblyRef, (docSnapshot) => {
@@ -439,34 +476,57 @@ const App: React.FC = () => {
         }
     });
 
-    // 4. RESIDENTS & VOTES LISTENER (Admin & Urna)
-    let unsubResidents = () => {};
-    let unsubVotes = () => {};
-
-    if (currentView === AppView.ADMIN_DASHBOARD || currentView === AppView.URNA_ELETRONICA) {
-        const residentsRef = collection(db, 'assemblies', safeKey, 'residents_list');
-        unsubResidents = onSnapshot(residentsRef, (snap: any) => {
-            const list: Resident[] = [];
-            snap.forEach((doc: any) => list.push(doc.data() as Resident));
-            setResidents(list);
-            saveResidents(list);
-        });
-
-        const votesRef = collection(db, 'assemblies', safeKey, 'votes');
-        unsubVotes = onSnapshot(votesRef, (snap: any) => {
-            const list: VoteRecord[] = [];
-            snap.forEach((doc: any) => list.push(doc.data() as VoteRecord));
-            setVotes(list);
-            saveVotes(list);
-        });
-    }
-
     return () => {
         unsubAssembly();
+    };
+  }, [selectedAssemblyId, isAssemblyView, isAuthReady]);
+
+  // --- 4. RESIDENTS & VOTES LISTENER (Admin & Urna - Separate & Cached) ---
+  const isAdminOrUrnaView = currentView === AppView.ADMIN_DASHBOARD || currentView === AppView.URNA_ELETRONICA;
+
+  useEffect(() => {
+    if (!db || !isAuthReady || !isAdminOrUrnaView) return;
+
+    const currentAssemblyId = selectedAssemblyId || localStorage.getItem('condovote_assembly_id');
+    if (!currentAssemblyId) return;
+
+    const safeKey = currentAssemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+
+    const residentsRef = collection(db, 'assemblies', safeKey, 'residents_list');
+    
+    const processResidents = debounce((snap: any) => {
+        const list: Resident[] = [];
+        snap.forEach((doc: any) => list.push(doc.data() as Resident));
+        setResidents(list);
+        saveResidents(list);
+    }, 250);
+
+    const unsubResidents = onSnapshot(residentsRef, (snap: any) => {
+        processResidents(snap);
+    }, (error) => {
+        console.error("[App] Residents Listener Error:", error);
+    });
+
+    const votesRef = collection(db, 'assemblies', safeKey, 'votes');
+    
+    const processVotes = debounce((snap: any) => {
+        const list: VoteRecord[] = [];
+        snap.forEach((doc: any) => list.push(doc.data() as VoteRecord));
+        setVotes(list);
+        saveVotes(list);
+    }, 250);
+
+    const unsubVotes = onSnapshot(votesRef, (snap: any) => {
+        processVotes(snap);
+    }, (error) => {
+        console.error("[App] Votes Listener Error:", error);
+    });
+
+    return () => {
         unsubResidents();
         unsubVotes();
     };
-  }, [selectedAssemblyId, currentView, isAuthReady]); 
+  }, [selectedAssemblyId, isAdminOrUrnaView, isAuthReady]); 
 
   // --- AUTOMATIC UPDATE & DEPLOYMENT DETECTOR ---
   useEffect(() => {

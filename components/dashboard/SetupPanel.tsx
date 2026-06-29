@@ -10,6 +10,10 @@ import {
 } from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
 
+const removeAccents = (str: string): string => {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+};
+
 interface SetupPanelProps {
   residents: Resident[];
   setResidents: React.Dispatch<React.SetStateAction<Resident[]>>;
@@ -1500,11 +1504,11 @@ https://www.zipconsultoria.com.br`);
                       })
                       .filter(r => {
                         // Apply Search
-                        const q = emailSearchQuery.toLowerCase().trim();
+                        const q = removeAccents(emailSearchQuery.toLowerCase().trim());
                         if (!q) return true;
-                        return r.unit.toLowerCase().includes(q) || 
-                          r.name.toLowerCase().includes(q) || 
-                          (r.email && r.email.toLowerCase().includes(q));
+                        return removeAccents(r.unit.toLowerCase()).includes(q) || 
+                          removeAccents(r.name.toLowerCase()).includes(q) || 
+                          (r.email && removeAccents(r.email.toLowerCase()).includes(q));
                       })
                       .map((r, idx) => (
                         <tr key={idx} className="hover:bg-slate-50/50 transition-colors text-xs text-slate-700">
@@ -1578,9 +1582,9 @@ https://www.zipconsultoria.com.br`);
                         if (modalFilter === 'PENDING') return !r.emailStatus || r.emailStatus === 'PENDING';
                         return true;
                       }).filter(r => {
-                        const q = emailSearchQuery.toLowerCase().trim();
+                        const q = removeAccents(emailSearchQuery.toLowerCase().trim());
                         if (!q) return true;
-                        return r.unit.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || (r.email && r.email.toLowerCase().includes(q));
+                        return removeAccents(r.unit.toLowerCase()).includes(q) || removeAccents(r.name.toLowerCase()).includes(q) || (r.email && removeAccents(r.email.toLowerCase()).includes(q));
                       }).length === 0 && (
                       <tr>
                         <td colSpan={6} className="px-5 py-10 text-center text-slate-500 italic">
@@ -2130,9 +2134,9 @@ https://www.zipconsultoria.com.br`);
             {/* Results list */}
             <div className="flex-1 overflow-y-auto p-5 space-y-2 custom-scrollbar min-h-[250px] max-h-[450px]">
               {residents.filter(r => {
-                const query = delinquentSearchQuery.toLowerCase().trim();
+                const query = removeAccents(delinquentSearchQuery.toLowerCase().trim());
                 if (!query) return true;
-                return r.unit.toLowerCase().includes(query) || r.name.toLowerCase().includes(query);
+                return removeAccents(r.unit.toLowerCase()).includes(query) || removeAccents(r.name.toLowerCase()).includes(query);
               }).length === 0 ? (
                 <div className="text-center py-10 text-slate-400 text-xs italic">
                   Nenhum morador encontrado para a pesquisa.
@@ -2140,9 +2144,9 @@ https://www.zipconsultoria.com.br`);
               ) : (
                 residents
                   .filter(r => {
-                    const query = delinquentSearchQuery.toLowerCase().trim();
+                    const query = removeAccents(delinquentSearchQuery.toLowerCase().trim());
                     if (!query) return true;
-                    return r.unit.toLowerCase().includes(query) || r.name.toLowerCase().includes(query);
+                    return removeAccents(r.unit.toLowerCase()).includes(query) || removeAccents(r.name.toLowerCase()).includes(query);
                   })
                   .map((r, idx) => (
                     <div 

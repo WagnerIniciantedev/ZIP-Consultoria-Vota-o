@@ -212,7 +212,7 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
                 votos: Number(totalVal.toFixed(4)),
                 online: Number(onlineVal.toFixed(4)),
                 presencial: Number(presencialVal.toFixed(4)),
-                percent: totalWeight > 0 ? ((totalVal / totalWeight) * 100).toFixed(2) : "0.00"
+                percent: totalWeight > 0 ? Math.round((totalVal / totalWeight) * 100).toString() : "0"
               };
             });
 

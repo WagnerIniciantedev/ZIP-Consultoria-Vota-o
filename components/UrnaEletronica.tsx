@@ -10,6 +10,11 @@ const maskCpf = (cpf?: string) => {
   return digits.slice(0, 3) + '.***.***-**';
 };
 
+const removeAccents = (str?: string | null): string => {
+  if (!str) return '';
+  return String(str).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+};
+
 interface UrnaEletronicaProps {
   residents: Resident[];
   polls: Poll[];
@@ -29,8 +34,8 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
   singlePollId,
   isStandalone = false
 }) => {
-  // Navigation states: 'SEARCH' | 'CONFIRM' | 'VOTE_POLLS' | 'SUCCESS'
-  const [step, setStep] = useState<'SEARCH' | 'CONFIRM' | 'VOTE_POLLS' | 'SUCCESS'>('SEARCH');
+  // Navigation states: 'SEARCH' | 'CONFIRM' | 'PROXY_OPTION' | 'VOTE_POLLS' | 'SUCCESS'
+  const [step, setStep] = useState<'SEARCH' | 'CONFIRM' | 'PROXY_OPTION' | 'VOTE_POLLS' | 'SUCCESS'>('SEARCH');
   
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
@@ -40,6 +45,11 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
   const [selectedOptionId, setSelectedOptionId] = useState<string>('');
   const [votedPollIds, setVotedPollIds] = useState<string[]>([]);
   const [showError, setShowError] = useState<string | null>(null);
+
+  // Proxy voting states
+  const [votingMode, setVotingMode] = useState<'UNIFIED' | 'DISTINCT' | null>(null);
+  const [currentVotingUnit, setCurrentVotingUnit] = useState<string>('');
+  const [remainingUnitsToVote, setRemainingUnitsToVote] = useState<string[]>([]);
 
   // Filter only active and unended polls
   const availablePolls = useMemo(() => {
@@ -52,14 +62,38 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
 
   // Clean search helper
   const filteredResidents = useMemo(() => {
-    if (!searchQuery.trim()) return [];
+    const trimmed = (searchQuery || '').trim();
+    if (!trimmed) return [];
     
-    const query = searchQuery.toLowerCase().trim();
+    const queryTerms = removeAccents(trimmed.toLowerCase())
+      .split(/\s+/)
+      .filter(term => term.length > 0);
+      
+    if (queryTerms.length === 0) return [];
+    
     return residents.filter(r => {
-      const unitMatch = r.unit.toLowerCase().includes(query);
-      const nameMatch = r.name.toLowerCase().includes(query);
-      const cpfMatch = r.cpf ? r.cpf.replace(/[^0-9]/g, '').includes(query.replace(/[^0-9]/g, '')) : false;
-      return unitMatch || nameMatch || cpfMatch;
+      if (!r) return false;
+      const unitStr = removeAccents(r.unit).toLowerCase();
+      const nameStr = removeAccents(r.name).toLowerCase();
+      const cpfStr = r.cpf ? String(r.cpf).replace(/[^0-9]/g, '') : '';
+      
+      const nameWords = nameStr.split(/\s+/).filter(word => word.length > 0);
+      
+      return queryTerms.every(term => {
+        const unitMatch = unitStr.includes(term);
+        const termDigits = term.replace(/[^0-9]/g, '');
+        const cpfMatch = (cpfStr && termDigits) ? cpfStr.includes(termDigits) : false;
+        
+        const nameWordMatch = nameWords.some(word => {
+          if (term.length <= 2) {
+            return word.startsWith(term);
+          } else {
+            return word.includes(term);
+          }
+        });
+        
+        return unitMatch || cpfMatch || nameWordMatch;
+      });
     }).slice(0, 8); // Limit to 8 matches for clean UI
   }, [searchQuery, residents]);
 
@@ -82,52 +116,170 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
       setShowError("Aguardando ativação da enquete.");
       return;
     }
+
+    // Check represented units (including proxies)
+    const parsedProxyUnits = selectedResident.proxyUnits
+      ? selectedResident.proxyUnits.split(',').map(u => u.trim()).filter(u => u.length > 0)
+      : [];
+
+    const allRepresentedUnits = [selectedResident.unit, ...parsedProxyUnits];
     
-    // Find polls that the selected resident hasn't voted in yet
-    const unvotedPolls = availablePolls.filter(p => !hasResidentVoted(selectedResident.unit, p.id));
+    // Find polls that have at least one unvoted represented unit
+    const unvotedPolls = availablePolls.filter(p => 
+      allRepresentedUnits.some(u => !hasResidentVoted(u, p.id))
+    );
     
     if (unvotedPolls.length === 0) {
-      setShowError(`Este condômino (Unidade ${selectedResident.unit}) já registrou votos em todas as enquetes ativas.`);
+      if (parsedProxyUnits.length > 0) {
+        setShowError(`Este condômino (Unidade ${selectedResident.unit}) e suas procurações (${parsedProxyUnits.join(', ')}) já registraram votos em todas as enquetes ativas.`);
+      } else {
+        setShowError(`Este condômino (Unidade ${selectedResident.unit}) já registrou votos em todas as enquetes ativas.`);
+      }
       return;
     }
 
     setVotedPollIds([]);
-    // Select the first eligible poll
-    setSelectedPoll(unvotedPolls[0]);
+
+    if (parsedProxyUnits.length > 0) {
+      // Show proxy decision step first
+      setStep('PROXY_OPTION');
+    } else {
+      // Normal single voting flow
+      setVotingMode('UNIFIED');
+      setSelectedPoll(unvotedPolls[0]);
+      setSelectedOptionId('');
+      
+      const unvotedUnitsForThisPoll = [selectedResident.unit].filter(u => !hasResidentVoted(u, unvotedPolls[0].id));
+      setRemainingUnitsToVote(unvotedUnitsForThisPoll);
+      setCurrentVotingUnit(unvotedUnitsForThisPoll[0] || selectedResident.unit);
+      
+      setStep('VOTE_POLLS');
+    }
+  };
+
+  const handleSelectProxyMode = (mode: 'UNIFIED' | 'DISTINCT') => {
+    if (!selectedResident) return;
+
+    const parsedProxyUnits = selectedResident.proxyUnits
+      ? selectedResident.proxyUnits.split(',').map(u => u.trim()).filter(u => u.length > 0)
+      : [];
+
+    const allRepresentedUnits = [selectedResident.unit, ...parsedProxyUnits];
+
+    const unvotedPolls = availablePolls.filter(p => 
+      allRepresentedUnits.some(u => !hasResidentVoted(u, p.id))
+    );
+
+    if (unvotedPolls.length === 0) {
+      setShowError("Não há enquetes pendentes para estas unidades.");
+      return;
+    }
+
+    setVotingMode(mode);
+    const firstPoll = unvotedPolls[0];
+    setSelectedPoll(firstPoll);
     setSelectedOptionId('');
+
+    const unvotedUnitsForThisPoll = allRepresentedUnits.filter(u => !hasResidentVoted(u, firstPoll.id));
+    setRemainingUnitsToVote(unvotedUnitsForThisPoll);
+    setCurrentVotingUnit(unvotedUnitsForThisPoll[0] || selectedResident.unit);
+
     setStep('VOTE_POLLS');
   };
 
   const handleVoteSubmitClick = async () => {
     if (!selectedResident || !selectedPoll || !selectedOptionId) return;
 
+    const parsedProxyUnits = selectedResident.proxyUnits
+      ? selectedResident.proxyUnits.split(',').map(u => u.trim()).filter(u => u.length > 0)
+      : [];
+
+    const allRepresentedUnits = [selectedResident.unit, ...parsedProxyUnits];
+
     try {
-      // Register vote
-      await onVoteSubmit(
-        selectedPoll.id,
-        selectedResident.unit,
-        selectedOptionId,
-        selectedResident.isDelinquent,
-        "VOTO PRESENCIAL"
-      );
+      if (votingMode === 'UNIFIED') {
+        // Vote for all represented units that haven't voted for this poll yet
+        const unvotedUnits = allRepresentedUnits.filter(u => !hasResidentVoted(u, selectedPoll.id));
+        
+        for (const unit of unvotedUnits) {
+          const residentForUnit = residents.find(r => r.unit.toLowerCase() === unit.toLowerCase()) || selectedResident;
+          await onVoteSubmit(
+            selectedPoll.id,
+            unit,
+            selectedOptionId,
+            residentForUnit.isDelinquent,
+            "VOTO PRESENCIAL"
+          );
+        }
 
-      // Add to session voted listed to prevent duplicate voting prior to server snapshot
-      const updatedVoted = [...votedPollIds, selectedPoll.id];
-      setVotedPollIds(updatedVoted);
+        // Add to session voted listed to prevent duplicate voting prior to server snapshot
+        const updatedVoted = [...votedPollIds, selectedPoll.id];
+        setVotedPollIds(updatedVoted);
 
-      // Find next unvoted active poll
-      const nextPoll = availablePolls.find(p => p.id !== selectedPoll.id && !hasResidentVoted(selectedResident.unit, p.id) && !updatedVoted.includes(p.id));
+        // Find next unvoted active poll
+        const nextPoll = availablePolls.find(p => 
+          p.id !== selectedPoll.id && 
+          !updatedVoted.includes(p.id) && 
+          allRepresentedUnits.some(u => !hasResidentVoted(u, p.id))
+        );
 
-      if (nextPoll) {
-        setSelectedPoll(nextPoll);
-        setSelectedOptionId('');
+        if (nextPoll) {
+          setSelectedPoll(nextPoll);
+          setSelectedOptionId('');
+          const nextPollUnvotedUnits = allRepresentedUnits.filter(u => !hasResidentVoted(u, nextPoll.id));
+          setRemainingUnitsToVote(nextPollUnvotedUnits);
+          setCurrentVotingUnit(nextPollUnvotedUnits[0] || selectedResident.unit);
+        } else {
+          setStep('SUCCESS');
+          // Reset state after a short period if standalone
+          if (isStandalone) {
+            setTimeout(() => {
+              handleReset();
+            }, 3500);
+          }
+        }
       } else {
-        setStep('SUCCESS');
-        // Reset state after a short period if standalone
-        if (isStandalone) {
-          setTimeout(() => {
-            handleReset();
-          }, 3500);
+        // DISTINCT mode: vote for currentVotingUnit only
+        const residentForUnit = residents.find(r => r.unit.toLowerCase() === currentVotingUnit.toLowerCase()) || selectedResident;
+        await onVoteSubmit(
+          selectedPoll.id,
+          currentVotingUnit,
+          selectedOptionId,
+          residentForUnit.isDelinquent,
+          "VOTO PRESENCIAL"
+        );
+
+        const nextUnits = remainingUnitsToVote.slice(1);
+        if (nextUnits.length > 0) {
+          setRemainingUnitsToVote(nextUnits);
+          setCurrentVotingUnit(nextUnits[0]);
+          setSelectedOptionId(''); // clear selection for next unit
+        } else {
+          // All represented units have voted for this poll!
+          const updatedVoted = [...votedPollIds, selectedPoll.id];
+          setVotedPollIds(updatedVoted);
+
+          // Find next active poll that has some unvoted units
+          const nextPoll = availablePolls.find(p => 
+            p.id !== selectedPoll.id && 
+            !updatedVoted.includes(p.id) && 
+            allRepresentedUnits.some(u => !hasResidentVoted(u, p.id))
+          );
+
+          if (nextPoll) {
+            setSelectedPoll(nextPoll);
+            setSelectedOptionId('');
+            const nextPollUnvotedUnits = allRepresentedUnits.filter(u => !hasResidentVoted(u, nextPoll.id));
+            setRemainingUnitsToVote(nextPollUnvotedUnits);
+            setCurrentVotingUnit(nextPollUnvotedUnits[0] || selectedResident.unit);
+          } else {
+            setStep('SUCCESS');
+            if (isStandalone) {
+              setTimeout(() => {
+                handleReset();
+              }, 3500);
+            }
+          }
         }
       }
     } catch (err: any) {
@@ -143,6 +295,9 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
     setVotedPollIds([]);
     setShowError(null);
     setSearchQuery('');
+    setVotingMode(null);
+    setCurrentVotingUnit('');
+    setRemainingUnitsToVote([]);
   };
 
   return (
@@ -204,7 +359,7 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
                 <Search size={20} />
               </span>
               <Input
-                placeholder="Ex: Apt 102, 123.456..., ou Wagner Jackson..."
+                placeholder="Ex: Apt 102, 123.456..., ou Maria..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 h-12 text-lg font-medium border-red-200 hover:border-red-300 focus:border-red-500"
@@ -273,15 +428,106 @@ export const UrnaEletronica: React.FC<UrnaEletronicaProps> = ({
           </div>
         )}
 
+        {/* STEP 2.5: PROXY_OPTION */}
+        {step === 'PROXY_OPTION' && selectedResident && (
+          <div className="max-w-xl mx-auto w-full space-y-6 bg-slate-50/50 p-6 rounded-2xl border border-slate-100 animate-in fade-in-50 duration-200">
+            <div className="text-center space-y-2">
+              <div className="bg-amber-50 p-3 rounded-full inline-flex text-amber-600">
+                <ShieldAlert size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-gray-800">Atenção: Procurações Detectadas</h3>
+              <p className="text-sm text-gray-500">
+                O condômino <strong>{selectedResident.name}</strong> (Unidade {selectedResident.unit}) possui procurações registradas no sistema.
+              </p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3 shadow-sm">
+              <div className="flex justify-between items-start border-b pb-2">
+                <span className="text-xs text-gray-500 uppercase font-black">Unidade Principal</span>
+                <span className="font-bold text-slate-800">Unidade {selectedResident.unit}</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-gray-500 uppercase font-black">Unidades Representadas por Procuração</span>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {selectedResident.proxyUnits?.split(',').map(u => u.trim()).filter(u => u).map((unit, idx) => (
+                    <span key={idx} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                      Unidade {unit}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600 font-medium text-center">Como deseja prosseguir com a votação na Urna?</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => handleSelectProxyMode('UNIFIED')}
+                  className="p-5 rounded-xl border-2 border-slate-200 hover:border-red-600 bg-white hover:bg-red-50/10 text-left transition-all duration-200 flex flex-col justify-between h-full group"
+                >
+                  <div>
+                    <h4 className="font-black text-gray-900 group-hover:text-red-950 text-base">Voto Unificado (Todas)</h4>
+                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                      O eleitor votará uma única vez. A opção selecionada será replicada automaticamente para <strong>todas as {1 + (selectedResident.proxyUnits?.split(',').map(u => u.trim()).filter(u => u).length || 0)} unidades</strong> representadas.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-red-600 mt-4 inline-block group-hover:underline">Votar Unificado →</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSelectProxyMode('DISTINCT')}
+                  className="p-5 rounded-xl border-2 border-slate-200 hover:border-blue-600 bg-white hover:bg-blue-50/10 text-left transition-all duration-200 flex flex-col justify-between h-full group"
+                >
+                  <div>
+                    <h4 className="font-black text-gray-900 group-hover:text-blue-950 text-base">Voto Distinto (Individual)</h4>
+                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                      A urna passará de forma sequencial por cada unidade representada para que o eleitor possa registrar votos <strong>separados ou independentes</strong>.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-blue-600 mt-4 inline-block group-hover:underline">Votar Individualmente →</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 flex justify-center">
+              <Button onClick={handleReset} variant="ghost" className="text-gray-500 hover:text-black">
+                Cancelar e Voltar
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* STEP 3: VOTE_POLLS */}
         {step === 'VOTE_POLLS' && selectedResident && selectedPoll && (
-          <div className="max-w-2xl mx-auto w-full space-y-6">
+          <div className="max-w-2xl mx-auto w-full space-y-6 animate-in fade-in-50 duration-200">
             <div className="bg-slate-900 text-white p-5 rounded-2xl flex justify-between items-center shadow-lg border border-slate-800">
               <div>
-                <p className="text-[10px] uppercase font-bold tracking-wider text-red-400">Eleitor Registrado</p>
-                <h4 className="font-black text-xl">Unidade {selectedResident.unit}</h4>
-                <p className="text-xs text-slate-400">{selectedResident.name}</p>
+                <p className="text-[10px] uppercase font-bold tracking-wider text-red-400">
+                  {votingMode === 'UNIFIED' 
+                    ? "Votação Unificada (Todas as Unidades)" 
+                    : `Registrando Voto Individual: Unidade ${currentVotingUnit}`
+                  }
+                </p>
+                <h4 className="font-black text-xl">
+                  {votingMode === 'UNIFIED' 
+                    ? `Unidades: ${[selectedResident.unit, ...(selectedResident.proxyUnits?.split(',').map(u => u.trim()).filter(u => u) || [])].join(', ')}`
+                    : `Unidade ${currentVotingUnit}`
+                  }
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Eleitor: {selectedResident.name} {currentVotingUnit !== selectedResident.unit && `(Representando Unidade ${currentVotingUnit})`}
+                </p>
               </div>
+              {votingMode === 'DISTINCT' && (
+                <div className="text-right">
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                    Faltam {remainingUnitsToVote.length} unidade(s)
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-3">
