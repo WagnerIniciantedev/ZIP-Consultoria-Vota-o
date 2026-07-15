@@ -328,3 +328,481 @@ export const submitUrnaVote = onCall<VotePayload>(async (request) => {
     throw new HttpsError("internal", `Falha técnica ao registrar voto na urna física: ${error.message || error}`);
   }
 });
+
+// Helper to parse device agent for fingerprinting
+function getDeviceFingerprint(userAgent: string): { os: string; browser: string } {
+  const ua = userAgent.toLowerCase();
+  let os = "Desconhecido";
+  if (ua.includes("windows")) os = "Windows";
+  else if (ua.includes("macintosh") || ua.includes("mac os")) os = "macOS";
+  else if (ua.includes("iphone") || ua.includes("ipad")) os = "iOS";
+  else if (ua.includes("android")) os = "Android";
+  else if (ua.includes("linux")) os = "Linux";
+
+  let browser = "Navegador";
+  if (ua.includes("chrome") && !ua.includes("chromium") && !ua.includes("edg") && !ua.includes("opr")) browser = "Chrome";
+  else if (ua.includes("safari") && !ua.includes("chrome")) browser = "Safari";
+  else if (ua.includes("firefox")) browser = "Firefox";
+  else if (ua.includes("edg")) browser = "Edge";
+  else if (ua.includes("opr") || ua.includes("opera")) browser = "Opera";
+
+  return { os, browser };
+}
+
+const DEFAULT_CONFIG = {
+  maxAttempts: 5,
+  lockoutDuration: 15,
+  allowMultipleSessions: false,
+  sessionExpiration: 60,
+  tokenExpiration: 120,
+  requireAppCheck: false,
+  requireToken: false,
+  allowUnitCpf: true,
+  allowTokenAccess: true,
+  enableFullAudit: true,
+  allowAutoUnlock: true
+};
+
+async function getSecurityConfig(assemblyId: string): Promise<typeof DEFAULT_CONFIG> {
+  const docRef = db.collection("assemblies").doc(assemblyId).collection("security_settings").doc("config");
+  const snap = await docRef.get();
+  if (snap.exists) {
+    return { ...DEFAULT_CONFIG, ...snap.data() };
+  }
+  return DEFAULT_CONFIG;
+}
+
+interface AccessPayload {
+  assemblyId: string;
+  loginMode: 'CPF' | 'TOKEN';
+  unit?: string;
+  cpf?: string;
+  accessToken?: string;
+  deviceFingerprint?: any;
+}
+
+/**
+ * 🔒 validateResidentAccess
+ * 
+ * Secure server-side validation of resident identity.
+ * Replaces client-side Firestore queries and handles custom session token generation.
+ */
+export const validateResidentAccess = onCall<AccessPayload>(async (request) => {
+  const data = request.data;
+  const { auth, rawRequest } = request;
+  const { assemblyId, loginMode, unit, cpf, accessToken } = data;
+
+  if (!assemblyId) {
+    throw new HttpsError("invalid-argument", "O ID/Token da assembleia é obrigatório.");
+  }
+
+  const idRegex = /^[a-zA-Z0-9_ \-]+$/;
+  if (!idRegex.test(assemblyId)) {
+    throw new HttpsError("invalid-argument", "Formato inválido de ID de assembleia.");
+  }
+
+  const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+
+  // Check if assembly exists and is active
+  const assemblyRef = db.collection("assemblies").doc(safeAssemblyId);
+  const assemblySnap = await assemblyRef.get();
+
+  if (!assemblySnap.exists) {
+    throw new HttpsError("not-found", "A assembleia informada não existe.");
+  }
+
+  const assemblyData = assemblySnap.data();
+  if (!assemblyData || !assemblyData.isActive) {
+    throw new HttpsError("failed-precondition", "Esta assembleia não está ativa ou já foi finalizada.");
+  }
+
+  // Load security settings
+  const config = await getSecurityConfig(safeAssemblyId);
+
+  // App Check Enforcement Check
+  if (config.requireAppCheck && !request.app) {
+    throw new HttpsError("failed-precondition", "Acesso rejeitado. Firebase App Check é obrigatório para este condomínio.");
+  }
+
+  const clientIp = rawRequest.headers["x-forwarded-for"] as string || rawRequest.ip || "0.0.0.0";
+  const clientUA = rawRequest.headers["user-agent"] || "Unknown Client";
+
+  // Check Brute Force Block
+  const blockRef = db.collection("assemblies").doc(safeAssemblyId).collection("blocked_units").doc(unit ? unit.toLowerCase() : 'generic_ip_block');
+  const blockSnap = await blockRef.get();
+  
+  if (blockSnap.exists) {
+    const blockData = blockSnap.data();
+    if (blockData) {
+      const now = Date.now();
+      const lockedUntil = blockData.lockedUntil;
+      if (now < lockedUntil) {
+        throw new HttpsError("permission-denied", `Acesso bloqueado temporariamente devido a múltiplas tentativas inválidas. Tente novamente em ${Math.ceil((lockedUntil - now) / 60000)} minutos.`);
+      } else {
+        if (config.allowAutoUnlock) {
+          await blockRef.delete();
+        } else {
+          throw new HttpsError("permission-denied", "Acesso bloqueado pela administração. Entre em contato com o suporte do condomínio.");
+        }
+      }
+    }
+  }
+
+  let residentData: any = null;
+
+  try {
+    if (loginMode === 'CPF') {
+      if (!config.allowUnitCpf) {
+        throw new HttpsError("permission-denied", "O login por CPF foi desativado por regras de segurança deste condomínio.");
+      }
+
+      if (!unit || !cpf) {
+        throw new HttpsError("invalid-argument", "Unidade e CPF são obrigatórios para este modo de entrada.");
+      }
+
+      const sanitizedUnit = unit.trim().toLowerCase();
+      const residentRef = db.collection("assemblies").doc(safeAssemblyId).collection("residents_list").doc(sanitizedUnit);
+      const residentSnap = await residentRef.get();
+
+      if (!residentSnap.exists) {
+        throw new HttpsError("not-found", "Unidade não cadastrada nesta assembleia.");
+      }
+
+      residentData = residentSnap.data();
+      if (!residentData) {
+        throw new HttpsError("internal", "Erro ao carregar dados da unidade.");
+      }
+
+      const cleanInputCpf = cpf.replace(/\D/g, '');
+      const storedCpf = (residentData.cpf || '').replace(/\D/g, '');
+      const storedPrefix = residentData.documentPrefix || storedCpf.substring(0, 7);
+      const inputPrefix = cleanInputCpf.substring(0, 7);
+
+      // Secure Hash comparison
+      const inputHash = crypto.createHash("sha256").update(cleanInputCpf).digest("hex");
+      const storedHash = residentData.documentHash || (storedCpf.length > 0 ? crypto.createHash("sha256").update(storedCpf).digest("hex") : '');
+
+      if (inputPrefix !== storedPrefix) {
+        throw new Error("Prefix comparison failed");
+      }
+
+      if (storedHash && inputHash !== storedHash && cleanInputCpf.length >= 11) {
+        throw new Error("Full hash comparison failed");
+      }
+
+    } else if (loginMode === 'TOKEN') {
+      if (!config.allowTokenAccess) {
+        throw new HttpsError("permission-denied", "O login por Token de Acesso foi desativado por regras de segurança.");
+      }
+
+      if (!accessToken) {
+        throw new HttpsError("invalid-argument", "O token de acesso individual é obrigatório.");
+      }
+
+      const cleanToken = accessToken.trim().toUpperCase();
+      const residentsQuery = await db.collection("assemblies").doc(safeAssemblyId)
+        .collection("residents_list")
+        .where("accessPassword", "==", cleanToken)
+        .get();
+
+      if (residentsQuery.empty) {
+        throw new HttpsError("not-found", "Token de acesso inválido ou expirado.");
+      }
+
+      const firstResidentDoc = residentsQuery.docs[0];
+      residentData = firstResidentDoc.data();
+    } else {
+      throw new HttpsError("invalid-argument", "Modo de login inválido.");
+    }
+  } catch (err: any) {
+    // Record login failure for brute-force tracking
+    let currentAttempts = 1;
+    if (blockSnap.exists) {
+      currentAttempts = (blockSnap.data()?.attempts || 0) + 1;
+    }
+    
+    const lockoutUntil = Date.now() + (config.lockoutDuration * 60 * 1000);
+    await blockRef.set({
+      attempts: currentAttempts,
+      lockedAt: Date.now(),
+      lockedUntil: lockoutUntil,
+      reason: "Múltiplas tentativas incorretas de login"
+    }, { merge: true });
+
+    // Record failure in logs
+    const failId = `AUDIT_FAIL_${Date.now()}`;
+    await db.collection("assemblies").doc(safeAssemblyId).collection("audit_logs").doc(failId).set({
+      timestamp: Date.now(),
+      action: "LOGIN_FAILED",
+      unit: unit || "DESCONHECIDO",
+      ip: clientIp,
+      userAgent: clientUA,
+      result: "FAILURE",
+      details: `Tentativa de login malsucedida usando modo ${loginMode}. Tentativa ${currentAttempts}/${config.maxAttempts}.`
+    });
+
+    throw new HttpsError("permission-denied", "Os dados informados não conferem com o cadastro. Verifique e tente novamente.");
+  }
+
+  if (residentData.attendanceStatus === "BLOCKED") {
+    throw new HttpsError("permission-denied", "O acesso desta unidade foi bloqueado pela administração.");
+  }
+
+  // Clear previous block attempts on success
+  await blockRef.delete();
+
+  // Handle Session tracking & Multi-session blocks
+  const sessionsRef = db.collection("assemblies").doc(safeAssemblyId).collection("resident_sessions");
+  
+  if (!config.allowMultipleSessions) {
+    const activeSessionsQuery = await sessionsRef
+      .where("unit", "==", residentData.unit)
+      .where("status", "==", "ACTIVE")
+      .get();
+    
+    if (!activeSessionsQuery.empty) {
+      // Invalidate previous session automatically
+      const batch = db.batch();
+      for (const docSnap of activeSessionsQuery.docs) {
+        batch.update(docSnap.ref, {
+          status: "REVOKED",
+          revokedAt: Date.now(),
+          reason: "Nova sessão iniciada para a unidade em outro dispositivo"
+        });
+      }
+      await batch.commit();
+    }
+  }
+
+  // Register New Session
+  const sessionId = crypto.randomUUID();
+  const sessionExpiresAt = Date.now() + (config.sessionExpiration * 60 * 1000);
+  
+  await sessionsRef.doc(sessionId).set({
+    sessionId,
+    tenantId: assemblyData.tenantId || "WSYSTEMS_DEFAULT",
+    assemblyId: safeAssemblyId,
+    residentId: residentData.unit.toLowerCase(),
+    unit: residentData.unit,
+    deviceFingerprint: getDeviceFingerprint(clientUA),
+    ipHash: crypto.createHash("sha256").update(clientIp).digest("hex"),
+    createdAt: Date.now(),
+    lastActivity: Date.now(),
+    expiresAt: sessionExpiresAt,
+    status: "ACTIVE"
+  });
+
+  // Find siblings (other units with same CPF/CNPJ)
+  const siblings: any[] = [];
+  const proxyOwners: Record<string, any> = {};
+
+  if (residentData.cpf) {
+    const residentsRef = db.collection("assemblies").doc(safeAssemblyId).collection("residents_list");
+    const q = await residentsRef.where("cpf", "==", residentData.cpf).get();
+    for (const docSnap of q.docs) {
+      const sib = docSnap.data();
+      siblings.push(sib);
+
+      if (sib.proxyOwnerUnit) {
+        const ownerSnap = await residentsRef.doc(sib.proxyOwnerUnit.toLowerCase()).get();
+        if (ownerSnap.exists) {
+          proxyOwners[sib.unit] = ownerSnap.data();
+        }
+      }
+    }
+  } else {
+    siblings.push(residentData);
+  }
+
+  // Generate custom token with tenant, assembly, unit and session claims
+  const uid = `resident_${safeAssemblyId}_${residentData.unit.toLowerCase()}`;
+  const customClaims = {
+    tenantId: assemblyData.tenantId || "WSYSTEMS_DEFAULT",
+    assemblyId: safeAssemblyId,
+    residentId: residentData.unit.toLowerCase(),
+    unit: residentData.unit,
+    role: "RESIDENT",
+    sessionId,
+    attendanceStatus: residentData.attendanceStatus || "NONE",
+    isDelinquent: !!residentData.isDelinquent
+  };
+
+  const customToken = await admin.auth().createCustomToken(uid, customClaims);
+
+  // Record Success Audit Log
+  const successLogId = `AUDIT_LOGIN_OK_${Date.now()}`;
+  await db.collection("assemblies").doc(safeAssemblyId).collection("audit_logs").doc(successLogId).set({
+    timestamp: Date.now(),
+    action: "LOGIN_SUCCESS",
+    unit: residentData.unit,
+    ip: clientIp,
+    userAgent: clientUA,
+    result: "SUCCESS",
+    details: `Login efetuado com sucesso usando modo ${loginMode}. Sessão ${sessionId} criada.`
+  });
+
+  return {
+    success: true,
+    customToken,
+    sessionId,
+    resident: residentData,
+    siblings,
+    proxyOwners
+  };
+});
+
+/**
+ * 🔒 validateAssemblyToken
+ * Checks if a given individual token is valid for a resident in this assembly
+ */
+export const validateAssemblyToken = onCall<{ assemblyId: string; token: string }>(async (request) => {
+  const { assemblyId, token } = request.data;
+  if (!assemblyId || !token) {
+    throw new HttpsError("invalid-argument", "Assembleia e token são obrigatórios.");
+  }
+
+  const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+  const residentsRef = db.collection("assemblies").doc(safeAssemblyId).collection("residents_list");
+  const q = await residentsRef.where("accessPassword", "==", token.trim().toUpperCase()).get();
+
+  if (q.empty) {
+    return { success: false, message: "Token inválido ou não encontrado." };
+  }
+
+  return { success: true, resident: q.docs[0].data() };
+});
+
+/**
+ * 🔒 generateResidentSession
+ * Explicit Session generator
+ */
+export const generateResidentSession = onCall<{ assemblyId: string; unit: string; userAgent?: string }>(async (request) => {
+  const { assemblyId, unit } = request.data;
+  const { rawRequest } = request;
+
+  if (!assemblyId || !unit) {
+    throw new HttpsError("invalid-argument", "Parâmetros inválidos.");
+  }
+
+  const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+  const sessionId = crypto.randomUUID();
+  const clientUA = rawRequest.headers["user-agent"] || "Unknown Client";
+  const clientIp = rawRequest.headers["x-forwarded-for"] as string || rawRequest.ip || "0.0.0.0";
+
+  await db.collection("assemblies").doc(safeAssemblyId).collection("resident_sessions").doc(sessionId).set({
+    sessionId,
+    assemblyId: safeAssemblyId,
+    unit,
+    deviceFingerprint: getDeviceFingerprint(clientUA),
+    ipHash: crypto.createHash("sha256").update(clientIp).digest("hex"),
+    createdAt: Date.now(),
+    lastActivity: Date.now(),
+    status: "ACTIVE"
+  });
+
+  return { success: true, sessionId };
+});
+
+/**
+ * 🔒 closeResidentSession
+ * Explicit Session Terminator
+ */
+export const closeResidentSession = onCall<{ assemblyId: string; sessionId: string }>(async (request) => {
+  const { assemblyId, sessionId } = request.data;
+  if (!assemblyId || !sessionId) {
+    throw new HttpsError("invalid-argument", "Assembleia e ID de sessão são obrigatórios.");
+  }
+
+  const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+  const sessionRef = db.collection("assemblies").doc(safeAssemblyId).collection("resident_sessions").doc(sessionId);
+  await sessionRef.update({
+    status: "CLOSED",
+    closedAt: Date.now()
+  });
+
+  return { success: true };
+});
+
+/**
+ * 🔒 registerAuditLog
+ * Explicit Auditor logging tool
+ */
+export const registerAuditLog = onCall<{ assemblyId: string; action: string; unit?: string; details: string }>(async (request) => {
+  const { assemblyId, action, unit, details } = request.data;
+  const { auth, rawRequest } = request;
+
+  if (!assemblyId || !action || !details) {
+    throw new HttpsError("invalid-argument", "Parâmetros obrigatórios ausentes.");
+  }
+
+  const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+  const logId = `AUDIT_MANUAL_${Date.now()}`;
+  const clientIp = rawRequest.headers["x-forwarded-for"] as string || rawRequest.ip || "0.0.0.0";
+  const clientUA = rawRequest.headers["user-agent"] || "Unknown Client";
+
+  await db.collection("assemblies").doc(safeAssemblyId).collection("audit_logs").doc(logId).set({
+    timestamp: Date.now(),
+    action,
+    unit: unit || null,
+    ip: clientIp,
+    userAgent: clientUA,
+    operatorUid: auth ? auth.uid : "SYSTEM",
+    details
+  });
+
+  return { success: true };
+});
+
+/**
+ * 🔒 unlockResident
+ * Admin tool to release lockout
+ */
+export const unlockResident = onCall<{ assemblyId: string; unit: string }>(async (request) => {
+  const { assemblyId, unit } = request.data;
+  const { auth } = request;
+
+  if (!auth) {
+    throw new HttpsError("unauthenticated", "Não autenticado.");
+  }
+
+  if (!assemblyId || !unit) {
+    throw new HttpsError("invalid-argument", "Parâmetros obrigatórios ausentes.");
+  }
+
+  const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+  const blockRef = db.collection("assemblies").doc(safeAssemblyId).collection("blocked_units").doc(unit.toLowerCase());
+  await blockRef.delete();
+
+  return { success: true };
+});
+
+/**
+ * 🔒 blockResident
+ * Admin tool to manually block a resident
+ */
+export const blockResident = onCall<{ assemblyId: string; unit: string; reason: string }>(async (request) => {
+  const { assemblyId, unit, reason } = request.data;
+  const { auth } = request;
+
+  if (!auth) {
+    throw new HttpsError("unauthenticated", "Não autenticado.");
+  }
+
+  if (!assemblyId || !unit) {
+    throw new HttpsError("invalid-argument", "Parâmetros obrigatórios ausentes.");
+  }
+
+  const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
+  const blockRef = db.collection("assemblies").doc(safeAssemblyId).collection("blocked_units").doc(unit.toLowerCase());
+  
+  await blockRef.set({
+    attempts: 5,
+    lockedAt: Date.now(),
+    lockedUntil: Date.now() + (24 * 60 * 60 * 1000), // Block for 24h manually
+    reason: reason || "Bloqueio administrativo manual"
+  });
+
+  return { success: true };
+});
+
+

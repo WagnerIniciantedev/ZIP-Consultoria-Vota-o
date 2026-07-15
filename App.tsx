@@ -24,7 +24,8 @@ import {
 import { ActiveAssembly } from './types';
 import { onSnapshot, doc, setDoc, collection } from 'firebase/firestore';
 import { signInAnonymously } from 'firebase/auth';
-import { db, auth } from './services/firebase';
+import { db, auth, functions } from './services/firebase';
+import { httpsCallable } from 'firebase/functions';
 
 // UI Components
 import { AdminDashboard } from './components/AdminDashboard';
@@ -960,10 +961,33 @@ const App: React.FC = () => {
 
     if (!canVote) return;
 
-    // Sync individual vote to Firestore subcollection
-    if (db && (selectedAssemblyId || condoName)) {
-      const currentId = selectedAssemblyId || condoName;
-      const safeKey = currentId.replace(/[^a-zA-Z0-9]/g, '_');
+    const currentId = selectedAssemblyId || condoName || localStorage.getItem('condovote_assembly_id');
+    if (!currentId) return;
+    const safeKey = currentId.replace(/[^a-zA-Z0-9]/g, '_');
+
+    // Resident secure voting flow
+    if (!currentUser) {
+      try {
+        const submitSecureVoteFn = httpsCallable(functions, 'submitSecureVote');
+        await submitSecureVoteFn({
+          assemblyId: safeKey,
+          pollId,
+          unit,
+          optionId,
+          zoomName,
+          userAgent: navigator.userAgent
+        });
+      } catch (err: any) {
+        console.error("Erro ao registrar voto seguro via Cloud Function:", err);
+        alert(err.message || "Erro de segurança ao registrar voto. Contate a administração.");
+        // Rollback local state on failure
+        setVotes(prev => prev.filter(v => !(v.unit === unit && v.pollId === pollId)));
+      }
+      return;
+    }
+
+    // Admin sync flow
+    if (db) {
       const voteRef = doc(db, 'assemblies', safeKey, 'votes', `${pollId}_${unit.replace(/[^a-zA-Z0-9]/g, '_')}`);
       try {
         await setDoc(voteRef, newVote, { merge: true });

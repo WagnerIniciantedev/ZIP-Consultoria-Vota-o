@@ -15,7 +15,8 @@ import {
   Tablet,
   Menu,
   X,
-  UserCog
+  UserCog,
+  Shield
 } from 'lucide-react';
 import { Button, Card } from './ui';
 import { LogoZip } from './LogoZip';
@@ -26,6 +27,7 @@ import { SetupPanel } from './dashboard/SetupPanel';
 import { PollCreator, PollList } from './dashboard/PollsPanels';
 import { AttendancePanel } from './dashboard/AttendancePanel';
 import { ResultsPanel } from './dashboard/ResultsPanel';
+import { SecurityPanel } from './dashboard/SecurityPanel';
 import { TourGuide, TourStep } from './TourGuide';
 
 interface AdminDashboardProps {
@@ -82,7 +84,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onReleaseDelinquentVote,
   onEditProfile
 }) => {
-  const [activeTab, setActiveTab] = useState<'setup_excel' | 'create_poll' | 'manage_polls' | 'attendance' | 'end_assembly'>('setup_excel');
+  const [activeTab, setActiveTab] = useState<'setup_excel' | 'create_poll' | 'manage_polls' | 'attendance' | 'security' | 'end_assembly'>('setup_excel');
   const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
   const [isZoomMode, setIsZoomMode] = useState(false);
   const [pollToEdit, setPollToEdit] = useState<Poll | null>(null);
@@ -274,6 +276,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
 
           <button 
+            id="tour-security"
+            onClick={() => { setActiveTab('security'); setSelectedPollId(null); setIsSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'security' ? 'bg-red-50 text-red-700 font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}
+          >
+            <Shield size={20} /> Painel de Segurança
+          </button>
+
+          <button 
             onClick={() => { onGoToUrna(); setIsSidebarOpen(false); }}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
           >
@@ -456,6 +466,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               condoName={condoName}
               currentUser={currentUser}
               selectedAssemblyId={selectedAssemblyId}
+            />
+          )}
+
+          {/* 5.5. SECURITY */}
+          {activeTab === 'security' && selectedAssemblyId && (
+            <SecurityPanel 
+              selectedAssemblyId={selectedAssemblyId}
+              condoName={condoName}
+              currentUser={currentUser}
+              residents={residents}
+              setResidents={setResidents}
             />
           )}
 

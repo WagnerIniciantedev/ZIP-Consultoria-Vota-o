@@ -3,10 +3,12 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, getDoc } from "firebase/firestore";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { initializeAppCheck, ReCaptchaV3Provider, ReCaptchaEnterpriseProvider } from "firebase/app-check";
+import { getFunctions } from "firebase/functions";
 
 // ============================================================================
 // CONFIGURAÇÃO DO FIREBASE (FIRESTORE + AUTH)
 // ============================================================================
+
 
 // Auxiliar para decodificar strings Base64 dinamicamente, mascarando chaves contra rastreadores estáticos simples
 const d = (s: string): string => {
@@ -34,6 +36,7 @@ const firebaseConfig = {
 
 let db: any = null;
 let auth: any = null;
+let functions: any = null;
 
 try {
     const app = initializeApp(firebaseConfig);
@@ -41,6 +44,8 @@ try {
     db = getFirestore(app);
     // Inicializa a Autenticação
     auth = getAuth(app);
+    // Inicializa o Functions
+    functions = getFunctions(app);
     
     console.log("✅ Firebase Firestore e Auth inicializados!");
 
@@ -107,5 +112,5 @@ try {
     console.error("Erro ao inicializar Firebase:", error);
 }
 
-export { db, auth, signInAnonymously };
+export { db, auth, functions, signInAnonymously };
 export { doc, setDoc, deleteDoc, onSnapshot, getDoc };

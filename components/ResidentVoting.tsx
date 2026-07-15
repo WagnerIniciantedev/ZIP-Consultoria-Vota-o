@@ -27,13 +27,15 @@ import {
   FileImage
 } from 'lucide-react';
 import { identifyResident, identifyResidentWithPassword } from '../services/dataService';
-import { db, doc, onSnapshot, getDoc } from '../services/firebase';
+import { db, auth, functions, doc, onSnapshot, getDoc } from '../services/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { signInWithCustomToken } from 'firebase/auth';
 
 interface ResidentVotingProps {
   assemblyId: string;
   sampleUnit?: string;
   polls: Poll[];
-  onVoteSubmit: (pollId: string, unit: string, optionId: string, isDelinquent: boolean, zoomName?: string) => void;
+  onVoteSubmit: (pollId: string, unit: string, optionId: string, isDelinquent: boolean, zoomName?: string) => Promise<any> | any;
   onRegisterAttendance: (units: Resident[], zoomName: string) => void;
   hasVoted: (pollId: string, unit: string) => boolean;
   onBack: () => void;
@@ -80,7 +82,7 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   // Login Inputs
   const [unitInput, setUnitInput] = useState('');
   const [cpfInput, setCpfInput] = useState('');
-  const [loginType, setLoginType] = useState<'PASSWORD' | 'CPF'>('PASSWORD');
+  const [loginType, setLoginType] = useState<'CPF' | 'TOKEN'>('CPF');
   const [passwordInput, setPasswordInput] = useState('');
   
   // Biometrics and Security Documents State
@@ -299,57 +301,68 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   const handleIdentify = async () => {
     if (!assemblyId) return;
 
-    const targetUnit = unitInput.toLowerCase().trim();
-
-    if (!targetUnit) {
-        alert("Por favor, digite o número da Unidade.");
-        return;
-    }
-
     setIsIdentifying(true);
     try {
-        let result: { resident: Resident | null, siblings: Resident[], proxyOwners: Record<string, Resident> };
+        const validateAccess = httpsCallable(functions, 'validateResidentAccess');
+        let payload: any = { assemblyId };
 
-        if (loginType === 'PASSWORD') {
-            if (!passwordInput.trim()) {
-                alert("Por favor, digite sua Chave de Acesso Única (Senha).");
+        if (loginType === 'CPF') {
+            const targetUnit = unitInput.toLowerCase().trim();
+            if (!targetUnit) {
+                alert("Por favor, digite o número da Unidade.");
                 setIsIdentifying(false);
                 return;
             }
-            result = await identifyResidentWithPassword(assemblyId, targetUnit, passwordInput.trim());
+            if (!cpfInput || cpfInput.length < 7) {
+                alert("Por favor, digite os 7 primeiros números do seu CPF ou CNPJ.");
+                setIsIdentifying(false);
+                return;
+            }
+            payload.loginMode = 'CPF';
+            payload.unit = targetUnit;
+            payload.cpf = cpfInput;
         } else {
-            const targetCpfClean = cpfInput.replace(/\D/g, '');
-            if (targetCpfClean.length < 5) {
-                alert("Digite pelo menos os 5 primeiros dígitos do CPF.");
+            // TOKEN mode
+            const token = passwordInput.trim();
+            if (!token) {
+                alert("Por favor, digite o Token de Acesso.");
                 setIsIdentifying(false);
                 return;
             }
-            result = await identifyResident(assemblyId, targetUnit, targetCpfClean);
+            payload.loginMode = 'TOKEN';
+            payload.accessToken = token;
         }
 
-        const { resident, siblings, proxyOwners } = result;
+        const res = await validateAccess(payload);
 
-        if (resident) {
-            setProxyOwners(proxyOwners);
-            if (proxyOwners[resident.unit]) {
+        const { customToken, resident, siblings, proxyOwners } = res.data as {
+            customToken: string;
+            resident: Resident;
+            siblings: Resident[];
+            proxyOwners: Record<string, Resident>;
+        };
+
+        if (customToken) {
+            // Sign in to Firebase Auth with the secure session custom claim token
+            await signInWithCustomToken(auth, customToken);
+
+            setProxyOwners(proxyOwners || {});
+            if (proxyOwners && proxyOwners[resident.unit]) {
                 setProxyOwner(proxyOwners[resident.unit]);
                 setStep(VoteStep.PROXY_REVOKE_CONFIRM);
-            } else if (siblings.length > 1) {
+            } else if (siblings && siblings.length > 1) {
                 setMultiUnitCandidates(siblings);
                 setStep(VoteStep.MULTI_UNIT_SELECT);
             } else {
                 proceedWithUnits([resident]);
             }
         } else {
-            alert(
-                loginType === 'PASSWORD'
-                    ? "Código de acesso incorreto ou unidade não encontrada.\n\nVerifique as credenciais enviadas por e-mail ou contate a administração."
-                    : "Dados não conferem ou unidade não encontrada.\n\nVerifique se digitou corretamente ou contate o administrador."
-            );
+            alert("Falha técnica de autenticação no servidor. Contate a administração.");
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error("Identification error:", error);
-        alert("Erro ao conectar ao servidor. Verifique sua conexão.");
+        const errMsg = error.message || "Dados não conferem ou unidade não encontrada.\n\nVerifique se digitou corretamente ou contate o administrador.";
+        alert(errMsg);
     } finally {
         setIsIdentifying(false);
     }
@@ -551,29 +564,41 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
     setStep(VoteStep.BOOTH);
   };
 
-  const submitVote = () => {
+  const [isSubmittingVote, setIsSubmittingVote] = useState(false);
+
+  const submitVote = async () => {
     if (selectedOption && selectedPoll && boothUnits.length > 0) {
-      if (isDistinctVoting) {
-        const currentUnit = boothUnits[distinctVoteIndex];
-        if (currentUnit) {
-          onVoteSubmit(selectedPoll.id, currentUnit.unit, selectedOption, currentUnit.isDelinquent, zoomNameInput);
-        }
-        
-        if (distinctVoteIndex + 1 < boothUnits.length) {
-          setDistinctVoteIndex(distinctVoteIndex + 1);
-          setSelectedOption(null);
+      setIsSubmittingVote(true);
+      try {
+        if (isDistinctVoting) {
+          const currentUnit = boothUnits[distinctVoteIndex];
+          if (currentUnit) {
+            await onVoteSubmit(selectedPoll.id, currentUnit.unit, selectedOption, currentUnit.isDelinquent, zoomNameInput);
+          }
+          
+          if (distinctVoteIndex + 1 < boothUnits.length) {
+            setDistinctVoteIndex(distinctVoteIndex + 1);
+            setSelectedOption(null);
+          } else {
+            setStep(VoteStep.SUCCESS);
+            setDistinctVoteIndex(0);
+            setIsDistinctVoting(false);
+            setBoothUnits([]);
+          }
         } else {
+          // Submit all votes sequentially/parallelly so we can wait for completion
+          await Promise.all(
+            boothUnits.map(u => 
+              onVoteSubmit(selectedPoll.id, u.unit, selectedOption, u.isDelinquent, zoomNameInput)
+            )
+          );
           setStep(VoteStep.SUCCESS);
-          setDistinctVoteIndex(0);
-          setIsDistinctVoting(false);
           setBoothUnits([]);
         }
-      } else {
-        boothUnits.forEach(u => {
-          onVoteSubmit(selectedPoll.id, u.unit, selectedOption, u.isDelinquent, zoomNameInput);
-        });
-        setStep(VoteStep.SUCCESS);
-        setBoothUnits([]);
+      } catch (err) {
+        console.error("Error casting vote:", err);
+      } finally {
+        setIsSubmittingVote(false);
       }
     }
   };
@@ -692,17 +717,15 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
           </div>
         )}
 
-        {/* Step 1: Identification */}
+                 {/* Step 1: Identification */}
         {step === VoteStep.IDENTIFY && (
-          <Card title="Acesso à Assembleia">
-            <div className="space-y-4">
-              <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
-                  <p className="text-blue-800 text-xs flex gap-2 leading-relaxed">
-                     <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                     <strong>Entrada de Visitante/Condômino:</strong> Identifique-se abaixo. Após confirmar seus dados, o sistema salvará seu acesso neste dispositivo para reconexão automática em caso de queda.
-                  </p>
+          <Card>
+            <div className="space-y-6">
+              <div className="text-center pb-4 border-b border-gray-100">
+                <h2 className="text-2xl font-bold text-gray-900">Assembleia Online</h2>
+                <p className="text-sm text-gray-500 mt-1">Escolha como deseja acessar.</p>
               </div>
-              
+
               {!assemblyId && (
                   <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg text-sm text-yellow-800 text-center">
                       <div className="flex justify-center mb-2">
@@ -719,73 +742,87 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
               )}
 
               {/* Credentials login toggle */}
-              <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
+              <div className="grid grid-cols-2 bg-gray-100 p-1 rounded-xl border border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setLoginType('PASSWORD')}
-                  className={`flex-1 py-1.5 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${loginType === 'PASSWORD' ? 'bg-white text-blue-700 shadow-sm border border-slate-200' : 'text-gray-500 hover:text-slate-800'}`}
+                  onClick={() => { setLoginType('CPF'); }}
+                  className={`py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${loginType === 'CPF' ? 'bg-white text-blue-700 shadow-sm border border-slate-200' : 'text-gray-500 hover:text-slate-800'}`}
                 >
-                  <Key size={14} className={loginType === 'PASSWORD' ? 'text-blue-600' : 'text-gray-400'} /> Chave Única (Senha)
+                  <Search size={14} className={loginType === 'CPF' ? 'text-blue-600' : 'text-gray-400'} /> Unidade + CPF/CNPJ
                 </button>
                 <button
                   type="button"
-                  onClick={() => setLoginType('CPF')}
-                  className={`flex-1 py-1.5 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${loginType === 'CPF' ? 'bg-white text-blue-700 shadow-sm border border-slate-200' : 'text-gray-500 hover:text-slate-800'}`}
+                  onClick={() => { setLoginType('TOKEN'); }}
+                  className={`py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${loginType === 'TOKEN' ? 'bg-white text-blue-700 shadow-sm border border-slate-200' : 'text-gray-500 hover:text-slate-800'}`}
                 >
-                  <Search size={14} className={loginType === 'CPF' ? 'text-blue-600' : 'text-gray-400'} /> Acesso por CPF
+                  <Key size={14} className={loginType === 'TOKEN' ? 'text-blue-600' : 'text-gray-400'} /> Token de acesso
                 </button>
               </div>
 
-              <div>
-                <label className="block text-sm font-bold text-gray-800 mb-1">Unidade / Apartamento</label>
-                <Input 
-                  placeholder="Ex: 101" 
-                  value={unitInput}
-                  onChange={(e) => setUnitInput(e.target.value)}
-                  disabled={!assemblyId || isIdentifying}
-                />
-                {sampleUnit && (
-                  <p className="mt-1.5 text-[11px] text-gray-500 flex items-center gap-1.5 bg-gray-50 p-1.5 rounded border border-gray-100">
-                    <Building size={12} className="text-blue-500" />
-                    <span>Exemplo de preenchimento: <strong className="text-blue-700 font-bold">{sampleUnit}</strong></span>
-                  </p>
-                )}
-              </div>
+              {loginType === 'CPF' ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Unidade / Apartamento</label>
+                    <Input 
+                      placeholder="Ex: 101, A20" 
+                      value={unitInput}
+                      onChange={(e) => setUnitInput(e.target.value)}
+                      disabled={!assemblyId || isIdentifying}
+                    />
+                    {sampleUnit && (
+                      <p className="mt-1 text-[10px] text-gray-400">
+                        Exemplo cadastrado: <strong className="font-semibold">{sampleUnit}</strong>
+                      </p>
+                    )}
+                  </div>
 
-              {loginType === 'PASSWORD' ? (
-                <div>
-                  <label className="block text-sm font-bold text-gray-800 mb-1">Chave de Acesso Única (Senha de 6 Dígitos)</label>
-                  <Input 
-                    placeholder="Ex: 574893" 
-                    value={passwordInput}
-                    onChange={(e) => setPasswordInput(e.target.value.replace(/\D/g, '').substring(0, 6))}
-                    maxLength={6}
-                    type="tel"
-                    disabled={!assemblyId || isIdentifying}
-                    onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
-                  />
-                  <p className="text-xs text-gray-400 mt-1">Insira a chave de 6 dígitos que você recebeu por e-mail.</p>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">7 primeiros números do CPF ou CNPJ</label>
+                    <Input 
+                      placeholder="Ex: 1234567" 
+                      value={cpfInput}
+                      onChange={(e) => setCpfInput(e.target.value.replace(/\D/g, '').substring(0, 7))}
+                      maxLength={7}
+                      type="tel"
+                      disabled={!assemblyId || isIdentifying}
+                      onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Apenas os 7 primeiros algarismos para validação biométrica em conformidade LGPD.</p>
+                  </div>
                 </div>
               ) : (
-                <div>
-                  <label className="block text-sm font-bold text-gray-800 mb-1">Identificação (5 primeiros dígitos do CPF)</label>
-                  <Input 
-                    placeholder="Ex: 12345" 
-                    value={cpfInput}
-                    onChange={(e) => setCpfInput(e.target.value.replace(/\D/g, '').substring(0, 5))}
-                    maxLength={5}
-                    type="tel"
-                    disabled={!assemblyId || isIdentifying}
-                    onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
-                  />
-                  <p className="text-xs text-gray-400 mt-1">Digite os 5 primeiros números do seu CPF.</p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Token de Acesso Individual</label>
+                    <Input 
+                      placeholder="Ex: W8X9Y2" 
+                      value={passwordInput}
+                      onChange={(e) => setPasswordInput(e.target.value.toUpperCase())}
+                      disabled={!assemblyId || isIdentifying}
+                      onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Insira o token criptográfico seguro enviado por e-mail ou WhatsApp.</p>
+                  </div>
                 </div>
               )}
 
-              <div className="flex gap-3 pt-2">
-                <Button onClick={handleIdentify} className="w-full flex items-center justify-center gap-2" disabled={!assemblyId || isIdentifying}>
-                  {isIdentifying ? <RefreshCw size={18} className="animate-spin" /> : <Search size={18} />} 
-                  {isIdentifying ? 'Buscando...' : 'Acessar Assembleia'}
+              <div className="pt-2">
+                <Button 
+                  onClick={handleIdentify} 
+                  className="w-full flex items-center justify-center gap-2 py-3 h-11 bg-slate-900 text-white hover:bg-slate-800" 
+                  disabled={!assemblyId || isIdentifying}
+                >
+                  {isIdentifying ? (
+                    <>
+                      <RefreshCw size={18} className="animate-spin" />
+                      <span>Buscando credenciais...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Search size={18} />
+                      <span>Buscar</span>
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
@@ -1425,13 +1462,19 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
                 </Button>
                 <Button 
                   onClick={submitVote} 
-                  className="flex-[2]" 
-                  disabled={!selectedOption}
+                  className="flex-[2] flex items-center justify-center gap-2" 
+                  disabled={!selectedOption || isSubmittingVote}
                 >
-                  {isDistinctVoting 
-                    ? (distinctVoteIndex + 1 === boothUnits.length ? 'Finalizar Votação' : 'Próxima Unidade')
-                    : 'Confirmar Voto(s)'
-                  }
+                  {isSubmittingVote ? (
+                    <>
+                      <RefreshCw className="animate-spin" size={16} />
+                      <span>Registrando Voto...</span>
+                    </>
+                  ) : isDistinctVoting ? (
+                    distinctVoteIndex + 1 === boothUnits.length ? 'Finalizar Votação' : 'Próxima Unidade'
+                  ) : (
+                    'Confirmar Voto(s)'
+                  )}
                 </Button>
               </div>
             </div>

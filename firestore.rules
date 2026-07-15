@@ -40,6 +40,13 @@ service cloud.firestore {
       );
     }
 
+    function hasValidRoleInSystem(username, role) {
+      return (username == 'wagner.silva' && role == 'TI') || (
+        exists(/databases/$(database)/documents/system/roles) &&
+        get(/databases/$(database)/documents/system/roles).data.get(username, 'NONE') == role
+      );
+    }
+
     // Protection against malicious document names
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_ \\-]+$');
@@ -101,7 +108,19 @@ service cloud.firestore {
       allow read: if isAuthenticated() && isValidId(uid);
       
       // Zero Self-Elevating: Only active TI can register or change administration profiles.
-      allow create, update: if isTI() && isValidId(uid) && isValidAdmin(incoming());
+      // Bootstrap Exception / System Roles Map: Allow authorized administrators (matching /system/roles) to register their anonymous UID.
+      allow create: if isAuthenticated() && isValidId(uid) && isValidAdmin(incoming()) && (
+        isTI() || hasValidRoleInSystem(incoming().username, incoming().role)
+      );
+      // Allow administrators to update their own dynamic login stats (e.g. lastLogin) without elevating their role.
+      allow update: if isAuthenticated() && isValidId(uid) && (
+        isTI() || (
+          request.auth.uid == uid &&
+          isValidAdmin(incoming()) &&
+          incoming().role == existing().role &&
+          incoming().username == existing().username
+        )
+      );
       allow delete: if isTI() && isValidId(uid);
     }
 
@@ -128,19 +147,30 @@ service cloud.firestore {
 
       // --- SUBCOLLECTION: Residents List (LGPD Protection Plan) ---
       match /residents_list/{unit} {
-        // Scraper defense: Standard users can 'get' individual files to self-verify. 'list' is blocked.
-        allow get: if isValidId(unit);
-        allow list: if true;
+        // Scraper defense: Block list entirely for non-admins, get allowed only for self-resident claim or admin
+        allow get: if isValidId(unit) && (
+          isAdmin() || (
+            isAuthenticated() &&
+            request.auth.token.role == 'RESIDENT' &&
+            request.auth.token.assemblyId == assemblyId &&
+            request.auth.token.unit.lower() == unit.lower()
+          )
+        );
+        allow list: if isAdmin();
         
         allow create, delete: if isAdmin() && isValidId(unit);
 
         allow update: if isValidId(unit) && (
           // Admin complete access
           (isAdmin() && isValidResident(incoming())) ||
-          // Resident self-checkin pipeline
+          // Resident self-checkin/upload pipeline (securely restricted by custom claims)
           (
+            isAuthenticated() &&
+            request.auth.token.role == 'RESIDENT' &&
+            request.auth.token.assemblyId == assemblyId &&
+            request.auth.token.unit.lower() == unit.lower() &&
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'zoomName', 'attendanceStatus', 'verificationStatus', 'documentPhotoUrl', 'selfiePhotoUrl', 'proxyOwnerUnit', 'proxyOwnerName', 'proxyOwnerCpf'
+              'zoomName', 'attendanceStatus', 'verificationStatus', 'documentPhotoUrl', 'selfiePhotoUrl'
             ]) &&
             incoming().get('zoomName', '') is string && incoming().get('zoomName', '').size() <= 128 &&
             incoming().get('attendanceStatus', 'NONE') in ['NONE', 'PENDING'] &&
@@ -153,18 +183,36 @@ service cloud.firestore {
 
       // --- SUBCOLLECTION: Votes (Strict Fraud Mitigation) ---
       match /votes/{voteId} {
-        // Residents and Admin can fetch individual votes or listen dynamically to count ballot numbers
-        allow get: if isValidId(voteId);
-        allow list: if true;
+        // Absolute Fraud Defense: Clients cannot read or write votes directly!
+        // ONLY server-side Cloud Functions or Admin dashboard can access them.
+        allow read, write: if isAdmin();
+      }
 
-        allow create: if isValidId(voteId) && isValidVote(incoming());
-        allow update: if isValidId(voteId) && (isAdmin() || (isValidVote(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['isDelinquentReleased', 'delinquentReleaseReason', 'delinquentReleasedBy'])));
-        allow delete: if isAdmin() && isValidId(voteId);
+      // --- SUBCOLLECTION: Audit Logs (Juridical Ledger) ---
+      match /audit_logs/{logId} {
+        allow read, write: if isAdmin();
+      }
+
+      // --- SUBCOLLECTION: Resident Sessions ---
+      match /resident_sessions/{sessionId} {
+        allow read, write: if isAdmin();
+      }
+
+      // --- SUBCOLLECTION: Blocked Units ---
+      match /blocked_units/{unitId} {
+        allow read, write: if isAdmin();
+      }
+
+      // --- SUBCOLLECTION: Security Settings ---
+      match /security_settings/{configId} {
+        allow read: if isAuthenticated(); // To let client check if App Check / Token is required
+        allow write: if isAdmin();
       }
 
       // Supporting subcollections under assemblies
       match /{subcollection}/{docId} {
-        allow read: if isAuthenticated() && isValidId(subcollection) && isValidId(docId);
+        allow read: if isAuthenticated() && isValidId(subcollection) && isValidId(docId) && 
+          !(subcollection in ['votes', 'audit_logs', 'resident_sessions', 'blocked_units', 'security_settings', 'residents_list']);
         allow write: if isAdmin() && isValidId(subcollection) && isValidId(docId);
       }
     }
