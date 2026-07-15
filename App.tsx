@@ -617,13 +617,26 @@ const App: React.FC = () => {
     let initialScripts: string[] = [];
     let initialStyles: string[] = [];
 
+    const isAppAsset = (path: string) => {
+      if (!path) return false;
+      // Filter out external scripts/CDNs (e.g. google recaptcha)
+      if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('//')) {
+        if (!path.startsWith(window.location.origin)) {
+          return false;
+        }
+      }
+      return path.includes('/assets/') || path.includes('index-') || path.includes('.js') || path.includes('.css');
+    };
+
     const getCurrentAssets = () => {
       const scripts = Array.from(document.querySelectorAll('script'))
         .map(s => s.getAttribute('src'))
-        .filter((src): src is string => !!src && (src.includes('/assets/') || src.endsWith('.js') || src.startsWith('/assets/index-')));
+        .filter((src): src is string => !!src)
+        .filter(isAppAsset);
       const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
         .map(l => l.getAttribute('href'))
-        .filter((href): href is string => !!href && (href.includes('/assets/') || href.endsWith('.css') || href.startsWith('/assets/index-')));
+        .filter((href): href is string => !!href)
+        .filter(isAppAsset);
       return { scripts, styles };
     };
 
@@ -652,18 +665,20 @@ const App: React.FC = () => {
         
         // Extract script sources pointing to assets
         const scriptRegex = /src=["']([^"']+\.[jJ][sS][^"']*)["']/gi;
-        const fetchedScripts: string[] = [];
+        const rawFetchedScripts: string[] = [];
         let match;
         while ((match = scriptRegex.exec(html)) !== null) {
-          fetchedScripts.push(match[1]);
+          rawFetchedScripts.push(match[1]);
         }
+        const fetchedScripts = rawFetchedScripts.filter(isAppAsset);
 
         // Extract style sources pointing to stylesheet assets
         const linkRegex = /href=["']([^"']+\.[cC][sS][sS][^"']*)["']/gi;
-        const fetchedStyles: string[] = [];
+        const rawFetchedStyles: string[] = [];
         while ((match = linkRegex.exec(html)) !== null) {
-          fetchedStyles.push(match[1]);
+          rawFetchedStyles.push(match[1]);
         }
+        const fetchedStyles = rawFetchedStyles.filter(isAppAsset);
 
         // We only check for mismatches if we actually have assets in the bundle
         if (initialScripts.length > 0 && fetchedScripts.length > 0) {
