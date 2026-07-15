@@ -1,12 +1,16 @@
 
 import React, { useState } from 'react';
-import { User, ActiveAssembly, AssemblyRecord, SystemLog, AssemblyType, ErrorLog } from '../types';
+import { LogoZip } from './LogoZip';
+import { User, ActiveAssembly, AssemblyRecord, SystemLog, AssemblyType, ErrorLog, Condominium, CondoDocument } from '../types';
 import { 
   saveActiveAssemblies, 
   deleteUserCompletely,
   parseCSV,
   cleanText,
-  addLog
+  addLog,
+  saveCondominiums,
+  saveCondoDocuments,
+  getCondoDocuments
 } from '../services/dataService';
 import { 
   LayoutDashboard, 
@@ -26,10 +30,25 @@ import {
   Check,
   Printer,
   Table,
-  AlertTriangle
+  AlertTriangle,
+  Edit,
+  Eye,
+  Folder,
+  FolderOpen,
+  File,
+  Download,
+  Plus,
+  Search,
+  ArrowLeft,
+  Calendar,
+  ChevronRight,
+  Copy,
+  Settings,
+  UserCog
 } from 'lucide-react';
 import { Button, Input, Card, Badge } from './ui';
 import { UsersManagement } from './Users';
+import { SettingsModule } from './Settings';
 import { ReportDocument } from './dashboard/ReportDocument';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -39,9 +58,11 @@ interface CompanyDashboardProps {
   currentUser: User | null;
   onLogout: () => void;
   onSelectAssembly: (assemblyId: string, condoName: string) => void;
-  onStartAssembly: (name: string, assemblyId: string, residents: any[], type: AssemblyType, startedBy?: string) => void;
+  onStartAssembly: (name: string, assemblyId: string, residents: any[], type: AssemblyType, startedBy?: string, condoId?: string) => void;
   activeAssemblies: ActiveAssembly[];
   setActiveAssemblies: React.Dispatch<React.SetStateAction<ActiveAssembly[]>>;
+  condominiums: Condominium[];
+  setCondominiums: React.Dispatch<React.SetStateAction<Condominium[]>>;
   users: User[];
   setUsers: React.Dispatch<React.SetStateAction<User[]>>;
   pastAssemblies: AssemblyRecord[];
@@ -51,6 +72,7 @@ interface CompanyDashboardProps {
   onDeleteLog?: (id: string) => void;
   onClearLogs?: () => void;
   onClearErrorLogs?: () => void;
+  onEditProfile: () => void;
 }
 
 const ConfirmPasswordModal: React.FC<{
@@ -112,6 +134,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   onStartAssembly,
   activeAssemblies,
   setActiveAssemblies,
+  condominiums,
+  setCondominiums,
   users,
   setUsers,
   pastAssemblies,
@@ -120,12 +144,37 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   onDeleteLog,
   onClearLogs,
   errorLogs = [],
-  onClearErrorLogs
+  onClearErrorLogs,
+  onEditProfile
 }) => {
-  const [activeTab, setActiveTab] = useState<'assemblies' | 'create' | 'users' | 'past_assemblies' | 'history' | 'error_logs'>('assemblies');
+  const [activeTab, setActiveTab] = useState<'assemblies' | 'create' | 'settings' | 'past_assemblies' | 'history' | 'error_logs' | 'clients'>('clients');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // --- CONDOMINIUMS STATES ---
+  const [selectedCondoId, setSelectedCondoId] = useState<string | null>(null);
+  const [condoDetailsTab, setCondoDetailsTab] = useState<'assemblies' | 'documents' | 'history'>('assemblies');
+  const [condoDocs, setCondoDocs] = useState<CondoDocument[]>([]);
+  const [isCondoFormOpen, setIsCondoFormOpen] = useState(false);
+  const [isEditingCondo, setIsEditingCondo] = useState(false);
+  const [editingCondoId, setEditingCondoId] = useState<string | null>(null);
+  const [condoForm, setCondoForm] = useState({
+    name: '',
+    cnpj: '',
+    phone: '',
+    syndicName: '',
+    address: '',
+    city: '',
+    state: '',
+    cep: '',
+    notes: '',
+    status: 'Ativo' as 'Ativo' | 'Inativo'
+  });
+  const [condoSearch, setCondoSearch] = useState('');
+  const [condoPage, setCondoPage] = useState(1);
+  const condosPerPage = 10;
+  const [selectedCreateCondoId, setSelectedCreateCondoId] = useState<string>('');
   
   // Create Assembly Form
   const [newCondoName, setNewCondoName] = useState('');
@@ -138,6 +187,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   });
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [showDelinquentsInReport, setShowDelinquentsInReport] = useState(true);
+  const [showCompanyInfoInReport, setShowCompanyInfoInReport] = useState(true);
+  const [logoSizeInReport, setLogoSizeInReport] = useState(128);
 
   // Audit Logs States for Concluded Assemblies
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
@@ -145,7 +196,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const [auditError, setAuditError] = useState('');
 
   const handleCreateAssembly = () => {
-    if (!newCondoName.trim()) return;
+    if (!newCondoName.trim() || !selectedCreateCondoId) return;
     
     const timestamp = Date.now();
     const assemblyId = `${newCondoName.trim().replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}`;
@@ -155,7 +206,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       createdAt: timestamp,
       isActive: true,
       type: assemblyType,
-      startedBy: currentUser?.name || 'Sistema'
+      startedBy: currentUser?.name || 'Sistema',
+      condoId: selectedCreateCondoId
     };
 
     const updated = [newAssembly, ...activeAssemblies];
@@ -163,15 +215,137 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     saveActiveAssemblies(updated);
     
     // Initialize the assembly in cloud with residents if provided
-    onStartAssembly(newCondoName.trim(), assemblyId, csvData, assemblyType, currentUser?.name || 'Sistema');
+    onStartAssembly(newCondoName.trim(), assemblyId, csvData, assemblyType, currentUser?.name || 'Sistema', selectedCreateCondoId);
     
     setNewCondoName('');
+    setSelectedCreateCondoId('');
     setAssemblyType(AssemblyType.ONLINE);
     setCsvData([]);
     setActiveTab('assemblies');
     
     // Switch to the new assembly dashboard
     onSelectAssembly(assemblyId, newCondoName.trim());
+  };
+
+  // --- CONDOMINIUM OPERATIONS ---
+  const handleSelectCondo = async (condoId: string) => {
+    setSelectedCondoId(condoId);
+    setCondoDetailsTab('assemblies');
+    const docs = await getCondoDocuments(condoId);
+    setCondoDocs(docs);
+  };
+
+  const handleSaveCondo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!condoForm.name.trim()) return;
+
+    let updatedList: Condominium[] = [];
+    if (isEditingCondo && editingCondoId) {
+      updatedList = condominiums.map(c => {
+        if (c.id === editingCondoId) {
+          return {
+            ...c,
+            ...condoForm,
+            updatedAt: Date.now()
+          };
+        }
+        return c;
+      });
+      if (currentUser) {
+        addLog(currentUser, 'EDIT_CONDO', `Editou o condomínio: ${condoForm.name}`);
+      }
+    } else {
+      const newCondo: Condominium = {
+        id: `condo_${Date.now()}`,
+        ...condoForm,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      updatedList = [newCondo, ...condominiums];
+      if (currentUser) {
+        addLog(currentUser, 'CREATE_CONDO', `Cadastrou o condomínio: ${condoForm.name}`);
+      }
+    }
+
+    setCondominiums(updatedList);
+    saveCondominiums(updatedList);
+    
+    // Reset form
+    setCondoForm({
+      name: '',
+      cnpj: '',
+      phone: '',
+      syndicName: '',
+      address: '',
+      city: '',
+      state: '',
+      cep: '',
+      notes: '',
+      status: 'Ativo'
+    });
+    setIsCondoFormOpen(false);
+    setIsEditingCondo(false);
+    setEditingCondoId(null);
+  };
+
+  const handleDeleteCondo = (id: string, name: string) => {
+    if (window.confirm(`Tem certeza de que deseja excluir o condomínio "${name}"? Suas assembleias históricas continuarão salvas no sistema.`)) {
+      const updated = condominiums.filter(c => c.id !== id);
+      setCondominiums(updated);
+      saveCondominiums(updated);
+      if (currentUser) {
+        addLog(currentUser, 'DELETE_CONDO', `Excluiu o condomínio: ${name}`);
+      }
+      if (selectedCondoId === id) {
+        setSelectedCondoId(null);
+      }
+    }
+  };
+
+  const handleDocUpload = (e: React.ChangeEvent<HTMLInputElement>, folder: string) => {
+    const file = e.target.files?.[0];
+    if (file && selectedCondoId) {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const content = event.target?.result as string;
+        const newDoc: CondoDocument = {
+          id: `doc_${Date.now()}`,
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          content: content,
+          folder: folder,
+          uploadedAt: Date.now()
+        };
+        const updatedDocs = [newDoc, ...condoDocs];
+        setCondoDocs(updatedDocs);
+        saveCondoDocuments(selectedCondoId, updatedDocs);
+        if (currentUser) {
+          addLog(currentUser, 'UPLOAD_DOC', `Enviou o documento ${file.name} para o condomínio`);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleDeleteDoc = (docId: string, docName: string) => {
+    if (window.confirm(`Deseja realmente excluir o documento "${docName}"?`)) {
+      if (selectedCondoId) {
+        const updatedDocs = condoDocs.filter(d => d.id !== docId);
+        setCondoDocs(updatedDocs);
+        saveCondoDocuments(selectedCondoId, updatedDocs);
+        if (currentUser) {
+          addLog(currentUser, 'DELETE_DOC', `Excluiu o documento ${docName}`);
+        }
+      }
+    }
+  };
+
+  const handleDownloadDoc = (doc: CondoDocument) => {
+    const link = document.createElement('a');
+    link.href = doc.content;
+    link.download = doc.name;
+    link.click();
   };
 
   const handleDeleteClick = (id: string | null, type: 'active' | 'history' | 'log' | 'all_logs' | 'all_error_logs') => {
@@ -454,12 +628,9 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       {/* Mobile Header */}
       <div className="lg:hidden bg-red-600 p-4 flex items-center justify-between text-white shadow-md sticky top-0 z-30">
         <div className="flex items-center gap-2">
-          <img 
-            src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
-            alt="Logo" 
-            className="h-8 w-auto" 
-            referrerPolicy="no-referrer"
-          />
+          <div className="w-14 max-w-full h-auto flex items-center justify-center">
+            <LogoZip logoType="system" className="w-full h-auto" />
+          </div>
           <span className="font-bold text-xs uppercase tracking-widest">Painel ZIP</span>
         </div>
         <button 
@@ -484,17 +655,20 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:relative lg:translate-x-0 lg:flex
       `}>
-        <div className="p-6 border-b border-red-500/30">
-          <img 
-            src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
-            alt="Logo" 
-            className="h-20 w-auto mx-auto" 
-            referrerPolicy="no-referrer"
-          />
+        <div className="p-6 border-b border-red-500/30 flex flex-col items-center">
+          <div className="w-full max-w-full h-auto flex justify-center">
+            <LogoZip logoType="system" className="w-full h-auto" />
+          </div>
           <p className="text-[10px] text-center font-bold text-red-100 mt-2 uppercase tracking-widest">Painel Corporativo</p>
         </div>
 
         <nav className="flex-1 px-4 py-4 space-y-2">
+          <button 
+            onClick={() => { setActiveTab('clients'); setIsSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'clients' ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}
+          >
+            <Building2 size={20} /> Meus Clientes
+          </button>
           <button 
             onClick={() => { setActiveTab('assemblies'); setIsSidebarOpen(false); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'assemblies' ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}
@@ -508,10 +682,10 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
             <PlusCircle size={20} /> Criar Assembleia
           </button>
           <button 
-            onClick={() => { setActiveTab('users'); setIsSidebarOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'users' ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}
+            onClick={() => { setActiveTab('settings'); setIsSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}
           >
-            <UsersIcon size={20} /> Funcionários
+            <Settings size={20} /> Configuração
           </button>
           <button 
             onClick={() => { setActiveTab('past_assemblies'); setIsSidebarOpen(false); }}
@@ -536,11 +710,20 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         </nav>
 
         <div className="p-4 border-t border-red-500/30">
-          <div className="bg-white/10 rounded-xl p-3 mb-4">
-            <p className="text-xs font-bold text-red-200 uppercase tracking-tight">Usuário</p>
-            <p className="text-sm font-bold text-white truncate">{currentUser?.name}</p>
-            <p className="text-[10px] text-red-100/70">{currentUser?.role}</p>
-          </div>
+          <button 
+            onClick={onEditProfile}
+            className="w-full text-left bg-white/10 hover:bg-white/20 border border-transparent hover:border-white/20 rounded-xl p-3 mb-4 group transition-all flex items-center justify-between"
+            title="Editar Meu Perfil"
+          >
+            <div className="min-w-0 flex-1 mr-2">
+              <p className="text-xs font-bold text-red-200 group-hover:text-white uppercase tracking-tight transition-colors">Usuário</p>
+              <p className="text-sm font-bold text-white truncate">{currentUser?.name}</p>
+              <p className="text-[10px] text-red-100/70">{currentUser?.role === 'TI' ? 'T.I. Admin' : (currentUser?.jobTitle || 'Administrador')}</p>
+            </div>
+            <div className="bg-white/10 group-hover:bg-white text-white group-hover:text-red-600 p-1.5 rounded-lg transition-all shrink-0">
+              <UserCog size={14} />
+            </div>
+          </button>
           <Button 
             onClick={onLogout}
             variant="outline" 
@@ -555,22 +738,734 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       <div className="flex-1 overflow-auto p-4 lg:p-8">
         <header className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">
+            {activeTab === 'clients' && (selectedCondoId ? `Condomínio: ${condominiums.find(c => c.id === selectedCondoId)?.name || ''}` : '🏢 Meus Clientes')}
             {activeTab === 'assemblies' && 'Assembleias em Andamento'}
             {activeTab === 'create' && 'Nova Assembleia'}
-            {activeTab === 'users' && 'Gestão de Funcionários'}
+            {activeTab === 'settings' && 'Configurações do Sistema'}
             {activeTab === 'past_assemblies' && 'Assembleias Concluídas'}
             {activeTab === 'history' && 'Histórico do Sistema'}
             {activeTab === 'error_logs' && 'Logs de Erro do Sistema'}
           </h1>
           <p className="text-gray-500">
+            {activeTab === 'clients' && (selectedCondoId ? 'Gerencie as informações gerais, assembleias vinculadas e documentações do condomínio.' : 'Cadastro, consulta e gerenciamento de todos os condomínios atendidos pela empresa.')}
             {activeTab === 'assemblies' && 'Gerencie as assembleias que estão ocorrendo agora.'}
             {activeTab === 'create' && 'Configure uma nova assembleia para um condomínio.'}
-            {activeTab === 'users' && 'Controle o acesso dos administradores ao sistema.'}
+            {activeTab === 'settings' && 'Gerencie o logotipo, informações da empresa e controle os acessos dos funcionários.'}
             {activeTab === 'past_assemblies' && 'Visualize os resultados de assembleias passadas.'}
             {activeTab === 'history' && 'Veja todas as movimentações realizadas no sistema.'}
             {activeTab === 'error_logs' && 'Visualize erros críticos do Firestore para depuração.'}
           </p>
         </header>
+
+        {activeTab === 'clients' && (
+          <div className="space-y-6">
+            {selectedCondoId === null ? (
+              // --- CLIENTS LIST SCREEN ---
+              <div className="space-y-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                  <div className="relative flex-1 w-full max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <Input
+                      placeholder="Buscar por nome, CNPJ ou síndico..."
+                      value={condoSearch}
+                      onChange={e => { setCondoSearch(e.target.value); setCondoPage(1); }}
+                      className="pl-10 py-5 bg-gray-50 border-gray-200 focus:bg-white transition-colors"
+                    />
+                  </div>
+                  <Button
+                    onClick={() => {
+                      setIsEditingCondo(false);
+                      setEditingCondoId(null);
+                      setCondoForm({
+                        name: '',
+                        cnpj: '',
+                        phone: '',
+                        syndicName: '',
+                        address: '',
+                        city: '',
+                        state: '',
+                        cep: '',
+                        notes: '',
+                        status: 'Ativo'
+                      });
+                      setIsCondoFormOpen(true);
+                    }}
+                    className="bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-3 h-auto rounded-xl flex items-center gap-2 shadow-lg shadow-red-100 w-full md:w-auto justify-center"
+                  >
+                    <Plus size={18} /> Cadastrar Condomínio
+                  </Button>
+                </div>
+
+                {/* Condominiums Grid */}
+                {condominiums.length === 0 ? (
+                  <Card className="p-12 text-center border-dashed border-gray-200">
+                    <Building2 className="mx-auto text-gray-300 mb-4" size={48} />
+                    <h3 className="text-lg font-bold text-gray-800 mb-1">Nenhum condomínio cadastrado</h3>
+                    <p className="text-gray-500 max-w-md mx-auto mb-6">Comece cadastrando os condomínios atendidos pela sua empresa para centralizar as assembleias e documentos.</p>
+                    <Button onClick={() => setIsCondoFormOpen(true)} className="bg-red-600 hover:bg-red-700">
+                      Cadastrar Primeiro Condomínio
+                    </Button>
+                  </Card>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-gray-50/50 border-b border-gray-100 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                            <th className="px-6 py-4">Nome do Condomínio</th>
+                            <th className="px-6 py-4">CNPJ</th>
+                            <th className="px-6 py-4">Síndico / Contato</th>
+                            <th className="px-6 py-4 text-center">Status</th>
+                            <th className="px-6 py-4 text-center">Assembleias</th>
+                            <th className="px-6 py-4 text-right">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 text-sm">
+                          {condominiums
+                            .filter(c => 
+                              c.name.toLowerCase().includes(condoSearch.toLowerCase()) ||
+                              c.cnpj.includes(condoSearch) ||
+                              c.syndicName.toLowerCase().includes(condoSearch.toLowerCase())
+                            )
+                            .slice((condoPage - 1) * condosPerPage, condoPage * condosPerPage)
+                            .map(condo => {
+                              const activeCount = activeAssemblies.filter(a => a.condoId === condo.id || (a.isActive && a.condoName === condo.name)).length;
+                              const pastCount = pastAssemblies.filter(a => a.condoId === condo.id || a.condoName === condo.name).length;
+                              return (
+                                <tr key={condo.id} className="hover:bg-gray-50/50 transition-colors">
+                                  <td className="px-6 py-4 font-semibold text-gray-900">{condo.name}</td>
+                                  <td className="px-6 py-4 text-gray-500">{condo.cnpj || '-'}</td>
+                                  <td className="px-6 py-4 text-gray-700">
+                                    <div>{condo.syndicName}</div>
+                                    <div className="text-xs text-gray-400">{condo.phone}</div>
+                                  </td>
+                                  <td className="px-6 py-4 text-center">
+                                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${condo.status === 'Ativo' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-gray-50 text-gray-500 border border-gray-100'}`}>
+                                      {condo.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 text-center text-gray-500">
+                                    <span className="font-bold text-gray-900">{activeCount + pastCount}</span>
+                                    {activeCount > 0 && (
+                                      <span className="ml-1 text-xs bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-bold border border-red-100">
+                                        {activeCount} Ativa(s)
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                    <div className="flex justify-end gap-2">
+                                      <Button
+                                        onClick={() => handleSelectCondo(condo.id)}
+                                        variant="outline"
+                                        className="p-2 h-auto text-gray-600 border-gray-200 hover:bg-gray-50"
+                                        title="Visualizar Detalhes"
+                                      >
+                                        <Eye size={16} />
+                                      </Button>
+                                      <Button
+                                        onClick={() => {
+                                          setIsEditingCondo(true);
+                                          setEditingCondoId(condo.id);
+                                          setCondoForm({
+                                            name: condo.name,
+                                            cnpj: condo.cnpj,
+                                            phone: condo.phone,
+                                            syndicName: condo.syndicName,
+                                            address: condo.address,
+                                            city: condo.city,
+                                            state: condo.state,
+                                            cep: condo.cep,
+                                            notes: condo.notes || '',
+                                            status: condo.status
+                                          });
+                                          setIsCondoFormOpen(true);
+                                        }}
+                                        variant="outline"
+                                        className="p-2 h-auto text-blue-600 border-blue-100 hover:bg-blue-50"
+                                        title="Editar Cadastro"
+                                      >
+                                        <Edit size={16} />
+                                      </Button>
+                                      {(currentUser?.role === 'TI' || currentUser?.role === 'ADMIN') && (
+                                        <Button
+                                          onClick={() => handleDeleteCondo(condo.id, condo.name)}
+                                          variant="outline"
+                                          className="p-2 h-auto text-red-600 border-red-100 hover:bg-red-50"
+                                          title="Excluir Condomínio"
+                                        >
+                                          <Trash2 size={16} />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination */}
+                    {condominiums.filter(c => 
+                      c.name.toLowerCase().includes(condoSearch.toLowerCase()) ||
+                      c.cnpj.includes(condoSearch) ||
+                      c.syndicName.toLowerCase().includes(condoSearch.toLowerCase())
+                    ).length > condosPerPage && (
+                      <div className="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                        <Button
+                          disabled={condoPage === 1}
+                          onClick={() => setCondoPage(condoPage - 1)}
+                          variant="outline"
+                          className="px-3 py-1.5 h-auto text-xs"
+                        >
+                          Anterior
+                        </Button>
+                        <span className="text-xs text-gray-500 font-medium">Página {condoPage}</span>
+                        <Button
+                          disabled={condoPage * condosPerPage >= condominiums.filter(c => 
+                            c.name.toLowerCase().includes(condoSearch.toLowerCase()) ||
+                            c.cnpj.includes(condoSearch) ||
+                            c.syndicName.toLowerCase().includes(condoSearch.toLowerCase())
+                          ).length}
+                          onClick={() => setCondoPage(condoPage + 1)}
+                          variant="outline"
+                          className="px-3 py-1.5 h-auto text-xs"
+                        >
+                          Próxima
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              // --- CLIENT DETAILS VIEW ---
+              (() => {
+                const condo = condominiums.find(c => c.id === selectedCondoId);
+                if (!condo) {
+                  setSelectedCondoId(null);
+                  return null;
+                }
+                const condoActiveAssemblies = activeAssemblies.filter(a => a.condoId === condo.id || (a.isActive && a.condoName === condo.name));
+                const condoPastAssemblies = pastAssemblies.filter(a => a.condoId === condo.id || a.condoName === condo.name);
+
+                return (
+                  <div className="space-y-6">
+                    {/* Header Card */}
+                    <Card className="p-6">
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 pb-6 border-b border-gray-100">
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => setSelectedCondoId(null)}
+                            className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-gray-600"
+                            title="Voltar para a Lista"
+                          >
+                            <ArrowLeft size={20} />
+                          </button>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h2 className="text-xl font-bold text-gray-900">{condo.name}</h2>
+                              <Badge className={condo.status === 'Ativo' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-gray-50 text-gray-500 border border-gray-100'}>
+                                {condo.status}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-gray-500">Cadastro de Condomínio Centralizado</p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                          <Button
+                            onClick={() => {
+                              setSelectedCreateCondoId(condo.id);
+                              setNewCondoName(condo.name);
+                              setActiveTab('create');
+                            }}
+                            className="bg-red-600 hover:bg-red-700 text-white font-semibold text-sm flex items-center gap-2 py-2 px-4 h-auto rounded-xl shadow-md"
+                          >
+                            <PlusCircle size={16} /> Nova Assembleia
+                          </Button>
+                          <Button
+                            onClick={() => {
+                              setIsEditingCondo(true);
+                              setEditingCondoId(condo.id);
+                              setCondoForm({
+                                name: condo.name,
+                                cnpj: condo.cnpj,
+                                phone: condo.phone,
+                                syndicName: condo.syndicName,
+                                address: condo.address,
+                                city: condo.city,
+                                state: condo.state,
+                                cep: condo.cep,
+                                notes: condo.notes || '',
+                                status: condo.status
+                              });
+                              setIsCondoFormOpen(true);
+                            }}
+                            variant="outline"
+                            className="border-gray-200 text-gray-700 hover:bg-gray-50 text-sm flex items-center gap-2 py-2 px-4 h-auto rounded-xl"
+                          >
+                            <Edit size={16} /> Editar Cadastro
+                          </Button>
+                          <Button
+                            onClick={() => {
+                              const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(condo, null, 2));
+                              const dlAnchorElem = document.createElement('a');
+                              dlAnchorElem.setAttribute("href", dataStr);
+                              dlAnchorElem.setAttribute("download", `FICHA_${condo.name.toUpperCase().replace(/\s+/g, '_')}.json`);
+                              dlAnchorElem.click();
+                            }}
+                            variant="outline"
+                            className="border-gray-200 text-gray-700 hover:bg-gray-50 text-sm flex items-center gap-2 py-2 px-4 h-auto rounded-xl"
+                          >
+                            Exportar Ficha
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* General Info Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 text-sm">
+                        <div className="space-y-1">
+                          <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">CNPJ</span>
+                          <p className="font-semibold text-gray-800">{condo.cnpj || 'Não Informado'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Síndico</span>
+                          <p className="font-semibold text-gray-800">{condo.syndicName || 'Não Informado'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Telefone de Contato</span>
+                          <p className="font-semibold text-gray-800">{condo.phone || 'Não Informado'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Cidade / Estado</span>
+                          <p className="font-semibold text-gray-800">{condo.city ? `${condo.city} / ${condo.state}` : 'Não Informado'}</p>
+                        </div>
+                        <div className="lg:col-span-4 space-y-1 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                          <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Endereço Completo</span>
+                          <p className="font-semibold text-gray-700">{condo.address || 'Não Informado'} {condo.cep ? `- CEP: ${condo.cep}` : ''}</p>
+                          {condo.notes && (
+                            <div className="mt-2 pt-2 border-t border-gray-200/60 text-xs text-gray-500">
+                              <span className="font-bold">Observações:</span> {condo.notes}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </Card>
+
+                    {/* Sub-Tabs Nav */}
+                    <div className="flex border-b border-gray-200 gap-6">
+                      <button
+                        onClick={() => setCondoDetailsTab('assemblies')}
+                        className={`pb-4 text-sm font-bold border-b-2 transition-all ${condoDetailsTab === 'assemblies' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+                      >
+                        Assembleias ({condoActiveAssemblies.length + condoPastAssemblies.length})
+                      </button>
+                      <button
+                        onClick={() => setCondoDetailsTab('documents')}
+                        className={`pb-4 text-sm font-bold border-b-2 transition-all ${condoDetailsTab === 'documents' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+                      >
+                        Documentações
+                      </button>
+                      <button
+                        onClick={() => setCondoDetailsTab('history')}
+                        className={`pb-4 text-sm font-bold border-b-2 transition-all ${condoDetailsTab === 'history' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+                      >
+                        Histórico do Cliente
+                      </button>
+                    </div>
+
+                    {/* SUB-TAB CONTENTS */}
+                    {condoDetailsTab === 'assemblies' && (
+                      <div className="space-y-4">
+                        {condoActiveAssemblies.length === 0 && condoPastAssemblies.length === 0 ? (
+                          <Card className="p-8 text-center border-dashed border-gray-200">
+                            <Calendar className="mx-auto text-gray-300 mb-3" size={36} />
+                            <h4 className="font-bold text-gray-800">Nenhuma assembleia registrada</h4>
+                            <p className="text-sm text-gray-500 mb-4">Este condomínio ainda não possui nenhuma assembleia criada.</p>
+                            <Button
+                              onClick={() => {
+                                setSelectedCreateCondoId(condo.id);
+                                setNewCondoName(condo.name);
+                                setActiveTab('create');
+                              }}
+                              className="bg-red-600 hover:bg-red-700"
+                            >
+                              Iniciar Nova Assembleia
+                            </Button>
+                          </Card>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Active assemblies of this condo */}
+                            {condoActiveAssemblies.map(assembly => (
+                              <Card key={assembly.id} className="p-5 border-t-4 border-t-red-600 flex flex-col justify-between">
+                                <div>
+                                  <div className="flex justify-between items-start mb-2">
+                                    <span className="bg-red-50 text-red-600 font-bold text-[10px] px-2 py-0.5 rounded border border-red-100 uppercase tracking-widest">
+                                      Em Andamento
+                                    </span>
+                                    <span className="text-xs text-gray-400">Criada: {new Date(assembly.createdAt).toLocaleDateString()}</span>
+                                  </div>
+                                  <h4 className="font-bold text-lg text-gray-900 mb-1">{assembly.condoName}</h4>
+                                  <p className="text-xs text-gray-500 mb-4">Presidente / Criador: {assembly.startedBy || 'Sistema'}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    onClick={() => onSelectAssembly(assembly.id, assembly.condoName)}
+                                    className="flex-1 bg-gray-900 hover:bg-black text-white text-xs py-2"
+                                  >
+                                    Abrir Painel
+                                  </Button>
+                                </div>
+                              </Card>
+                            ))}
+
+                            {/* Completed assemblies of this condo */}
+                            {condoPastAssemblies.map(assembly => (
+                              <Card key={assembly.id} className="p-5 border-t-4 border-t-gray-400 flex flex-col justify-between hover:shadow-md transition-shadow">
+                                <div>
+                                  <div className="flex justify-between items-start mb-2">
+                                    <span className="bg-gray-50 text-gray-500 font-bold text-[10px] px-2 py-0.5 rounded border border-gray-100 uppercase tracking-widest">
+                                      Encerrada
+                                    </span>
+                                    <span className="text-xs text-gray-400">Data: {new Date(assembly.date).toLocaleDateString()}</span>
+                                  </div>
+                                  <h4 className="font-bold text-lg text-gray-900 mb-1">{assembly.condoName}</h4>
+                                  <div className="grid grid-cols-3 gap-2 text-center bg-gray-50 p-2 rounded-lg text-xs my-3 border border-gray-100">
+                                    <div>
+                                      <div className="text-gray-400 font-bold text-[9px] uppercase">Quórum</div>
+                                      <div className="font-bold text-gray-800">{assembly.residentsSnapshot?.length || 0}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-400 font-bold text-[9px] uppercase">Pautas</div>
+                                      <div className="font-bold text-gray-800">{assembly.polls?.length || 0}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-400 font-bold text-[9px] uppercase">Votos</div>
+                                      <div className="font-bold text-gray-800">{assembly.votes?.length || 0}</div>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap gap-2 pt-2">
+                                  <Button
+                                    onClick={() => setSelectedReportId(assembly.id)}
+                                    className="flex-1 bg-white hover:bg-gray-50 border border-gray-200 text-gray-800 text-xs py-2"
+                                  >
+                                    Relatório
+                                  </Button>
+                                  <Button
+                                    onClick={() => {
+                                      // Duplicates assembly structure
+                                      setSelectedCreateCondoId(condo.id);
+                                      setNewCondoName(condo.name);
+                                      setAssemblyType(assembly.type || AssemblyType.ONLINE);
+                                      setCsvData(assembly.residentsSnapshot || []);
+                                      setActiveTab('create');
+                                    }}
+                                    className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 text-xs py-2 font-bold border border-red-100"
+                                    title="Duplicar estrutura para nova assembleia"
+                                  >
+                                    Duplicar
+                                  </Button>
+                                </div>
+                              </Card>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {condoDetailsTab === 'documents' && (
+                      <div className="space-y-6">
+                        {/* Folder View */}
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                          {['Convenção', 'Regimento Interno', 'Editais', 'Atas', 'Relatórios', 'Outros'].map(folderName => {
+                            const folderDocs = condoDocs.filter(d => d.folder === folderName);
+                            return (
+                              <Card key={folderName} className="p-4 flex flex-col justify-between hover:shadow-md transition-shadow relative group">
+                                <div className="p-3 bg-red-50 text-red-600 rounded-xl w-12 h-12 flex items-center justify-center mb-3">
+                                  <FolderOpen size={24} />
+                                </div>
+                                <h5 className="font-bold text-gray-800 text-sm truncate">{folderName}</h5>
+                                <p className="text-xs text-gray-400 mt-1">{folderDocs.length} Arquivo(s)</p>
+                                
+                                {/* Quick Upload Inside Card */}
+                                <div className="mt-3 relative">
+                                  <input
+                                    type="file"
+                                    onChange={(e) => handleDocUpload(e, folderName)}
+                                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                    title={`Enviar arquivo para ${folderName}`}
+                                  />
+                                  <Button className="w-full bg-gray-50 border border-gray-200 text-gray-600 text-[10px] py-1 h-auto hover:bg-gray-100 font-bold flex items-center justify-center gap-1">
+                                    <Plus size={10} /> Enviar
+                                  </Button>
+                                </div>
+                              </Card>
+                            );
+                          })}
+                        </div>
+
+                        {/* Complete Documents Table */}
+                        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden mt-6">
+                          <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                            <h4 className="font-bold text-gray-800 text-sm">Todos os Arquivos</h4>
+                            <span className="text-xs text-gray-400 font-medium">{condoDocs.length} arquivo(s) salvos</span>
+                          </div>
+                          
+                          {condoDocs.length === 0 ? (
+                            <div className="p-8 text-center text-gray-400 text-xs">
+                              <File size={32} className="mx-auto text-gray-200 mb-2" />
+                              Nenhum arquivo enviado. Utilize o botão "Enviar" acima dentro de uma das pastas para salvar documentos.
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto text-xs">
+                              <table className="w-full text-left">
+                                <thead>
+                                  <tr className="bg-gray-50/30 text-[10px] font-bold text-gray-400 uppercase border-b border-gray-100">
+                                    <th className="px-4 py-3">Nome</th>
+                                    <th className="px-4 py-3">Pasta</th>
+                                    <th className="px-4 py-3">Tamanho</th>
+                                    <th className="px-4 py-3">Enviado em</th>
+                                    <th className="px-4 py-3 text-right">Ações</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50 text-gray-700">
+                                  {condoDocs.map(doc => (
+                                    <tr key={doc.id} className="hover:bg-gray-50/50">
+                                      <td className="px-4 py-3 font-semibold text-gray-800 truncate max-w-xs">{doc.name}</td>
+                                      <td className="px-4 py-3">
+                                        <span className="bg-red-50 text-red-600 px-2 py-0.5 rounded font-bold border border-red-100 uppercase text-[9px]">
+                                          {doc.folder}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-3 text-gray-400">{(doc.size / 1024).toFixed(1)} KB</td>
+                                      <td className="px-4 py-3 text-gray-400">{new Date(doc.uploadedAt).toLocaleString()}</td>
+                                      <td className="px-4 py-3 text-right">
+                                        <div className="flex justify-end gap-1">
+                                          <Button
+                                            onClick={() => handleDownloadDoc(doc)}
+                                            variant="outline"
+                                            className="p-1 h-auto text-gray-600 border-gray-200 hover:bg-gray-50"
+                                            title="Baixar Arquivo"
+                                          >
+                                            <Download size={12} />
+                                          </Button>
+                                          <Button
+                                            onClick={() => handleDeleteDoc(doc.id, doc.name)}
+                                            variant="outline"
+                                            className="p-1 h-auto text-red-600 border-red-100 hover:bg-red-50"
+                                            title="Excluir Arquivo"
+                                          >
+                                            <Trash2 size={12} />
+                                          </Button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {condoDetailsTab === 'history' && (
+                      <div className="space-y-6">
+                        <div className="relative border-l border-gray-200 pl-6 ml-4 space-y-8 py-4">
+                          {/* Map active + past assemblies chronologically */}
+                          {[
+                            ...condoActiveAssemblies.map(a => ({ ...a, typeKey: 'active', dateKey: a.createdAt })),
+                            ...condoPastAssemblies.map(p => ({ ...p, typeKey: 'past', dateKey: p.date }))
+                          ]
+                            .sort((a, b) => b.dateKey - a.dateKey)
+                            .map((item, index) => (
+                              <div key={item.id} className="relative">
+                                {/* Timeline Node */}
+                                <span className={`absolute -left-[31px] top-1.5 flex items-center justify-center w-6 h-6 rounded-full border ${item.typeKey === 'active' ? 'bg-red-500 border-red-600 text-white shadow-md' : 'bg-white border-gray-300 text-gray-500'}`}>
+                                  {index + 1}
+                                </span>
+                                <div>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-xs text-gray-400 font-bold">{new Date(item.dateKey).toLocaleDateString()} {new Date(item.dateKey).toLocaleTimeString()}</span>
+                                    <span className={`px-2 py-0.5 rounded font-bold uppercase text-[9px] border ${item.typeKey === 'active' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-gray-50 text-gray-500 border-gray-100'}`}>
+                                      {item.typeKey === 'active' ? 'Ativo' : 'Encerrada'}
+                                    </span>
+                                  </div>
+                                  <h4 className="font-bold text-gray-900">{item.condoName}</h4>
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    Presidente: <span className="font-semibold text-gray-700">{item.startedBy || 'Não especificado'}</span>
+                                  </p>
+                                  {item.typeKey === 'past' && (
+                                    <div className="text-xs text-gray-500 mt-1 grid grid-cols-2 gap-x-4 max-w-sm">
+                                      <div>Presença: <span className="font-semibold text-gray-700">{(item as any).residentsSnapshot?.length || 0} condôminos</span></div>
+                                      <div>Pautas votadas: <span className="font-semibold text-gray-700">{(item as any).polls?.length || 0} pautas</span></div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
+            )}
+
+            {/* --- CONDOMINIUM CREATE/EDIT MODAL --- */}
+            {isCondoFormOpen && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-xs">
+                <Card className="w-full max-w-lg p-6 bg-white rounded-2xl shadow-2xl border border-gray-100 max-h-[90vh] overflow-y-auto">
+                  <div className="flex justify-between items-center pb-4 mb-4 border-b border-gray-100">
+                    <h3 className="text-lg font-bold text-gray-900">
+                      {isEditingCondo ? 'Editar Condomínio' : 'Cadastrar Condomínio'}
+                    </h3>
+                    <button
+                      onClick={() => setIsCondoFormOpen(false)}
+                      className="p-1 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveCondo} className="space-y-4 text-sm">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome do Condomínio *</label>
+                        <Input
+                          required
+                          value={condoForm.name}
+                          onChange={e => setCondoForm({ ...condoForm, name: e.target.value })}
+                          placeholder="Ex: Edifício Solar das Palmeiras"
+                          className="py-3"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">CNPJ *</label>
+                        <Input
+                          required
+                          value={condoForm.cnpj}
+                          onChange={e => setCondoForm({ ...condoForm, cnpj: e.target.value })}
+                          placeholder="00.000.000/0000-00"
+                          className="py-3"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Telefone *</label>
+                        <Input
+                          required
+                          value={condoForm.phone}
+                          onChange={e => setCondoForm({ ...condoForm, phone: e.target.value })}
+                          placeholder="(11) 99999-9999"
+                          className="py-3"
+                        />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome do Síndico *</label>
+                        <Input
+                          required
+                          value={condoForm.syndicName}
+                          onChange={e => setCondoForm({ ...condoForm, syndicName: e.target.value })}
+                          placeholder="Nome do responsável pelo condomínio"
+                          className="py-3"
+                        />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Endereço Completo *</label>
+                        <Input
+                          required
+                          value={condoForm.address}
+                          onChange={e => setCondoForm({ ...condoForm, address: e.target.value })}
+                          placeholder="Rua, Número, Bairro, Complemento"
+                          className="py-3"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Cidade *</label>
+                        <Input
+                          required
+                          value={condoForm.city}
+                          onChange={e => setCondoForm({ ...condoForm, city: e.target.value })}
+                          placeholder="Cidade"
+                          className="py-3"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Estado *</label>
+                        <Input
+                          required
+                          value={condoForm.state}
+                          onChange={e => setCondoForm({ ...condoForm, state: e.target.value })}
+                          placeholder="Ex: SP"
+                          className="py-3"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">CEP *</label>
+                        <Input
+                          required
+                          value={condoForm.cep}
+                          onChange={e => setCondoForm({ ...condoForm, cep: e.target.value })}
+                          placeholder="00000-000"
+                          className="py-3"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Status *</label>
+                        <select
+                          className="w-full rounded-xl border border-gray-200 p-3 bg-white"
+                          value={condoForm.status}
+                          onChange={e => setCondoForm({ ...condoForm, status: e.target.value as 'Ativo' | 'Inativo' })}
+                        >
+                          <option value="Ativo">Ativo</option>
+                          <option value="Inativo">Inativo</option>
+                        </select>
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Observações (Opcional)</label>
+                        <textarea
+                          value={condoForm.notes}
+                          onChange={e => setCondoForm({ ...condoForm, notes: e.target.value })}
+                          placeholder="Observações ou anotações adicionais..."
+                          rows={2}
+                          className="w-full rounded-xl border border-gray-200 p-3 focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-6">
+                      <Button
+                        type="button"
+                        onClick={() => setIsCondoFormOpen(false)}
+                        variant="outline"
+                        className="border-gray-200 text-gray-600 hover:bg-gray-50"
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        type="submit"
+                        className="bg-red-600 hover:bg-red-700 text-white font-bold px-6"
+                      >
+                        {isEditingCondo ? 'Salvar Alterações' : 'Cadastrar Condomínio'}
+                      </Button>
+                    </div>
+                  </form>
+                </Card>
+              </div>
+            )}
+          </div>
+        )}
 
         {activeTab === 'assemblies' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -634,13 +1529,39 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
             <Card className="p-8">
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Nome do Condomínio</label>
-                  <Input 
-                    placeholder="Ex: Edifício Solar das Palmeiras" 
-                    value={newCondoName}
-                    onChange={e => setNewCondoName(e.target.value)}
-                    className="text-lg py-6"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Selecionar Condomínio</label>
+                  {condominiums.filter(c => c.status === 'Ativo').length === 0 ? (
+                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-xl text-yellow-800 text-sm flex flex-col gap-2">
+                      <p className="font-semibold">Nenhum condomínio ativo cadastrado!</p>
+                      <p>Você precisa cadastrar um condomínio ativo no módulo "Meus Clientes" antes de criar uma assembleia.</p>
+                      <Button 
+                        onClick={() => { setActiveTab('clients'); setIsCondoFormOpen(true); }}
+                        className="bg-yellow-600 hover:bg-yellow-700 text-white self-start text-xs py-1 px-3 h-auto mt-1"
+                      >
+                        Cadastrar Condomínio Agora
+                      </Button>
+                    </div>
+                  ) : (
+                    <select
+                      className="w-full rounded-xl border border-gray-200 p-3 text-sm focus:border-red-500 focus:ring-red-500 bg-white"
+                      value={selectedCreateCondoId}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setSelectedCreateCondoId(id);
+                        const condo = condominiums.find(c => c.id === id);
+                        if (condo) {
+                          setNewCondoName(condo.name);
+                        } else {
+                          setNewCondoName('');
+                        }
+                      }}
+                    >
+                      <option value="">-- Selecione o Condomínio --</option>
+                      {condominiums.filter(c => c.status === 'Ativo').map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div>
@@ -690,7 +1611,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                 <div className="pt-4">
                   <Button 
                     onClick={handleCreateAssembly}
-                    disabled={!newCondoName.trim()}
+                    disabled={!newCondoName.trim() || !selectedCreateCondoId}
                     className="w-full py-6 bg-red-600 hover:bg-red-700 text-white font-bold text-lg shadow-xl shadow-red-100"
                   >
                     INICIAR NOVA ASSEMBLEIA
@@ -701,8 +1622,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
           </div>
         )}
 
-        {activeTab === 'users' && (
-          <UsersManagement 
+        {activeTab === 'settings' && (
+          <SettingsModule 
             users={users} 
             setUsers={setUsers} 
             currentUser={currentUser} 
@@ -766,37 +1687,67 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
               </div>
             ) : (
               <div className="space-y-6">
-                <div className="flex items-center justify-between mb-8">
-                  <Button variant="outline" size="sm" onClick={() => setSelectedReportId(null)}>
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-8 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                  <Button variant="outline" size="sm" onClick={() => setSelectedReportId(null)} className="hover:bg-gray-50">
                     ← Voltar para a lista
                   </Button>
-                  <div className="flex gap-3 items-center">
-                    <label className="flex items-center gap-2 text-sm font-medium text-gray-600 cursor-pointer bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* Show Delinquents Toggle */}
+                    <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer bg-gray-50 px-3.5 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 transition-all select-none">
                       <input 
                         type="checkbox" 
                         checked={showDelinquentsInReport} 
                         onChange={(e) => setShowDelinquentsInReport(e.target.checked)}
-                        className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                        className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
                       />
                       <span>Mostrar Inadimplentes</span>
                     </label>
+
+                    {/* ZIP Advisory Toggle */}
+                    <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer bg-gray-50 px-3.5 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 transition-all select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={showCompanyInfoInReport} 
+                        onChange={(e) => setShowCompanyInfoInReport(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                      />
+                      <span>Assessoria da ZIP</span>
+                    </label>
+
+                    {/* Logo Size Adjuster */}
+                    <div className="flex items-center gap-2 bg-gray-50 px-3.5 py-2 rounded-xl border border-gray-200">
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider select-none">Logo:</span>
+                      <input 
+                        type="range" 
+                        min="64" 
+                        max="256" 
+                        step="8"
+                        value={logoSizeInReport} 
+                        onChange={(e) => setLogoSizeInReport(Number(e.target.value))}
+                        className="w-20 accent-red-600 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <span className="text-xs font-mono font-bold text-gray-600 bg-white border border-gray-200 px-1.5 py-0.5 rounded">{logoSizeInReport}px</span>
+                    </div>
+
+                    <div className="h-6 w-px bg-gray-200 hidden md:block"></div>
+
                     <Button 
                       onClick={() => { setIsAuditModalOpen(true); setAuditError(''); setAuditPassword(''); }} 
                       variant="outline"
-                      className="border-amber-600 text-amber-700 hover:bg-amber-50 flex items-center gap-2"
+                      className="border-amber-600 text-amber-700 hover:bg-amber-50 flex items-center gap-2 rounded-xl py-2"
                     >
                       <UsersIcon size={18} /> Baixar Auditoria
                     </Button>
                     <Button 
                       onClick={() => handleDownloadExcel(pastAssemblies.find(a => a.id === selectedReportId)!)}
                       variant="outline"
-                      className="border-green-600 text-green-700 hover:bg-green-50 flex items-center gap-2"
+                      className="border-green-600 text-green-700 hover:bg-green-50 flex items-center gap-2 rounded-xl py-2"
                     >
                       <Table size={18} /> Baixar Excel
                     </Button>
                     <Button 
                       onClick={() => handleDownloadPDF(pastAssemblies.find(a => a.id === selectedReportId)?.condoName || 'Assembleia')}
-                      className="bg-red-600 hover:bg-red-700 text-white flex items-center gap-2"
+                      className="bg-red-600 hover:bg-red-700 text-white flex items-center gap-2 rounded-xl py-2"
                       disabled={isGeneratingPDF}
                     >
                       {isGeneratingPDF ? (
@@ -821,6 +1772,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         assemblyType={pastAssemblies.find(a => a.id === selectedReportId)!.type}
                         isForPDF={isGeneratingPDF}
                         delinquencyModifications={pastAssemblies.find(a => a.id === selectedReportId)!.delinquencyModifications || []}
+                        showCompanyInfo={showCompanyInfoInReport}
+                        logoSize={logoSizeInReport}
                       />
                     </div>
                   </div>

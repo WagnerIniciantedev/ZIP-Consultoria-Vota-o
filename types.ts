@@ -24,6 +24,7 @@ export interface ActiveAssembly {
   type?: AssemblyType;
   status?: 'active' | 'completed';
   startedBy?: string;
+  condoId?: string; // Relation to Condominium
 }
 
 export enum PollCalculationType {
@@ -142,4 +143,31 @@ export interface AssemblyRecord {
   logs?: SystemLog[];
   startedBy?: string;
   delinquencyModifications?: DelinquencyModification[];
+  condoId?: string; // Relation to Condominium
+}
+
+export interface Condominium {
+  id: string;
+  name: string;
+  cnpj: string;
+  phone: string;
+  syndicName: string;
+  address: string;
+  city: string;
+  state: string;
+  cep: string;
+  notes?: string;
+  status: 'Ativo' | 'Inativo';
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CondoDocument {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  content: string; // Base64 representation or URL
+  folder: string; // e.g. 'Convenção', 'Regimento Interno', 'Editais', 'Atas', 'Relatórios', 'Outros'
+  uploadedAt: number;
 }

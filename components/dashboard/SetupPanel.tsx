@@ -6,7 +6,7 @@ import { db, doc, setDoc } from '../../services/firebase';
 import { 
   FileSpreadsheet, Download, AlertCircle, FileText, CheckCircle2, UploadCloud, 
   Database, AlertTriangle, Mail, Key, Eye, Send, Sparkles, Search, UserMinus, X,
-  Settings, Sliders, Check, Loader2, UserCheck, RefreshCw
+  Settings, Sliders, Check, Loader2, UserCheck, RefreshCw, Zap
 } from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
 

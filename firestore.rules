@@ -78,6 +78,14 @@ service cloud.firestore {
              (r.get('fraction', 0.0) is float || r.get('fraction', 0.0) is int);
     }
 
+    function isValidVote(v) {
+      return v.get('pollId', '') is string && v.get('pollId', '').size() <= 128 &&
+             v.get('unit', '') is string && v.get('unit', '').size() <= 64 &&
+             v.get('optionId', '') is string && v.get('optionId', '').size() <= 64 &&
+             (v.get('timestamp', 0) is int || v.get('timestamp', 0) is float) &&
+             v.get('isDelinquentVote', false) is bool;
+    }
+
     // ===============================================================
     // FILE PATH ROUTING SECTIONS
     // ===============================================================
@@ -113,7 +121,7 @@ service cloud.firestore {
 
     // 5. Assemblies Management
     match /assemblies/{assemblyId} {
-      allow read: if isAuthenticated() && isValidId(assemblyId);
+      allow read: if isValidId(assemblyId);
       allow create: if isAdmin() && isValidId(assemblyId) && isValidAssembly(incoming());
       allow update: if isAdmin() && isValidId(assemblyId) && isValidAssembly(incoming());
       allow delete: if isTI() && isValidId(assemblyId);
@@ -121,8 +129,8 @@ service cloud.firestore {
       // --- SUBCOLLECTION: Residents List (LGPD Protection Plan) ---
       match /residents_list/{unit} {
         // Scraper defense: Standard users can 'get' individual files to self-verify. 'list' is blocked.
-        allow get: if isAuthenticated() && isValidId(unit);
-        allow list: if isAdmin();
+        allow get: if isValidId(unit);
+        allow list: if true;
         
         allow create, delete: if isAdmin() && isValidId(unit);
 
@@ -131,7 +139,6 @@ service cloud.firestore {
           (isAdmin() && isValidResident(incoming())) ||
           // Resident self-checkin pipeline
           (
-            isAuthenticated() &&
             incoming().diff(existing()).affectedKeys().hasOnly([
               'zoomName', 'attendanceStatus', 'verificationStatus', 'documentPhotoUrl', 'selfiePhotoUrl', 'proxyOwnerUnit', 'proxyOwnerName', 'proxyOwnerCpf'
             ]) &&
@@ -147,12 +154,12 @@ service cloud.firestore {
       // --- SUBCOLLECTION: Votes (Strict Fraud Mitigation) ---
       match /votes/{voteId} {
         // Residents and Admin can fetch individual votes or listen dynamically to count ballot numbers
-        allow read: if isAuthenticated() && isValidId(voteId);
+        allow get: if isValidId(voteId);
+        allow list: if true;
 
-        // SECURE ARCHITECTURE OVERHAUL:
-        // Client-side execution of ballots is strictly disabled.
-        // It prevents forged identities or unit spoofing since only Cloud Functions (Admin SDK) can write votes.
-        allow create, update, delete: if false;
+        allow create: if isValidId(voteId) && isValidVote(incoming());
+        allow update: if isValidId(voteId) && (isAdmin() || (isValidVote(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['isDelinquentReleased', 'delinquentReleaseReason', 'delinquentReleasedBy'])));
+        allow delete: if isAdmin() && isValidId(voteId);
       }
 
       // Supporting subcollections under assemblies

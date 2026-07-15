@@ -1,5 +1,5 @@
 
-import { Resident, Poll, VoteRecord, User, AssemblyRecord, ErrorLog, DelinquencyModification } from '../types';
+import { Resident, Poll, VoteRecord, User, AssemblyRecord, ErrorLog, DelinquencyModification, Condominium, CondoDocument } from '../types';
 import { doc, setDoc, deleteDoc, getDoc, collection, query, where, getDocs, getDocFromServer, arrayUnion } from 'firebase/firestore';
 import { db, auth } from './firebase';
 
@@ -19,7 +19,7 @@ let cachedVotes: VoteRecord[] | null = null;
 let cachedLogs: any[] | null = null;
 
 // --- FIRESTORE ERROR HANDLING ---
-enum OperationType {
+export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
   DELETE = 'delete',
@@ -53,9 +53,25 @@ let errorThrottle = {
   lastTime: 0
 };
 
+export function maskSensitiveData(text: string | undefined | null): string {
+  if (!text) return "";
+  let result = text;
+  
+  // 1. Mask CPF (Brazilian tax ID) formatted (e.g. 123.456.789-10) or unformatted (12345678910)
+  result = result.replace(/\b(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})\b/g, "$1.***.***-**");
+  
+  // 2. Mask emails (e.g. wagner1jackson@gmail.com -> wa*******@gmail.com)
+  result = result.replace(/\b([A-Za-z0-9._%+-]{1,3})([A-Za-z0-9._%+-]*)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g, "$1******@$3");
+
+  // 3. Mask passwords, secrets, CNH, RG inside JSON/plain structures
+  result = result.replace(/(password|senha|accessPassword|pass|token|secret|apiKey|authDomain|auth_key|authorization|jwt|cnh|rg)\s*[:=]\s*["']([^"']+)["']/gi, '$1: "********"');
+  
+  return result;
+}
+
 export function safeStringify(value: any, space?: string | number): string {
   const seen = new WeakSet();
-  return JSON.stringify(value, (_key, val) => {
+  const rawString = JSON.stringify(value, (_key, val) => {
     if (val && typeof val === 'object') {
       if (seen.has(val)) {
         return undefined; // skip circular reference
@@ -86,9 +102,11 @@ export function safeStringify(value: any, space?: string | number): string {
     }
     return val;
   }, space);
+
+  return maskSensitiveData(rawString);
 }
 
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const now = Date.now();
   const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -108,17 +126,17 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   }
 
   const errInfo: FirestoreErrorInfo = {
-    error: errorMessage,
+    error: maskSensitiveData(errorMessage),
     authInfo: {
       userId: auth?.currentUser?.uid,
-      email: auth?.currentUser?.email,
+      email: auth?.currentUser?.email ? maskSensitiveData(auth.currentUser.email) : null,
       emailVerified: auth?.currentUser?.emailVerified,
       isAnonymous: auth?.currentUser?.isAnonymous,
       tenantId: auth?.currentUser?.tenantId,
       providerInfo: auth?.currentUser?.providerData.map((provider: any) => ({
         providerId: provider.providerId,
         displayName: provider.displayName,
-        email: provider.email,
+        email: provider.email ? maskSensitiveData(provider.email) : null,
         photoUrl: provider.photoURL
       })) || []
     },
@@ -407,7 +425,7 @@ export const addLog = (user: User, action: string, details?: string) => {
     userId: user.id,
     userName: user.name,
     action,
-    details,
+    details: maskSensitiveData(details),
     assemblyId: localStorage.getItem(STORAGE_KEYS.CONDO_NAME) || 'setup'
   };
   const updatedLogs = [...logs, newLog];
@@ -604,12 +622,27 @@ export const identifyResidentWithPassword = async (assemblyId: string, unit: str
   siblings: Resident[],
   proxyOwners: Record<string, Resident>
 }> => {
-  if (!assemblyId) return { resident: null, siblings: [], proxyOwners: {} };
+  if (!assemblyId || typeof assemblyId !== 'string' || assemblyId.length > 128) {
+    return { resident: null, siblings: [], proxyOwners: {} };
+  }
+
+  // Regex check for safe assemblyId formatting (protection against path manipulations)
+  const idRegex = /^[a-zA-Z0-9_ \-]+$/;
+  if (!idRegex.test(assemblyId)) {
+    return { resident: null, siblings: [], proxyOwners: {} };
+  }
+
+  const trimmedUnit = (unit || '').trim().toLowerCase();
+  const trimmedPassword = (passwordPart || '').trim().toUpperCase();
+
+  if (!trimmedUnit || trimmedUnit.length > 64 || !trimmedPassword || trimmedPassword.length > 64) {
+    return { resident: null, siblings: [], proxyOwners: {} };
+  }
 
   // Fallback to local storage if Firestore isn't connected or configured yet
   if (!db) {
     const list = getResidents();
-    const resident = list.find(r => r.unit.toLowerCase() === unit.toLowerCase() && (r.accessPassword || '').trim().toUpperCase() === passwordPart.trim().toUpperCase());
+    const resident = list.find(r => r.unit.toLowerCase() === trimmedUnit && (r.accessPassword || '').trim().toUpperCase() === trimmedPassword);
     if (!resident) return { resident: null, siblings: [], proxyOwners: {} };
     
     // Check siblings in local
@@ -627,7 +660,7 @@ export const identifyResidentWithPassword = async (assemblyId: string, unit: str
   const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
   
   try {
-    const residentRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', unit.toLowerCase());
+    const residentRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', trimmedUnit);
     const snap = await getDoc(residentRef);
     
     if (!snap.exists()) return { resident: null, siblings: [], proxyOwners: {} };
@@ -635,9 +668,8 @@ export const identifyResidentWithPassword = async (assemblyId: string, unit: str
     const resident = snap.data() as Resident;
     
     const recordPassword = (resident.accessPassword || '').trim().toUpperCase();
-    const inputPassword = passwordPart.trim().toUpperCase();
     
-    if (recordPassword !== inputPassword) {
+    if (recordPassword !== trimmedPassword) {
       return { resident: null, siblings: [], proxyOwners: {} };
     }
 
@@ -673,13 +705,29 @@ export const identifyResident = async (assemblyId: string, unit: string, cpfPart
   siblings: Resident[],
   proxyOwners: Record<string, Resident> 
 }> => {
-  if (!db || !assemblyId) return { resident: null, siblings: [], proxyOwners: {} };
+  if (!assemblyId || typeof assemblyId !== 'string' || assemblyId.length > 128) {
+    return { resident: null, siblings: [], proxyOwners: {} };
+  }
+
+  const idRegex = /^[a-zA-Z0-9_ \-]+$/;
+  if (!idRegex.test(assemblyId)) {
+    return { resident: null, siblings: [], proxyOwners: {} };
+  }
+
+  const trimmedUnit = (unit || '').trim().toLowerCase();
+  const digitsOnlyCpf = (cpfPart || '').replace(/\D/g, '');
+
+  if (!trimmedUnit || trimmedUnit.length > 64 || !digitsOnlyCpf || digitsOnlyCpf.length > 11) {
+    return { resident: null, siblings: [], proxyOwners: {} };
+  }
+
+  if (!db) return { resident: null, siblings: [], proxyOwners: {} };
 
   const safeAssemblyId = assemblyId.replace(/[^a-zA-Z0-9]/g, '_');
   
   try {
     // 1. Try to get the specific unit
-    const residentRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', unit.toLowerCase());
+    const residentRef = doc(db, ASSEMBLIES_COLLECTION, safeAssemblyId, 'residents_list', trimmedUnit);
     const snap = await getDoc(residentRef);
     
     if (!snap.exists()) return { resident: null, siblings: [], proxyOwners: {} };
@@ -688,7 +736,7 @@ export const identifyResident = async (assemblyId: string, unit: string, cpfPart
     
     // 2. Validate CPF (first 5 digits)
     const recordCpf = (resident.cpf || '').replace(/\D/g, '');
-    if (!recordCpf.startsWith(cpfPart)) {
+    if (!recordCpf.startsWith(digitsOnlyCpf)) {
       return { resident: null, siblings: [], proxyOwners: {} };
     }
 
@@ -1036,3 +1084,105 @@ export const exportAttendanceCSV = (residents: Resident[], condoName: string) =>
   link.download = `PRESENCA_${condoName.toUpperCase().replace(/\s+/g, '_')}.csv`;
   link.click();
 };
+
+export const saveCondominiums = (condos: Condominium[], syncToCloud: boolean = true) => {
+  localStorage.setItem('condovote_condominiums', JSON.stringify(condos));
+  if (syncToCloud && db && isAdminUser && isCloudRegistered) {
+    const ref = doc(db, SYSTEM_COLLECTION, 'condominiums');
+    setDoc(ref, { list: condos, lastUpdated: Date.now() }, { merge: true })
+      .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/condominiums`));
+  }
+};
+
+export const getCondominiums = (): Condominium[] => {
+  const data = localStorage.getItem('condovote_condominiums');
+  if (data) {
+    try {
+      return JSON.parse(data);
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+};
+
+export const saveCondoDocuments = (condoId: string, docs: CondoDocument[], syncToCloud: boolean = true) => {
+  localStorage.setItem(`condovote_docs_${condoId}`, JSON.stringify(docs));
+  if (syncToCloud && db && isAdminUser && isCloudRegistered) {
+    const ref = doc(db, 'condominiums', condoId, 'documents', 'list');
+    setDoc(ref, { list: docs, lastUpdated: Date.now() })
+      .catch(err => handleFirestoreError(err, OperationType.WRITE, `condominiums/${condoId}/documents/list`));
+  }
+};
+
+export const getCondoDocuments = async (condoId: string): Promise<CondoDocument[]> => {
+  const localData = localStorage.getItem(`condovote_docs_${condoId}`);
+  let localDocs: CondoDocument[] = [];
+  if (localData) {
+    try {
+      localDocs = JSON.parse(localData);
+    } catch (e) {}
+  }
+  
+  if (db && isAdminUser && isCloudRegistered) {
+    try {
+      const ref = doc(db, 'condominiums', condoId, 'documents', 'list');
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const cloudDocs = snap.data().list || [];
+        localStorage.setItem(`condovote_docs_${condoId}`, JSON.stringify(cloudDocs));
+        return cloudDocs;
+      }
+    } catch (e) {
+      console.error("Error getting condo documents from cloud:", e);
+    }
+  }
+  return localDocs;
+};
+
+export interface CompanySettings {
+  name: string;
+  cnpj: string;
+  address: string;
+  phone: string;
+  logo: string; // URL or Base64
+  loginLogoSize?: number; // Size in px
+  systemLogoSize?: number; // Size in px
+}
+
+export const saveCompanySettings = async (settings: CompanySettings, syncToCloud: boolean = true) => {
+  localStorage.setItem('condovote_company_settings', JSON.stringify(settings));
+  // Dispatch custom event for real-time local updates
+  window.dispatchEvent(new Event('company-settings-updated'));
+  
+  if (syncToCloud && db && isAdminUser && isCloudRegistered) {
+    const ref = doc(db, SYSTEM_COLLECTION, 'company_settings');
+    await setDoc(ref, settings, { merge: true })
+      .catch(err => handleFirestoreError(err, OperationType.WRITE, `${SYSTEM_COLLECTION}/company_settings`));
+  }
+};
+
+export const getCompanySettings = (): CompanySettings => {
+  const data = localStorage.getItem('condovote_company_settings');
+  if (data) {
+    try {
+      const parsed = JSON.parse(data);
+      return {
+        loginLogoSize: 280,
+        systemLogoSize: 160,
+        ...parsed
+      };
+    } catch (e) {}
+  }
+  return {
+    name: 'ZIP Consultoria',
+    cnpj: '',
+    address: '',
+    phone: '',
+    logo: '',
+    loginLogoSize: 280,
+    systemLogoSize: 160
+  };
+};
+
+

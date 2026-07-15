@@ -2,6 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, getDoc } from "firebase/firestore";
 import { getAuth, signInAnonymously } from "firebase/auth";
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
 // ============================================================================
 // CONFIGURAÇÃO DO FIREBASE (FIRESTORE + AUTH)
@@ -33,6 +34,22 @@ try {
     auth = getAuth(app);
     
     console.log("✅ Firebase Firestore e Auth inicializados!");
+
+    // ============================================================================
+    // ACTIVATION OF FIREBASE APP CHECK (Zero-Trust Anti-Abuse Shield)
+    // ============================================================================
+    if (typeof window !== "undefined") {
+        const appCheckKey = (import.meta as any).env?.VITE_RECAPTCHA_V3_KEY;
+        if (appCheckKey) {
+            initializeAppCheck(app, {
+                provider: new ReCaptchaV3Provider(appCheckKey),
+                isTokenAutoRefreshEnabled: true
+            });
+            console.log("🔒 Firebase App Check ativado via ReCAPTCHA v3!");
+        } else {
+            console.info("ℹ️ Firebase App Check: Forneça VITE_RECAPTCHA_V3_KEY nas variáveis de ambiente para ativar o escudo anti-abuso.");
+        }
+    }
 } catch (error) {
     console.error("Erro ao inicializar Firebase:", error);
 }

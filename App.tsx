@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord, SystemLog, AssemblyType, ErrorLog } from './types';
+import { AppView, Resident, Poll, VoteRecord, User, AssemblyRecord, SystemLog, AssemblyType, ErrorLog, Condominium } from './types';
 import { 
   getResidents, saveResidents, 
   getPolls, savePolls, 
@@ -17,7 +17,9 @@ import {
   getLogs, saveLogs, registerAdminUid, setAdminStatus, clearAdminStatus,
   testConnection,
   clearErrorLogs,
-  getDelinquencyModifications
+  getDelinquencyModifications,
+  getCondominiums, saveCondominiums,
+  handleFirestoreError, OperationType
 } from './services/dataService';
 import { ActiveAssembly } from './types';
 import { onSnapshot, doc, setDoc, collection } from 'firebase/firestore';
@@ -29,7 +31,9 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { CompanyDashboard } from './components/CompanyDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
 import { UrnaEletronica } from './components/UrnaEletronica';
+import { ProfileModal } from './components/ProfileModal';
 import { Button, Input, Card } from './components/ui';
+import { LogoZip } from './components/LogoZip';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { Eye, EyeOff, Wifi, WifiOff, AlertCircle, RefreshCw } from 'lucide-react';
 
@@ -84,6 +88,7 @@ const App: React.FC = () => {
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<string>('');
   const [pastAssemblies, setPastAssemblies] = useState<AssemblyRecord[]>([]);
   const [activeAssemblies, setActiveAssemblies] = useState<ActiveAssembly[]>([]);
+  const [condominiums, setCondominiums] = useState<Condominium[]>(() => getCondominiums());
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
   const [isAssemblyActive, setIsAssemblyActive] = useState<boolean | null>(null);
@@ -93,6 +98,7 @@ const App: React.FC = () => {
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
   const [startedBy, setStartedBy] = useState<string>('');
   const [hasPermissionError, setHasPermissionError] = useState<boolean>(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
 
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -303,7 +309,11 @@ const App: React.FC = () => {
                 .catch((e: any) => console.error("Erro sincronizando bootstrap de usuários:", e));
         }
     }, (error) => {
-        console.error("[App] Users Listener Error:", error);
+        if (error.message && error.message.includes('permission-denied')) {
+            console.warn("[App] Users Listener Warning (Permission Denied):", error);
+        } else {
+            console.error("[App] Users Listener Error:", error);
+        }
     });
 
     const globalRef = doc(db, 'system', 'global');
@@ -316,12 +326,32 @@ const App: React.FC = () => {
             if (data?.startedBy) setStartedBy(data.startedBy);
         }
     }, (error) => {
-        console.error("[App] Global Listener Error:", error);
+        if (error.message && error.message.includes('permission-denied')) {
+            console.warn("[App] Global Listener Warning (Permission Denied):", error);
+        } else {
+            console.error("[App] Global Listener Error:", error);
+        }
+    });
+
+    const companySettingsRef = doc(db, 'system', 'company_settings');
+    const unsubCompanySettings = onSnapshot(companySettingsRef, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+            const data = docSnapshot.data();
+            localStorage.setItem('condovote_company_settings', JSON.stringify(data));
+            window.dispatchEvent(new Event('company-settings-updated'));
+        }
+    }, (error) => {
+        if (error.message && error.message.includes('permission-denied')) {
+            console.warn("[App] Company Settings Listener Warning (Permission Denied):", error);
+        } else {
+            console.error("[App] Company Settings Listener Error:", error);
+        }
     });
 
     return () => {
         unsubUsers();
         unsubGlobal();
+        unsubCompanySettings();
     };
   }, [isAuthReady, currentView === AppView.ADMIN_LOGIN || currentView === AppView.COMPANY_DASHBOARD]);
 
@@ -344,7 +374,11 @@ const App: React.FC = () => {
         }
       }
     }, (error) => {
-      console.error("[App] Logs Listener Error:", error);
+      if (error.message && error.message.includes('permission-denied')) {
+        console.warn("[App] Logs Listener Warning (Permission Denied):", error);
+      } else {
+        console.error("[App] Logs Listener Error:", error);
+      }
     });
 
     const activeAssembliesRef = doc(db, 'system', 'active_assemblies');
@@ -357,7 +391,11 @@ const App: React.FC = () => {
         }
       }
     }, (error) => {
-      console.error("[App] Active Assemblies Listener Error:", error);
+      if (error.message && error.message.includes('permission-denied')) {
+        console.warn("[App] Active Assemblies Listener Warning (Permission Denied):", error);
+      } else {
+        console.error("[App] Active Assemblies Listener Error:", error);
+      }
     });
 
     const historyRef = doc(db, 'system', 'assemblies_history');
@@ -370,7 +408,11 @@ const App: React.FC = () => {
         }
       }
     }, (error) => {
-      console.error("[App] History Listener Error:", error);
+      if (error.message && error.message.includes('permission-denied')) {
+        console.warn("[App] History Listener Warning (Permission Denied):", error);
+      } else {
+        console.error("[App] History Listener Error:", error);
+      }
     });
 
     // Error logs listener
@@ -383,9 +425,30 @@ const App: React.FC = () => {
         }
       }
     }, (error) => {
-      console.error("[App] Error Logs Listener Error:", error);
+      if (error.message && error.message.includes('permission-denied')) {
+        console.warn("[App] Error Logs Listener Warning (Permission Denied):", error);
+      } else {
+        console.error("[App] Error Logs Listener Error:", error);
+      }
       if (error.message.includes('resource-exhausted') || error.message.includes('Quota exceeded')) {
         setGlobalError("Limite de uso do banco de dados excedido. Por favor, aguarde o reset diário da cota.");
+      }
+    });
+
+    const condominiumsRef = doc(db, 'system', 'condominiums');
+    const unsubCondominiums = onSnapshot(condominiumsRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && Array.isArray(data.list)) {
+          setCondominiums(data.list);
+          saveCondominiums(data.list, false);
+        }
+      }
+    }, (error) => {
+      if (error.message && error.message.includes('permission-denied')) {
+        console.warn("[App] Condominiums Listener Warning (Permission Denied):", error);
+      } else {
+        console.error("[App] Condominiums Listener Error:", error);
       }
     });
 
@@ -394,6 +457,7 @@ const App: React.FC = () => {
       unsubActive();
       unsubHistory();
       unsubErrorLogs();
+      unsubCondominiums();
     };
   }, [isAuthReady, currentView === AppView.COMPANY_DASHBOARD]);
 
@@ -464,15 +528,20 @@ const App: React.FC = () => {
               }
             }, 8000);
         }
-    }, (error) => {
-        console.error("[App] Firestore Listener Error:", error);
-        if (error.message.includes('resource-exhausted') || error.message.includes('Quota exceeded')) {
-          setGlobalError("Limite de uso do banco de dados excedido. Por favor, aguarde o reset diário da cota.");
-        }
-        if (error.message.includes('permission-denied')) {
+    }, (error: any) => {
+        const isPermissionError = error.code === 'permission-denied' || 
+          (error.message && (error.message.includes('permission-denied') || error.message.includes('permissions')));
+        
+        if (isPermissionError) {
+            console.warn("[App] Firestore Listener Warning (Permission Denied):", error);
             setHasPermissionError(true);
             setIsAssemblyActive(false);
             setIsDataLoaded(true);
+        } else {
+            handleFirestoreError(error, OperationType.GET, `assemblies/${safeKey}`);
+        }
+        if (error.message && (error.message.includes('resource-exhausted') || error.message.includes('Quota exceeded'))) {
+          setGlobalError("Limite de uso do banco de dados excedido. Por favor, aguarde o reset diário da cota.");
         }
     });
 
@@ -504,7 +573,14 @@ const App: React.FC = () => {
     const unsubResidents = onSnapshot(residentsRef, (snap: any) => {
         processResidents(snap);
     }, (error) => {
-        console.error("[App] Residents Listener Error:", error);
+        const isPermissionError = error.code === 'permission-denied' || 
+          (error.message && (error.message.includes('permission-denied') || error.message.includes('permissions')));
+        
+        if (isPermissionError) {
+            console.warn("[App] Residents Listener Warning (Permission Denied):", error);
+        } else {
+            handleFirestoreError(error, OperationType.LIST, `assemblies/${safeKey}/residents_list`);
+        }
     });
 
     const votesRef = collection(db, 'assemblies', safeKey, 'votes');
@@ -519,7 +595,14 @@ const App: React.FC = () => {
     const unsubVotes = onSnapshot(votesRef, (snap: any) => {
         processVotes(snap);
     }, (error) => {
-        console.error("[App] Votes Listener Error:", error);
+        const isPermissionError = error.code === 'permission-denied' || 
+          (error.message && (error.message.includes('permission-denied') || error.message.includes('permissions')));
+        
+        if (isPermissionError) {
+            console.warn("[App] Votes Listener Warning (Permission Denied):", error);
+        } else {
+            handleFirestoreError(error, OperationType.LIST, `assemblies/${safeKey}/votes`);
+        }
     });
 
     return () => {
@@ -967,13 +1050,8 @@ const App: React.FC = () => {
           </div>
         )}
         <div className="flex flex-col items-center w-full max-w-md z-10">
-          <div className="mb-8 text-center">
-             <img 
-              src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
-              alt="Zip Consultoria" 
-              className="h-64 w-auto mx-auto object-contain drop-shadow-xl" 
-              referrerPolicy="no-referrer"
-            />
+          <div className="mb-8 text-center w-full max-w-full flex justify-center">
+             <LogoZip logoType="login" className="w-full h-auto drop-shadow-xl animate-in fade-in duration-1000" />
           </div>
           
           <div className="w-full bg-white rounded-2xl shadow-2xl overflow-hidden">
@@ -1135,6 +1213,8 @@ const App: React.FC = () => {
         onStartAssembly={handleStartAssembly}
         activeAssemblies={activeAssemblies}
         setActiveAssemblies={setActiveAssemblies}
+        condominiums={condominiums}
+        setCondominiums={setCondominiums}
         users={users}
         setUsers={setUsers}
         pastAssemblies={pastAssemblies}
@@ -1157,6 +1237,15 @@ const App: React.FC = () => {
           saveLogs([]);
         }}
         onClearErrorLogs={clearErrorLogs}
+        onEditProfile={() => setIsProfileModalOpen(true)}
+      />
+      <ProfileModal 
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        currentUser={currentUser}
+        setCurrentUser={setCurrentUser}
+        users={users}
+        setUsers={setUsers}
       />
       </div>
     );
@@ -1233,6 +1322,15 @@ const App: React.FC = () => {
         onGoToUrna={() => setCurrentView(AppView.URNA_ELETRONICA)}
         onVoteSubmit={handleVoteSubmit}
         onReleaseDelinquentVote={handleReleaseDelinquentVote}
+        onEditProfile={() => setIsProfileModalOpen(true)}
+      />
+      <ProfileModal 
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        currentUser={currentUser}
+        setCurrentUser={setCurrentUser}
+        users={users}
+        setUsers={setUsers}
       />
       </div>
     );

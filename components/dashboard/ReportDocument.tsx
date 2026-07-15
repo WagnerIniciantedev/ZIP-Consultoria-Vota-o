@@ -1,8 +1,9 @@
 
 import React from 'react';
+import { LogoZip } from '../LogoZip';
 import { Poll, VoteRecord, Resident, PollCalculationType, AssemblyType, DelinquencyModification } from '../../types';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { cleanText } from '../../services/dataService';
+import { cleanText, getCompanySettings } from '../../services/dataService';
 
 interface ReportDocumentProps {
   condoName: string;
@@ -14,6 +15,8 @@ interface ReportDocumentProps {
   showDelinquents?: boolean;
   assemblyType?: AssemblyType | null;
   delinquencyModifications?: DelinquencyModification[];
+  showCompanyInfo?: boolean;
+  logoSize?: number;
 }
 
 const COLORS = ['#DC2626', '#EA580C', '#D97706', '#65A30D', '#059669', '#2563EB', '#7C3AED', '#DB2777'];
@@ -27,8 +30,11 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
   isForPDF = false,
   showDelinquents = true,
   assemblyType = null,
-  delinquencyModifications = []
+  delinquencyModifications = [],
+  showCompanyInfo = false,
+  logoSize = 128
 }) => {
+  const companySettings = getCompanySettings();
   const totalUnits = new Set(residents.map(r => r.unit)).size;
   const participatingUnits = new Set(votes.map(v => v.unit)).size;
   const quorumPercent = totalUnits > 0 ? ((participatingUnits / totalUnits) * 100).toFixed(1) : 0;
@@ -79,14 +85,8 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
         <div className="relative mb-16">
           <div className="flex justify-between items-start border-b-4 border-slate-900 pb-12">
             <div className="flex-1">
-              <div className="mb-10">
-                <img 
-                  src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
-                  alt="ZIP Logo" 
-                  className="h-20 w-auto object-contain" 
-                  referrerPolicy="no-referrer"
-                  crossOrigin="anonymous"
-                />
+              <div className="mb-10 h-auto" style={{ width: `${logoSize}px` }}>
+                <LogoZip variant="red" className="w-full h-auto" />
               </div>
               <div className="space-y-2">
                 <h1 className="text-5xl font-black text-slate-900 tracking-tighter uppercase leading-none">
@@ -115,6 +115,29 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Advisory Company Banner */}
+        {showCompanyInfo && (
+          <div className="mb-12 p-6 bg-red-50/40 border-l-4 border-red-600 rounded-sm flex items-start gap-4 break-inside-avoid page-break-inside-avoid shadow-sm">
+            <div className="bg-red-600 text-white px-2.5 py-1 rounded-sm font-black text-[9px] uppercase tracking-wider whitespace-nowrap mt-0.5">
+              ASSESSORIA
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-black text-slate-900 uppercase tracking-tight">
+                Assembleia assessorada tecnicamente por <span className="text-red-600">{companySettings.name || 'ZIP CONSULTORIA'}</span>
+              </p>
+              <p className="text-[10px] text-slate-500 font-semibold leading-relaxed uppercase tracking-wider">
+                Esta sessão de deliberação foi conduzida e auditada sob o amparo da legislação vigente.
+                {companySettings.cnpj && <span className="mx-2 text-slate-300">|</span>}
+                {companySettings.cnpj && `CNPJ: ${companySettings.cnpj}`}
+                {companySettings.phone && <span className="mx-2 text-slate-300">|</span>}
+                {companySettings.phone && `Contato: ${companySettings.phone}`}
+                {companySettings.address && <span className="mx-2 text-slate-300">|</span>}
+                {companySettings.address && `Endereço: ${companySettings.address}`}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Summary Stats - Professional Grid */}
         <div className="grid grid-cols-4 gap-1 mb-20 border-2 border-slate-900 bg-slate-900 overflow-hidden rounded-sm">
@@ -645,21 +668,27 @@ export const ReportDocument: React.FC<ReportDocumentProps> = ({
         )}
 
         {/* Footer */}
-        <div className="mt-40 pt-16 border-t-8 border-slate-900 flex justify-between items-start">
+        <div className="mt-40 pt-16 border-t-8 border-slate-900 flex justify-between items-start break-inside-avoid page-break-inside-avoid">
           <div className="max-w-md">
             <div className="flex items-center gap-4 mb-6">
-               <img 
-                src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
-                alt="ZIP Logo" 
-                className="h-12 w-auto grayscale" 
-                referrerPolicy="no-referrer"
-              />
+               <div className="h-auto opacity-70" style={{ width: `${Math.round(logoSize * 0.7)}px` }}>
+                 <LogoZip variant="grayscale" className="w-full h-auto" />
+               </div>
               <div className="h-8 w-[2px] bg-slate-200"></div>
-              <p className="text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">ZIP CONSULTORIA</p>
+              <p className="text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">{companySettings.name || 'ZIP CONSULTORIA'}</p>
             </div>
-            <p className="text-[10px] text-slate-500 leading-relaxed uppercase font-black tracking-widest">
+            <p className="text-[10px] text-slate-500 leading-relaxed uppercase font-black tracking-widest mb-4">
               Os dados deste relatório foram extraídos dos condôminos aprovados e que os mesmos efetuaram a votação.
             </p>
+            {showCompanyInfo && (
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-sm text-[10px] text-slate-600 space-y-1 font-medium break-inside-avoid">
+                <p className="font-bold text-slate-800 uppercase tracking-wider text-[11px] mb-2">Assessoria e Organização Executada por:</p>
+                <p><span className="font-bold uppercase text-slate-700">Empresa:</span> {companySettings.name}</p>
+                {companySettings.cnpj && <p><span className="font-bold uppercase text-slate-700">CNPJ:</span> {companySettings.cnpj}</p>}
+                {companySettings.phone && <p><span className="font-bold uppercase text-slate-700">Telefone:</span> {companySettings.phone}</p>}
+                {companySettings.address && <p><span className="font-bold uppercase text-slate-700">Endereço:</span> {companySettings.address}</p>}
+              </div>
+            )}
           </div>
           <div className="text-right space-y-4">
             <div>

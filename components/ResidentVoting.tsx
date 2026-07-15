@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Input, Card, Badge } from './ui';
+import { LogoZip } from './LogoZip';
 import { Resident, Poll } from '../types';
 import { 
   Vote, 
@@ -631,13 +632,8 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
           </Badge>
         </div>
       )}
-      <div className="mb-8 text-center z-10">
-         <img 
-            src="https://i.postimg.cc/rsSDGbPr/Whats_App_Image_2025_11_29_at_22_21_41.jpg" 
-            alt="Zip Consultoria" 
-            className="h-32 w-auto mx-auto object-contain drop-shadow-2xl" 
-            referrerPolicy="no-referrer"
-         />
+      <div className="mb-8 text-center z-10 w-full max-w-full flex justify-center">
+         <LogoZip logoType="login" className="w-full h-auto drop-shadow-2xl animate-in fade-in duration-1000" />
       </div>
       
       {/* Network Status Indicator */}

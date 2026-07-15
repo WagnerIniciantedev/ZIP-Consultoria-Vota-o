@@ -64,11 +64,49 @@ export const UsersManagement: React.FC<UsersProps> = ({
   // --- Handlers ---
 
   const handleCreateUser = async () => {
-    if (!newUserName || !newUserLogin || !newUserPass) {
+    const trimmedName = newUserName.trim();
+    const trimmedLogin = newUserLogin.trim().toLowerCase();
+    const trimmedPass = newUserPass.trim();
+    const trimmedJobTitle = newUserJobTitle.trim();
+
+    if (!trimmedName || !trimmedLogin || !trimmedPass) {
       alert("Preencha todos os campos obrigatórios.");
       return;
     }
-    if (users.some(u => u.username === newUserLogin)) {
+
+    if (trimmedName.length > 100) {
+      alert("O nome completo deve ter no máximo 100 caracteres.");
+      return;
+    }
+
+    if (trimmedLogin.length > 50) {
+      alert("O login deve ter no máximo 50 caracteres.");
+      return;
+    }
+
+    // Username regex validation to prevent directory traversals, XSS, and Firestore document path issues
+    const loginRegex = /^[a-z0-9._-]+$/;
+    if (!loginRegex.test(trimmedLogin)) {
+      alert("O login deve conter apenas letras minúsculas, números, pontos, sublinhados (_) ou hífens (-).");
+      return;
+    }
+
+    if (trimmedPass.length < 6) {
+      alert("A senha deve ter pelo menos 6 caracteres por motivos de segurança.");
+      return;
+    }
+
+    if (trimmedPass.length > 50) {
+      alert("A senha deve ter no máximo 50 caracteres.");
+      return;
+    }
+
+    if (trimmedJobTitle.length > 50) {
+      alert("O setor/função deve ter no máximo 50 caracteres.");
+      return;
+    }
+
+    if (users.some(u => u.username === trimmedLogin)) {
       alert("Este login já está em uso.");
       return;
     }
@@ -77,11 +115,11 @@ export const UsersManagement: React.FC<UsersProps> = ({
     try {
       const newUser: User = {
         id: generateId(),
-        name: newUserName,
-        username: newUserLogin,
-        password: newUserPass,
+        name: trimmedName,
+        username: trimmedLogin,
+        password: trimmedPass,
         role: newUserRole,
-        jobTitle: newUserJobTitle
+        jobTitle: trimmedJobTitle
       };
 
       const updatedUsers = [...users, newUser];
@@ -125,14 +163,56 @@ export const UsersManagement: React.FC<UsersProps> = ({
 
   const handleSaveEdit = async () => {
     if (!editingUser) return;
-    if (!editForm.name) {
+
+    const trimmedName = editForm.name.trim();
+    const trimmedLogin = editForm.username.trim().toLowerCase();
+    const trimmedPass = editForm.password.trim();
+    const trimmedJobTitle = editForm.jobTitle.trim();
+
+    if (!trimmedName) {
       alert("Nome é obrigatório");
       return;
     }
 
+    if (trimmedName.length > 100) {
+      alert("O nome completo deve ter no máximo 100 caracteres.");
+      return;
+    }
+
+    if (isPrivileged) {
+      if (!trimmedLogin) {
+        alert("O login é obrigatório.");
+        return;
+      }
+      if (trimmedLogin.length > 50) {
+        alert("O login deve ter no máximo 50 caracteres.");
+        return;
+      }
+      const loginRegex = /^[a-z0-9._-]+$/;
+      if (!loginRegex.test(trimmedLogin)) {
+        alert("O login deve conter apenas letras minúsculas, números, pontos, sublinhados (_) ou hífens (-).");
+        return;
+      }
+      if (trimmedJobTitle.length > 50) {
+        alert("O setor/função deve ter no máximo 50 caracteres.");
+        return;
+      }
+    }
+
+    if (trimmedPass) {
+      if (trimmedPass.length < 6) {
+        alert("A nova senha deve ter pelo menos 6 caracteres.");
+        return;
+      }
+      if (trimmedPass.length > 50) {
+        alert("A nova senha deve ter no máximo 50 caracteres.");
+        return;
+      }
+    }
+
     // Check duplicate login (excluding self)
-    if (editForm.username !== editingUser.username) {
-      if (users.some(u => u.username === editForm.username && u.id !== editingUser.id)) {
+    if (isPrivileged && trimmedLogin !== editingUser.username) {
+      if (users.some(u => u.username === trimmedLogin && u.id !== editingUser.id)) {
         alert("Este login já está em uso.");
         return;
       }
@@ -144,10 +224,10 @@ export const UsersManagement: React.FC<UsersProps> = ({
         if (u.id === editingUser.id) {
           return {
             ...u,
-            name: editForm.name,
-            username: isPrivileged ? editForm.username : u.username, // Only privileged changes username
-            jobTitle: isPrivileged ? editForm.jobTitle : u.jobTitle,
-            password: editForm.password ? editForm.password : u.password,
+            name: trimmedName,
+            username: isPrivileged ? trimmedLogin : u.username, // Only privileged changes username
+            jobTitle: isPrivileged ? trimmedJobTitle : u.jobTitle,
+            password: trimmedPass ? trimmedPass : u.password,
             role: isTI ? editForm.role : u.role
           };
         }
