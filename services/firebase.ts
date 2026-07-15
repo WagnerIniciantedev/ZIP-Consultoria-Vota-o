@@ -52,8 +52,12 @@ try {
         const isLocalDev = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.includes('ais-dev') || hostname.includes('ais-pre') || hostname.includes('.run.app');
         
         const debugTokenFromEnv = (import.meta as any).env?.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN;
-        const enterpriseKey = (import.meta as any).env?.VITE_RECAPTCHA_ENTERPRISE_KEY || d('6LeOk1UtAAAAAMDJTnFrEUE-QNVtJ8tdggLB1Vmc');
+        const customEnterpriseKey = (import.meta as any).env?.VITE_RECAPTCHA_ENTERPRISE_KEY;
+        const defaultEnterpriseKey = d('6LeOk1UtAAAAAMDJTnFrEUE-QNVtJ8tdggLB1Vmc');
         const v3Key = (import.meta as any).env?.VITE_RECAPTCHA_V3_KEY;
+
+        // Só usar a chave padrão reCAPTCHA enterprise se estiver em um domínio de teste/AI Studio suportado
+        const enterpriseKey = customEnterpriseKey || (isLocalDev ? defaultEnterpriseKey : null);
 
         // Injetar script do reCAPTCHA dinamicamente se necessário para não expor no index.html diretamente
         if (enterpriseKey && !document.querySelector('script[src*="recaptcha"]')) {
@@ -69,17 +73,19 @@ try {
                 (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = debugTokenFromEnv;
                 console.log("🛠️ Firebase App Check: Iniciando com Token de Depuração persistente fornecido via variável de ambiente.");
                 
-                initializeAppCheck(app, {
-                    provider: new ReCaptchaEnterpriseProvider(enterpriseKey),
-                    isTokenAutoRefreshEnabled: true
-                });
-                console.log("🔒 Firebase App Check ativado em ambiente de teste via Token de Depuração!");
+                if (enterpriseKey) {
+                    initializeAppCheck(app, {
+                        provider: new ReCaptchaEnterpriseProvider(enterpriseKey),
+                        isTokenAutoRefreshEnabled: true
+                    });
+                    console.log("🔒 Firebase App Check ativado em ambiente de teste via Token de Depuração!");
+                }
             } else {
                 console.log("ℹ️ Firebase App Check: Desativado no ambiente de preview/desenvolvimento local para evitar erros de CORS/reCAPTCHA (403).");
                 console.log("👉 Para testar o App Check localmente, configure a variável 'VITE_FIREBASE_APPCHECK_DEBUG_TOKEN' no seu .env.example com um token registrado no Console do Firebase.");
             }
         } else {
-            // Ambiente de produção real
+            // Ambiente de produção real (deploy em domínio customizado)
             if (enterpriseKey) {
                 initializeAppCheck(app, {
                     provider: new ReCaptchaEnterpriseProvider(enterpriseKey),
@@ -93,7 +99,7 @@ try {
                 });
                 console.log("🔒 Firebase App Check ativado via ReCAPTCHA v3 com site key:", v3Key);
             } else {
-                console.info("ℹ️ Firebase App Check: Forneça VITE_RECAPTCHA_ENTERPRISE_KEY ou VITE_RECAPTCHA_V3_KEY para ativar o escudo anti-abuso em produção.");
+                console.info("ℹ️ Firebase App Check desativado em produção: domínio customizado sem chaves reCAPTCHA próprias configuradas em VITE_RECAPTCHA_ENTERPRISE_KEY ou VITE_RECAPTCHA_V3_KEY.");
             }
         }
     }
