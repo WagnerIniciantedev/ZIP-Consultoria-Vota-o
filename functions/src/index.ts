@@ -37,7 +37,7 @@ function generateAuditHash(payload: {
  * Invoked by residents during online assemblies.
  * Evades all frontend payload spoofing and tampering.
  */
-export const submitSecureVote = onCall<VotePayload>(async (request) => {
+export const submitSecureVote = onCall<VotePayload>(async (request: any) => {
   const { auth, rawRequest } = request;
   const data = request.data;
 
@@ -88,7 +88,7 @@ export const submitSecureVote = onCall<VotePayload>(async (request) => {
 
   // 3. SECURE ATOMIC TRANSACTION: Multi-document constraint check and ledger sealing
   try {
-    return await db.runTransaction(async (transaction) => {
+    return await db.runTransaction(async (transaction: any) => {
       // A. Verify Assembly is Active
       const assemblyRef = db.collection("assemblies").doc(assemblyId);
       const assemblySnap = await transaction.get(assemblyRef);
@@ -219,7 +219,7 @@ export const submitSecureVote = onCall<VotePayload>(async (request) => {
  * Cloud Function to cast manual/presencial votes using a secure administrative bypass.
  * Locked strictly to ADMINISTRATIVE / TI rulesets.
  */
-export const submitUrnaVote = onCall<VotePayload>(async (request) => {
+export const submitUrnaVote = onCall<VotePayload>(async (request: any) => {
   const { auth, rawRequest } = request;
   const data = request.data;
 
@@ -258,7 +258,7 @@ export const submitUrnaVote = onCall<VotePayload>(async (request) => {
   const clientUA = userAgent || rawRequest.headers["user-agent"] || "Urna Física Terminal Setup";
 
   try {
-    return await db.runTransaction(async (transaction) => {
+    return await db.runTransaction(async (transaction: any) => {
       const voteRef = db.collection("assemblies").doc(assemblyId).collection("votes").doc(safeVoteId);
       const voteSnap = await transaction.get(voteRef);
 
@@ -387,9 +387,9 @@ interface AccessPayload {
  * Secure server-side validation of resident identity.
  * Replaces client-side Firestore queries and handles custom session token generation.
  */
-export const validateResidentAccess = onCall<AccessPayload>(async (request) => {
+export const validateResidentAccess = onCall<AccessPayload>(async (request: any) => {
   const data = request.data;
-  const { auth, rawRequest } = request;
+  const { rawRequest } = request;
   const { assemblyId, loginMode, unit, cpf, accessToken } = data;
 
   if (!assemblyId) {
@@ -473,9 +473,9 @@ export const validateResidentAccess = onCall<AccessPayload>(async (request) => {
         throw new HttpsError("internal", "Erro ao carregar dados da unidade.");
       }
 
-      const cleanInputCpf = cpf.replace(/\D/g, '');
-      const storedCpf = (residentData.cpf || '').replace(/\D/g, '');
-      const storedPrefix = residentData.documentPrefix || storedCpf.substring(0, 7);
+      const cleanInputCpf = String(cpf || '').replace(/\D/g, '');
+      const storedCpf = String(residentData.cpf || '').replace(/\D/g, '');
+      const storedPrefix = String(residentData.documentPrefix || '').trim() || storedCpf.substring(0, 7);
       const inputPrefix = cleanInputCpf.substring(0, 7);
 
       // Secure Hash comparison
@@ -515,31 +515,39 @@ export const validateResidentAccess = onCall<AccessPayload>(async (request) => {
       throw new HttpsError("invalid-argument", "Modo de login inválido.");
     }
   } catch (err: any) {
-    // Record login failure for brute-force tracking
-    let currentAttempts = 1;
-    if (blockSnap.exists) {
-      currentAttempts = (blockSnap.data()?.attempts || 0) + 1;
+    if (err instanceof HttpsError) {
+      throw err;
     }
-    
-    const lockoutUntil = Date.now() + (config.lockoutDuration * 60 * 1000);
-    await blockRef.set({
-      attempts: currentAttempts,
-      lockedAt: Date.now(),
-      lockedUntil: lockoutUntil,
-      reason: "Múltiplas tentativas incorretas de login"
-    }, { merge: true });
 
-    // Record failure in logs
-    const failId = `AUDIT_FAIL_${Date.now()}`;
-    await db.collection("assemblies").doc(safeAssemblyId).collection("audit_logs").doc(failId).set({
-      timestamp: Date.now(),
-      action: "LOGIN_FAILED",
-      unit: unit || "DESCONHECIDO",
-      ip: clientIp,
-      userAgent: clientUA,
-      result: "FAILURE",
-      details: `Tentativa de login malsucedida usando modo ${loginMode}. Tentativa ${currentAttempts}/${config.maxAttempts}.`
-    });
+    try {
+      // Record login failure for brute-force tracking safely
+      let currentAttempts = 1;
+      if (blockSnap && blockSnap.exists) {
+        currentAttempts = (blockSnap.data()?.attempts || 0) + 1;
+      }
+      
+      const lockoutUntil = Date.now() + (config.lockoutDuration * 60 * 1000);
+      await blockRef.set({
+        attempts: currentAttempts,
+        lockedAt: Date.now(),
+        lockedUntil: lockoutUntil,
+        reason: "Múltiplas tentativas incorretas de login"
+      }, { merge: true });
+
+      // Record failure in logs safely
+      const failId = `AUDIT_FAIL_${Date.now()}`;
+      await db.collection("assemblies").doc(safeAssemblyId).collection("audit_logs").doc(failId).set({
+        timestamp: Date.now(),
+        action: "LOGIN_FAILED",
+        unit: unit || "DESCONHECIDO",
+        ip: clientIp,
+        userAgent: clientUA,
+        result: "FAILURE",
+        details: `Tentativa de login malsucedida usando modo ${loginMode || "CPF"}. Tentativa ${currentAttempts}/${config.maxAttempts}.`
+      });
+    } catch (logErr) {
+      console.error("Erro ao registrar log de falha de login:", logErr);
+    }
 
     throw new HttpsError("permission-denied", "Os dados informados não conferem com o cadastro. Verifique e tente novamente.");
   }
@@ -655,7 +663,7 @@ export const validateResidentAccess = onCall<AccessPayload>(async (request) => {
  * 🔒 validateAssemblyToken
  * Checks if a given individual token is valid for a resident in this assembly
  */
-export const validateAssemblyToken = onCall<{ assemblyId: string; token: string }>(async (request) => {
+export const validateAssemblyToken = onCall<{ assemblyId: string; token: string }>(async (request: any) => {
   const { assemblyId, token } = request.data;
   if (!assemblyId || !token) {
     throw new HttpsError("invalid-argument", "Assembleia e token são obrigatórios.");
@@ -676,7 +684,7 @@ export const validateAssemblyToken = onCall<{ assemblyId: string; token: string 
  * 🔒 generateResidentSession
  * Explicit Session generator
  */
-export const generateResidentSession = onCall<{ assemblyId: string; unit: string; userAgent?: string }>(async (request) => {
+export const generateResidentSession = onCall<{ assemblyId: string; unit: string; userAgent?: string }>(async (request: any) => {
   const { assemblyId, unit } = request.data;
   const { rawRequest } = request;
 
@@ -707,7 +715,7 @@ export const generateResidentSession = onCall<{ assemblyId: string; unit: string
  * 🔒 closeResidentSession
  * Explicit Session Terminator
  */
-export const closeResidentSession = onCall<{ assemblyId: string; sessionId: string }>(async (request) => {
+export const closeResidentSession = onCall<{ assemblyId: string; sessionId: string }>(async (request: any) => {
   const { assemblyId, sessionId } = request.data;
   if (!assemblyId || !sessionId) {
     throw new HttpsError("invalid-argument", "Assembleia e ID de sessão são obrigatórios.");
@@ -727,7 +735,7 @@ export const closeResidentSession = onCall<{ assemblyId: string; sessionId: stri
  * 🔒 registerAuditLog
  * Explicit Auditor logging tool
  */
-export const registerAuditLog = onCall<{ assemblyId: string; action: string; unit?: string; details: string }>(async (request) => {
+export const registerAuditLog = onCall<{ assemblyId: string; action: string; unit?: string; details: string }>(async (request: any) => {
   const { assemblyId, action, unit, details } = request.data;
   const { auth, rawRequest } = request;
 
@@ -757,7 +765,7 @@ export const registerAuditLog = onCall<{ assemblyId: string; action: string; uni
  * 🔒 unlockResident
  * Admin tool to release lockout
  */
-export const unlockResident = onCall<{ assemblyId: string; unit: string }>(async (request) => {
+export const unlockResident = onCall<{ assemblyId: string; unit: string }>(async (request: any) => {
   const { assemblyId, unit } = request.data;
   const { auth } = request;
 
@@ -780,7 +788,7 @@ export const unlockResident = onCall<{ assemblyId: string; unit: string }>(async
  * 🔒 blockResident
  * Admin tool to manually block a resident
  */
-export const blockResident = onCall<{ assemblyId: string; unit: string; reason: string }>(async (request) => {
+export const blockResident = onCall<{ assemblyId: string; unit: string; reason: string }>(async (request: any) => {
   const { assemblyId, unit, reason } = request.data;
   const { auth } = request;
 

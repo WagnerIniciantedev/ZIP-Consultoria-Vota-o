@@ -116,8 +116,19 @@ https://www.zipconsultoria.com.br`);
       return;
     }
 
+    const hasExisting = residents.some(r => r.accessPassword);
+    let overwrite = false;
+    
+    if (hasExisting) {
+      overwrite = window.confirm(
+        "Algumas unidades já possuem Senhas Únicas geradas.\n\n" +
+        "Deseja REGERAR NOVAS SENHAS para TODAS as unidades (substituindo as existentes)?\n\n" +
+        "Clique em 'OK' para regerar todas as senhas ou 'Cancelar' para apenas preencher as unidades sem senha."
+      );
+    }
+
     const updated = residents.map(r => {
-      if (!r.accessPassword) {
+      if (overwrite || !r.accessPassword) {
         // Generate a clean 6-digit number
         const randPass = Math.floor(100000 + Math.random() * 900000).toString();
         return { ...r, accessPassword: randPass };
@@ -141,7 +152,54 @@ https://www.zipconsultoria.com.br`);
     if (currentUser) {
       addLog(currentUser, 'GERAR_SENHAS_ACESSO', `Gerou senhas únicas de segurança para ${residents.length} moradores.`);
     }
-    alert(`Senhas seguras geradas com sucesso para ${residents.length} unidades!`);
+    alert(`Senhas únicas (Tokens) geradas com sucesso para as unidades!`);
+  };
+
+  const handleGenerateSinglePassword = async (resident: Resident) => {
+    const confirmRegen = window.confirm(
+      `Deseja realmente gerar um NOVO TOKEN de acesso único para a unidade ${resident.unit}?`
+    );
+    if (!confirmRegen) return;
+
+    // Generate a clean 6-digit number
+    const randPass = Math.floor(100000 + Math.random() * 900000).toString();
+
+    const updated = residents.map(r => {
+      if (r.unit.toLowerCase() === resident.unit.toLowerCase()) {
+        const nextResident: Resident = {
+          ...r,
+          accessPassword: randPass,
+        };
+        if (r.email) {
+          nextResident.emailStatus = 'PENDING';
+          delete nextResident.emailError;
+          delete nextResident.emailSentAt;
+        }
+        return nextResident;
+      }
+      return r;
+    });
+
+    setResidents(updated);
+    saveResidents(updated);
+
+    // Sync to Firestore immediately
+    if (db && (selectedAssemblyId || condoName)) {
+      const safeKey = (selectedAssemblyId || condoName || '').replace(/[^a-zA-Z0-9]/g, '_');
+      const resRef = doc(db, 'assemblies', safeKey, 'residents_list', resident.unit.toLowerCase());
+      const updateData: any = { accessPassword: randPass };
+      if (resident.email) {
+        updateData.emailStatus = 'PENDING';
+        updateData.emailError = '';
+        updateData.emailSentAt = 0;
+      }
+      await setDoc(resRef, updateData, { merge: true });
+    }
+
+    if (currentUser) {
+      addLog(currentUser, 'GERAR_SENHA_INDIVIDUAL', `Gerou nova senha de segurança para a unidade ${resident.unit}.`);
+    }
+    alert(`Novo Token gerado com sucesso para a unidade ${resident.unit}: ${randPass}`);
   };
 
   const handleToggleDelinquentStatus = async (residentToToggle: Resident) => {
@@ -972,7 +1030,7 @@ https://www.zipconsultoria.com.br`);
                 className="flex items-center justify-center gap-2 text-xs py-2 bg-white font-bold"
               >
                 <Key size={14} className="text-slate-500" />
-                Gerar Senhas de 6-Dígitos
+                Gerar Senha Única (Tokens)
               </Button>
               
               <Button
@@ -1516,9 +1574,19 @@ https://www.zipconsultoria.com.br`);
                           <td className="px-5 py-3.5 tracking-tight font-medium max-w-[180px] truncate">{r.name}</td>
                           <td className="px-5 py-3.5 max-w-[200px] truncate select-all text-slate-550 font-medium font-mono">{r.email}</td>
                           <td className="px-5 py-3.5 font-mono">
-                            <span className="bg-red-50 text-red-650 border border-red-100 font-extrabold px-2 py-0.5 rounded text-[11px] block w-fit">
-                              {r.accessPassword}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="bg-red-50 text-red-650 border border-red-100 font-extrabold px-2 py-0.5 rounded text-[11px] block w-fit">
+                                {r.accessPassword}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleGenerateSinglePassword(r)}
+                                className="p-1 rounded-md text-gray-400 hover:text-red-650 hover:bg-slate-100 transition-colors"
+                                title="Gerar novo Token para esta unidade"
+                              >
+                                <RefreshCw size={11} />
+                              </button>
+                            </div>
                           </td>
                           <td className="px-5 py-3.5 whitespace-nowrap text-center">
                             <div className="flex items-center justify-center">
@@ -1670,9 +1738,19 @@ https://www.zipconsultoria.com.br`);
         {/* PREVIEW TABLE */}
         {residents.length > 0 && activeSetupTab === 'import' && (
           <div className="border rounded-xl mt-4 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-500">
-            <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center gap-2">
-                <FileText size={16} className="text-gray-500" />
-                <span className="text-xs font-bold text-gray-500 uppercase">Pré-visualização dos dados</span>
+            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                    <FileText size={16} className="text-gray-500" />
+                    <span className="text-xs font-bold text-gray-500 uppercase">Pré-visualização dos dados</span>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleGeneratePasswords}
+                  className="flex items-center gap-1.5 text-xs py-1.5 px-3 bg-white font-bold text-slate-800 border-gray-250 hover:bg-slate-50 shadow-sm"
+                >
+                  <Key size={13} className="text-red-500" />
+                  Gerar Senha Única (Tokens)
+                </Button>
             </div>
             <div className="overflow-x-auto max-h-[400px] custom-scrollbar">
                 <table className="min-w-full divide-y divide-gray-200">
@@ -1713,11 +1791,21 @@ https://www.zipconsultoria.com.br`);
                           </div>
                         </td>
                         <td className="px-6 py-3 whitespace-nowrap text-xs">
-                          {r.accessPassword ? (
-                            <span className="font-mono bg-red-50 text-red-600 border border-red-100 font-extrabold px-2 py-0.5 rounded text-xs">{r.accessPassword}</span>
-                          ) : (
-                            <span className="text-gray-300 italic text-[11px]">Não gerada</span>
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            {r.accessPassword ? (
+                              <span className="font-mono bg-red-50 text-red-600 border border-red-100 font-extrabold px-2 py-0.5 rounded text-xs">{r.accessPassword}</span>
+                            ) : (
+                              <span className="text-gray-300 italic text-[11px]">Não gerada</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateSinglePassword(r)}
+                              className="p-1 rounded-md text-gray-400 hover:text-red-650 hover:bg-slate-100 transition-colors"
+                              title="Gerar novo Token para esta unidade"
+                            >
+                              <RefreshCw size={12} />
+                            </button>
+                          </div>
                         </td>
                         <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500 font-mono">
                         {r.cpf ? `***.${r.cpf.slice(0,3)}...` : '-'}
@@ -1948,7 +2036,17 @@ https://www.zipconsultoria.com.br`);
                             <div className="font-mono text-[10px] text-slate-500">{r.email}</div>
                           </td>
                           <td className="px-4 py-2">
-                            <span className="font-mono bg-red-50 text-red-650 border border-red-100 font-extrabold px-1.5 py-0.5 rounded text-[10px]">{r.accessPassword}</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono bg-red-50 text-red-650 border border-red-100 font-extrabold px-1.5 py-0.5 rounded text-[10px]">{r.accessPassword}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleGenerateSinglePassword(r)}
+                                className="p-1 rounded-md text-gray-400 hover:text-red-650 hover:bg-slate-100 transition-colors"
+                                title="Gerar novo Token para esta unidade"
+                              >
+                                <RefreshCw size={11} />
+                              </button>
+                            </div>
                           </td>
                           <td className="px-4 py-2">
                             <div className="flex flex-col gap-0.5">
