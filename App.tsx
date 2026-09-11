@@ -33,6 +33,7 @@ import { CompanyDashboard } from './components/CompanyDashboard';
 import { ResidentVoting } from './components/ResidentVoting';
 import { UrnaEletronica } from './components/UrnaEletronica';
 import { ProfileModal } from './components/ProfileModal';
+import { LiveRoom } from './components/live/LiveRoom';
 import { Button, Input, Card } from './components/ui';
 import { LogoZip } from './components/LogoZip';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -1207,6 +1208,20 @@ const App: React.FC = () => {
       }
   }
 
+  if (currentView === AppView.LIVE_ASSEMBLY) {
+    return (
+      <LiveRoom
+        assemblyId={selectedAssemblyId || 'default'}
+        condoName={condoName || 'Condomínio'}
+        assemblyTitle="Assembleia Geral ao Vivo"
+        currentUser={currentUser}
+        currentResident={null}
+        isAdmin={true}
+        onExit={() => setCurrentView(AppView.COMPANY_DASHBOARD)}
+      />
+    );
+  }
+
   if (currentView === AppView.COMPANY_DASHBOARD) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -1250,6 +1265,13 @@ const App: React.FC = () => {
           setCurrentView(AppView.ADMIN_DASHBOARD);
         }}
         onStartAssembly={handleStartAssembly}
+        onOpenLiveAssembly={(id, name) => {
+          setSelectedAssemblyId(id);
+          setCondoName(name);
+          saveAssemblyId(id);
+          saveCondoName(name);
+          setCurrentView(AppView.LIVE_ASSEMBLY);
+        }}
         activeAssemblies={activeAssemblies}
         setActiveAssemblies={setActiveAssemblies}
         condominiums={condominiums}

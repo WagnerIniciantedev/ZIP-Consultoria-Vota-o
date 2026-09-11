@@ -1,5 +1,6 @@
 {
   "name": "ZIP CONSULTORIA VOTACAO",
-  "description": "A professional condominium voting system featuring admin management, delinquency filtering, Excel import, and real-time analytics.",
-  "requestFramePermissions": []
+  "description": "A professional condominium voting system featuring admin management, delinquency filtering, Excel import, and real-time analytics with Live Assembly video rooms.",
+  "requestFramePermissions": ["camera", "microphone", "display-capture"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

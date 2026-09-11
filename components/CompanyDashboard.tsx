@@ -58,6 +58,7 @@ interface CompanyDashboardProps {
   currentUser: User | null;
   onLogout: () => void;
   onSelectAssembly: (assemblyId: string, condoName: string) => void;
+  onOpenLiveAssembly?: (assemblyId: string, condoName: string) => void;
   onStartAssembly: (name: string, assemblyId: string, residents: any[], type: AssemblyType, startedBy?: string, condoId?: string) => void;
   activeAssemblies: ActiveAssembly[];
   setActiveAssemblies: React.Dispatch<React.SetStateAction<ActiveAssembly[]>>;
@@ -145,7 +146,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   onClearLogs,
   errorLogs = [],
   onClearErrorLogs,
-  onEditProfile
+  onEditProfile,
+  onOpenLiveAssembly
 }) => {
   const [activeTab, setActiveTab] = useState<'assemblies' | 'create' | 'settings' | 'past_assemblies' | 'history' | 'error_logs' | 'clients'>('clients');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -1496,6 +1498,15 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                   >
                     Entrar na Assembleia <ArrowRight size={18} />
                   </Button>
+
+                  {onOpenLiveAssembly && (
+                    <Button 
+                      onClick={() => onOpenLiveAssembly(assembly.id, assembly.condoName)}
+                      className="w-full bg-red-650 hover:bg-red-700 text-white flex items-center justify-center gap-2"
+                    >
+                      🔴 Assembleia ao Vivo (MVP)
+                    </Button>
+                  )}
                   
                   <Button 
                     variant="outline"

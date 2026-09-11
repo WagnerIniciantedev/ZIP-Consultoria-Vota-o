@@ -211,9 +211,79 @@ service cloud.firestore {
 
       // Supporting subcollections under assemblies
       match /{subcollection}/{docId} {
-        allow read: if isAuthenticated() && isValidId(subcollection) && isValidId(docId) && 
-          !(subcollection in ['votes', 'audit_logs', 'resident_sessions', 'blocked_units', 'security_settings', 'residents_list']);
-        allow write: if isAdmin() && isValidId(subcollection) && isValidId(docId);
+        allow read: if isValidId(subcollection) && isValidId(docId) && isAuthenticated() && (
+          subcollection != 'live_signals' ||
+          resource.data.senderUserId == request.auth.uid ||
+          resource.data.targetUserId == request.auth.uid ||
+          isAdmin()
+        );
+        
+        allow write: if isAuthenticated() && isValidId(subcollection) && isValidId(docId) && (
+          // Admin rules with state machine and immutability for live_room/status
+          (
+            isAdmin() && (
+              subcollection != 'live_room' || docId != 'status' || (
+                // State Machine & Immutability validation for status
+                // Existing status can be SCHEDULED, LIVE, ENDED
+                (
+                  // Creating status
+                  !exists(/databases/$(database)/documents/assemblies/$(assemblyId)/live_room/status) &&
+                  request.resource.data.status in ['SCHEDULED', 'LIVE']
+                ) || (
+                  // Updating status
+                  exists(/databases/$(database)/documents/assemblies/$(assemblyId)/live_room/status) && (
+                    // SCHEDULED -> LIVE
+                    (resource.data.status == 'SCHEDULED' && request.resource.data.status == 'LIVE' &&
+                     request.resource.data.get('startedAt', 0) is int &&
+                     request.resource.data.startedBy == request.auth.uid) ||
+                    // LIVE -> ENDED
+                    (resource.data.status == 'LIVE' && request.resource.data.status == 'ENDED' &&
+                     request.resource.data.get('endedAt', 0) is int &&
+                     request.resource.data.endedBy == request.auth.uid &&
+                     request.resource.data.get('activePublisherId', null) == null &&
+                     request.resource.data.get('isSharingScreen', false) == false) ||
+                    // General admin update while maintaining status terminal immutability if already ENDED
+                    (resource.data.status == 'ENDED' && request.resource.data.status == 'ENDED' &&
+                     request.resource.data.get('startedAt', 0) == resource.data.get('startedAt', 0) &&
+                     request.resource.data.get('startedBy', '') == resource.data.get('startedBy', '') &&
+                     request.resource.data.get('endedAt', 0) == resource.data.get('endedAt', 0) &&
+                     request.resource.data.get('endedBy', '') == resource.data.get('endedBy', '')) ||
+                    // LIVE -> LIVE (e.g. toggling screen share or publisher)
+                    (resource.data.status == 'LIVE' && request.resource.data.status == 'LIVE' &&
+                     request.resource.data.get('startedAt', 0) == resource.data.get('startedAt', 0) &&
+                     request.resource.data.get('startedBy', '') == resource.data.get('startedBy', ''))
+                  )
+                )
+              )
+            )
+          ) || (
+            subcollection == 'live_participants' && docId == request.auth.uid &&
+            request.resource.data.userId == request.auth.uid
+          ) || (
+            subcollection == 'live_chat' &&
+            request.resource.data.userId == request.auth.uid &&
+            request.resource.data.get('message', '') is string &&
+            request.resource.data.get('message', '').size() > 0 &&
+            request.resource.data.get('message', '').size() <= 2000
+          ) || (
+            subcollection == 'live_speaker_requests' &&
+            request.resource.data.userId == request.auth.uid &&
+            request.resource.data.get('status', 'PENDING') == 'PENDING'
+          ) || (
+            subcollection == 'live_signals' &&
+            request.resource.data.senderUserId == request.auth.uid &&
+            request.resource.data.get('type', '') in ['offer', 'answer', 'candidate']
+          )
+        );
+
+        allow delete: if isAuthenticated() && isValidId(subcollection) && isValidId(docId) && (
+          isAdmin() || (
+            subcollection == 'live_signals' &&
+            (resource.data.senderUserId == request.auth.uid || resource.data.targetUserId == request.auth.uid)
+          ) || (
+            subcollection == 'live_participants' && docId == request.auth.uid
+          )
+        );
       }
     }
   }

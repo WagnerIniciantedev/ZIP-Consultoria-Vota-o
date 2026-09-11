@@ -1,4 +1,68 @@
 
+export enum LiveRoomStatus {
+  SCHEDULED = 'scheduled',
+  LIVE = 'live',
+  ENDED = 'ended',
+}
+
+export type LiveParticipantStatus = 'online' | 'offline' | 'requesting_to_speak' | 'speaking';
+
+export const LIVE_ROOM_ROLES = [
+  'presidente',
+  'secretario',
+  'sindico',
+  'subsindico',
+  'conselheiro',
+  'administrador',
+  'condomino',
+  'procurador',
+  'convidado',
+] as const;
+
+export type LiveRoomRole = typeof LIVE_ROOM_ROLES[number];
+
+export interface LiveParticipant {
+  userId: string;
+  name: string;
+  unit: string;
+  role: 'ADMIN' | 'PARTICIPANT';
+  assemblyRole?: string;
+  status: LiveParticipantStatus;
+  joinedAt: number;
+  hasAudio: boolean;
+  hasVideo: boolean;
+}
+
+export interface LiveSpeakerRequest {
+  id: string;
+  userId: string;
+  name: string;
+  unit: string;
+  status: 'pending' | 'approved' | 'rejected';
+  timestamp: number;
+}
+
+export interface LiveChatMessage {
+  id: string;
+  userId: string;
+  name: string;
+  unit: string;
+  message: string;
+  timestamp: number;
+}
+
+export interface LiveRoomConfig {
+  maxParticipants: number;
+  maxPublishers: number;
+  maxActiveSpeakers: number;
+}
+
+export const LIVE_ROOM_CONFIG: LiveRoomConfig = {
+  maxParticipants: 10,
+  maxPublishers: 3,
+  maxActiveSpeakers: 1,
+};
+
 export enum AppView {
   ADMIN_LOGIN = 'ADMIN_LOGIN',
   COMPANY_DASHBOARD = 'COMPANY_DASHBOARD',
@@ -8,6 +72,7 @@ export enum AppView {
   VOTE_BOOTH = 'VOTE_BOOTH',
   VOTE_SUCCESS = 'VOTE_SUCCESS',
   URNA_ELETRONICA = 'URNA_ELETRONICA',
+  LIVE_ASSEMBLY = 'LIVE_ASSEMBLY',
 }
 
 export enum AssemblyType {
