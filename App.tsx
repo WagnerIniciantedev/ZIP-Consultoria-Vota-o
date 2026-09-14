@@ -56,21 +56,25 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('t');
-    let isResidentAccess = params.get('access') === 'resident' || params.get('access') === 'live' || params.get('access') === 'transmission';
-    let isUrnaAccess = params.get('access') === 'urna';
+    const accessParam = params.get('access');
+
+    let isResidentAccess = accessParam === 'resident';
+    let isLiveTransmissionAccess = accessParam === 'live' || accessParam === 'transmission';
+    let isUrnaAccess = accessParam === 'urna';
 
     if (token) {
       try {
         const cleanToken = token.startsWith('ZV_') ? token.substring(3) : token;
         const decoded = JSON.parse(atob(cleanToken));
-        if (decoded.a === 'r' || decoded.a === 'live') isResidentAccess = true;
+        if (decoded.a === 'r') isResidentAccess = true;
+        if (decoded.a === 'live') isLiveTransmissionAccess = true;
         if (decoded.a === 'u') isUrnaAccess = true;
       } catch (e) {
         console.error("Invalid token format in lazy init", e);
       }
     }
 
-    if (isResidentAccess) return AppView.VOTE_IDENTIFY;
+    if (isResidentAccess || isLiveTransmissionAccess) return AppView.VOTE_IDENTIFY;
     if (isUrnaAccess) return AppView.URNA_ELETRONICA;
 
     const savedUserStr = sessionStorage.getItem('condovote_user') || localStorage.getItem('condovote_user');
@@ -107,19 +111,23 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('t');
-    let isResidentAccess = params.get('access') === 'resident' || params.get('access') === 'live' || params.get('access') === 'transmission';
-    let isUrnaAccess = params.get('access') === 'urna';
+    const accessParam = params.get('access');
+
+    let isResidentAccess = accessParam === 'resident';
+    let isLiveTransmissionAccess = accessParam === 'live' || accessParam === 'transmission';
+    let isUrnaAccess = accessParam === 'urna';
 
     if (token) {
       try {
         const cleanToken = token.startsWith('ZV_') ? token.substring(3) : token;
         const decoded = JSON.parse(atob(cleanToken));
-        if (decoded.a === 'r' || decoded.a === 'live') isResidentAccess = true;
+        if (decoded.a === 'r') isResidentAccess = true;
+        if (decoded.a === 'live') isLiveTransmissionAccess = true;
         if (decoded.a === 'u') isUrnaAccess = true;
       } catch (e) {}
     }
 
-    if (isResidentAccess || isUrnaAccess) {
+    if (isResidentAccess || isLiveTransmissionAccess || isUrnaAccess) {
       return null;
     }
 
@@ -1218,6 +1226,10 @@ const App: React.FC = () => {
         currentUser={currentUser}
         currentResident={currentUser ? null : currentResident}
         isAdmin={currentUser ? true : false}
+        polls={polls}
+        votes={votes}
+        onVoteSubmit={handleVoteSubmit}
+        hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
         onExit={() => {
           if (currentUser) {
             setCurrentView(AppView.COMPANY_DASHBOARD);
@@ -1450,7 +1462,8 @@ const App: React.FC = () => {
         onVoteSubmit={handleVoteSubmit}
         onRegisterAttendance={(units, zoomName) => handleRegisterAttendance(selectedAssemblyId, units, zoomName)}
         hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
-        isResidentLink={new URLSearchParams(window.location.search).get('access') === 'resident' || new URLSearchParams(window.location.search).get('access') === 'live' || new URLSearchParams(window.location.search).get('access') === 'transmission'}
+        isResidentLink={new URLSearchParams(window.location.search).get('access') === 'resident' || (new URLSearchParams(window.location.search).get('t') && (() => { try { const d = JSON.parse(atob(new URLSearchParams(window.location.search).get('t')!.startsWith('ZV_') ? new URLSearchParams(window.location.search).get('t')!.substring(3) : new URLSearchParams(window.location.search).get('t')!)); return d.a === 'r'; } catch(e){return false;} })())}
+        isTransmissionLink={new URLSearchParams(window.location.search).get('access') === 'live' || new URLSearchParams(window.location.search).get('access') === 'transmission' || (new URLSearchParams(window.location.search).get('t') && (() => { try { const d = JSON.parse(atob(new URLSearchParams(window.location.search).get('t')!.startsWith('ZV_') ? new URLSearchParams(window.location.search).get('t')!.substring(3) : new URLSearchParams(window.location.search).get('t')!)); return d.a === 'live'; } catch(e){return false;} })())}
         isConnected={isConnected}
         onOpenLiveRoom={(res) => {
           setCurrentResident(res);
@@ -1458,7 +1471,7 @@ const App: React.FC = () => {
         }}
         onBack={() => {
           if (currentUser) {
-            setCurrentView(AppView.ADMIN_DASHBOARD);
+            setCurrentView(AppView.COMPANY_DASHBOARD);
           } else {
             setCurrentView(AppView.ADMIN_LOGIN);
           }

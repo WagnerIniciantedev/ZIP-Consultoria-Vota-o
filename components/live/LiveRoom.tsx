@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   LiveRoomStatus, LiveParticipant, LiveSpeakerRequest, LiveChatMessage, 
-  LIVE_ROOM_CONFIG, User, Resident 
+  LIVE_ROOM_CONFIG, User, Resident, Poll, VoteRecord 
 } from '../../types';
 import { 
   initializeLiveRoom, joinLiveRoom, leaveLiveRoom, requestSpeaker, 
@@ -13,11 +13,12 @@ import { LiveHeader } from './LiveHeader';
 import { LiveParticipantsPanel } from './LiveParticipantsPanel';
 import { LiveChatPanel } from './LiveChatPanel';
 import { LiveSpeakerRequestsPanel } from './LiveSpeakerRequestsPanel';
+import { LiveVotingPanel } from './LiveVotingPanel';
 import { LiveControlsBar } from './LiveControlsBar';
 import { WaitingRoom } from './WaitingRoom';
 import { LiveStage } from './LiveStage';
 import { onSnapshot } from 'firebase/firestore';
-import { Users, MessageSquare, Hand, Video as VideoIcon, Wifi } from 'lucide-react';
+import { Users, MessageSquare, Hand, Video as VideoIcon, Wifi, Vote } from 'lucide-react';
 
 interface LiveRoomProps {
   assemblyId: string;
@@ -27,6 +28,10 @@ interface LiveRoomProps {
   currentResident: Resident | null;
   isAdmin: boolean;
   onExit: () => void;
+  polls?: Poll[];
+  votes?: VoteRecord[];
+  onVoteSubmit?: (pollId: string, optionId: string, unit: string, zoomName: string) => void;
+  hasVoted?: (pollId: string, unit: string) => boolean;
 }
 
 export const LiveRoom: React.FC<LiveRoomProps> = ({
@@ -37,12 +42,16 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
   currentResident,
   isAdmin,
   onExit,
+  polls = [],
+  votes = [],
+  onVoteSubmit = () => {},
+  hasVoted = () => false,
 }) => {
   const [roomStatus, setRoomStatus] = useState<LiveRoomStatus>(LiveRoomStatus.LIVE);
   const [participants, setParticipants] = useState<LiveParticipant[]>([]);
   const [requests, setRequests] = useState<LiveSpeakerRequest[]>([]);
   const [messages, setMessages] = useState<LiveChatMessage[]>([]);
-  const [activeTab, setActiveTab] = useState<'participants' | 'chat' | 'requests'>('chat');
+  const [activeTab, setActiveTab] = useState<'participants' | 'chat' | 'requests' | 'voting'>('chat');
   
   const [isMicOn, setIsMicOn] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
@@ -416,6 +425,14 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
               <MessageSquare size={14} /> Chat
             </button>
             <button
+              onClick={() => setActiveTab('voting')}
+              className={`flex-1 py-3 text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 ${
+                activeTab === 'voting' ? 'border-red-650 text-red-650 bg-white' : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Vote size={14} /> Votação {polls.filter(p => p.isActive).length > 0 && `(${polls.filter(p => p.isActive).length})`}
+            </button>
+            <button
               onClick={() => setActiveTab('participants')}
               className={`flex-1 py-3 text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 ${
                 activeTab === 'participants' ? 'border-red-650 text-red-650 bg-white' : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -446,6 +463,15 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
                 messages={messages}
                 onSendMessage={text => sendLiveChatMessage(assemblyId, userId, userName, userUnit, text)}
                 currentUserId={userId}
+              />
+            )}
+            {activeTab === 'voting' && (
+              <LiveVotingPanel
+                polls={polls}
+                currentResident={currentResident}
+                isAdmin={isAdmin}
+                hasVoted={hasVoted}
+                onVoteSubmit={onVoteSubmit}
               />
             )}
             {activeTab === 'participants' && (

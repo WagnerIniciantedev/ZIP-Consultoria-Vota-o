@@ -41,6 +41,7 @@ interface ResidentVotingProps {
   hasVoted: (pollId: string, unit: string) => boolean;
   onBack: () => void;
   isResidentLink?: boolean;
+  isTransmissionLink?: boolean;
   isConnected?: boolean;
   onOpenLiveRoom?: (resident: Resident) => void;
 }
@@ -77,7 +78,9 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   hasVoted, 
   onBack,
   isResidentLink = false,
-  isConnected = true
+  isTransmissionLink = false,
+  isConnected = true,
+  onOpenLiveRoom
 }) => {
   const [step, setStep] = useState<VoteStep>(VoteStep.IDENTIFY);
   
@@ -123,6 +126,12 @@ export const ResidentVoting: React.FC<ResidentVotingProps> = ({
   useEffect(() => {
     stepRef.current = step;
   }, [step]);
+
+  useEffect(() => {
+    if (isTransmissionLink && step === VoteStep.DASHBOARD && selectedUnits.length > 0 && onOpenLiveRoom) {
+      onOpenLiveRoom(selectedUnits[0]);
+    }
+  }, [step, isTransmissionLink, selectedUnits]);
 
   // Filter Active Polls
   const activePolls = polls.filter(p => p.isActive);
