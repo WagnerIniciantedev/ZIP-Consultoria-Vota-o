@@ -59,6 +59,9 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
   const [auditPassword, setAuditPassword] = useState('');
   const [auditError, setAuditError] = useState('');
 
+  // Search Voters State
+  const [voterSearch, setVoterSearch] = useState('');
+
   const isZoomMode = isZoomModeProp || isZoomModeInternal;
   const setIsZoomMode = setIsZoomModeProp || setIsZoomModeInternal;
   const isHybrid = assemblyType === AssemblyType.HYBRID;
@@ -666,9 +669,28 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
       )}
 
       <Card title="Lista de Votantes (Tempo Real)">
+          <div className="mb-4">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
+              <span className="text-xs text-gray-500 font-medium">
+                {voterSearch.trim() 
+                  ? `Mostrando resultados para "${voterSearch}"` 
+                  : `Exibindo votantes registrados (${pollVotes.length} votos). Digite abaixo para buscar por nome ou unidade e verificar quem já votou ou não.`}
+              </span>
+              <div className="w-full sm:w-80">
+                <Input
+                  type="text"
+                  placeholder="Pesquisar por nome ou unidade..."
+                  value={voterSearch}
+                  onChange={(e) => setVoterSearch(e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+            </div>
+          </div>
+
           <div className="max-h-96 overflow-y-auto border rounded bg-white text-sm">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50 sticky top-0">
+              <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Unidade</th>
                   <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Morador</th>
@@ -685,73 +707,111 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {pollVotes.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-gray-500 italic">
-                      Nenhum voto registrado para esta enquete ainda.
-                    </td>
-                  </tr>
-                ) : (
-                  [...pollVotes].sort((a, b) => a.unit.localeCompare(b.unit)).map((v, idx) => {
-                    const resident = residents.find(r => r.unit === v.unit);
-                    const opt = poll.options.find(o => o.id === v.optionId);
-                    
-                    let weight = 1;
-                    if (resident && (!v.isDelinquentVote || v.isDelinquentReleased)) {
-                      if (poll.calculationType === PollCalculationType.FRACTION) {
-                        weight = resident.fraction || 0;
-                      } else if (poll.calculationType === PollCalculationType.HABITE_SE) {
-                        weight = 1 + (resident.hasHabiteSe ? 1 : 0);
+                {(() => {
+                  const allEntries = residents.map(r => {
+                    const vote = pollVotes.find(v => v.unit.toLowerCase() === r.unit.toLowerCase());
+                    return { resident: r, vote };
+                  });
+                  pollVotes.forEach(v => {
+                    if (!residents.some(r => r.unit.toLowerCase() === v.unit.toLowerCase())) {
+                      allEntries.push({
+                        resident: { unit: v.unit, name: 'Morador / Não Cadastrado', email: '', phone: '', cpf: '' },
+                        vote: v
+                      });
+                    }
+                  });
+
+                  const filtered = allEntries.filter(entry => {
+                    if (!voterSearch.trim()) {
+                      return !!entry.vote;
+                    }
+                    const q = voterSearch.toLowerCase().trim();
+                    const unitMatch = entry.resident.unit.toLowerCase().includes(q);
+                    const nameMatch = entry.resident.name?.toLowerCase().includes(q) || false;
+                    return unitMatch || nameMatch;
+                  }).sort((a, b) => a.resident.unit.localeCompare(b.resident.unit));
+
+                  if (filtered.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-8 text-center text-gray-500 italic">
+                          {voterSearch.trim() ? "Nenhum condômino encontrado com esse nome ou unidade." : "Nenhum voto registrado para esta enquete ainda."}
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return filtered.map((entry, idx) => {
+                    const { resident, vote } = entry;
+                    const opt = vote ? poll.options.find(o => o.id === vote.optionId) : null;
+
+                    let weight = 0;
+                    if (vote) {
+                      weight = 1;
+                      if (resident && (!vote.isDelinquentVote || vote.isDelinquentReleased)) {
+                        if (poll.calculationType === PollCalculationType.FRACTION) {
+                          weight = resident.fraction || 0;
+                        } else if (poll.calculationType === PollCalculationType.HABITE_SE) {
+                          weight = 1 + (resident.hasHabiteSe ? 1 : 0);
+                        }
+                        if (resident.proxyCount && resident.proxyCount > 0) {
+                          weight += resident.proxyCount;
+                        }
+                      } else if (vote.isDelinquentVote && !vote.isDelinquentReleased) {
+                        weight = 0;
                       }
-                      
-                      // Add proxy count to weight
-                      if (resident.proxyCount && resident.proxyCount > 0) {
-                        weight += resident.proxyCount;
-                      }
-                    } else if (v.isDelinquentVote && !v.isDelinquentReleased) {
-                      weight = 0;
                     }
 
                     return (
-                      <tr key={idx} className={v.isDelinquentVote ? (v.isDelinquentReleased ? "bg-emerald-50/50" : "bg-red-50") : ""}>
-                        <td className="px-4 py-3 font-bold text-gray-900">{cleanText(v.unit)}</td>
-                        <td className="px-4 py-3 text-gray-600">{cleanText(resident?.name || 'N/A')}</td>
+                      <tr key={idx} className={vote ? (vote.isDelinquentVote ? (vote.isDelinquentReleased ? "bg-emerald-50/50" : "bg-red-50") : "") : "bg-gray-50/50"}>
+                        <td className="px-4 py-3 font-bold text-gray-900">{cleanText(resident.unit)}</td>
+                        <td className="px-4 py-3 text-gray-600">{cleanText(resident.name || 'N/A')}</td>
                         <td className="px-4 py-3">
-                          {resident?.proxyCount && resident.proxyCount > 0 ? (
+                          {resident.proxyCount && resident.proxyCount > 0 ? (
                             <div className="text-xs text-blue-600 font-bold">
                               {resident.proxyCount} Proc. ({resident.proxyUnits})
                             </div>
                           ) : '-'}
                         </td>
-                        <td className="px-4 py-3 text-gray-600 italic">{cleanText(v.zoomName || '-')}</td>
+                        <td className="px-4 py-3 text-gray-600 italic">{cleanText(vote?.zoomName || '-')}</td>
                         <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${v.isDelinquentVote && !v.isDelinquentReleased ? 'bg-gray-200 text-gray-600' : 'bg-blue-100 text-blue-800'}`}>
-                            {cleanText(opt?.text || 'N/A')}
-                          </span>
+                          {vote ? (
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${vote.isDelinquentVote && !vote.isDelinquentReleased ? 'bg-gray-200 text-gray-600' : 'bg-blue-100 text-blue-800'}`}>
+                              {cleanText(opt?.text || 'N/A')}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400 italic">Aguardando voto</span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
-                          {v.isDelinquentVote ? (
-                            v.isDelinquentReleased ? (
-                              <div className="flex flex-col gap-0.5">
-                                <Badge color="green">CONSIDERADO</Badge>
-                                <span className="text-[10px] text-emerald-700 font-medium max-w-[160px] truncate" title={v.delinquentReleaseReason}>
-                                  Motivo: {v.delinquentReleaseReason}
-                                </span>
-                              </div>
+                          {vote ? (
+                            vote.isDelinquentVote ? (
+                              vote.isDelinquentReleased ? (
+                                <div className="flex flex-col gap-0.5">
+                                  <Badge color="green">CONSIDERADO</Badge>
+                                  <span className="text-[10px] text-emerald-700 font-medium max-w-[160px] truncate" title={vote.delinquentReleaseReason}>
+                                    Motivo: {vote.delinquentReleaseReason}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-start gap-1">
+                                  <Badge color="red">Inadimplente</Badge>
+                                  <button
+                                    type="button"
+                                    onClick={() => setReleasingVote(vote)}
+                                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer p-0 bg-transparent border-0"
+                                  >
+                                    Considerar Voto
+                                  </button>
+                                </div>
+                              )
                             ) : (
-                              <div className="flex flex-col items-start gap-1">
-                                <Badge color="red">Inadimplente</Badge>
-                                <button
-                                  type="button"
-                                  onClick={() => setReleasingVote(v)}
-                                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer p-0 bg-transparent border-0"
-                                >
-                                  Considerar Voto
-                                </button>
-                              </div>
+                              <Badge color="green">VÁLIDO</Badge>
                             )
                           ) : (
-                            <Badge color="green">VÁLIDO</Badge>
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                              Não Votou
+                            </span>
                           )}
                         </td>
                         {(poll.calculationType !== PollCalculationType.NORMAL || pollVotes.some(v2 => {
@@ -759,18 +819,19 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
                           return r2 && (r2.proxyCount || 0) > 0;
                         })) && (
                           <td className="px-4 py-3 font-mono text-xs">
-                            {weight.toFixed(4)}
+                            {vote ? weight.toFixed(4) : '-'}
                           </td>
                         )}
                       </tr>
                     );
-                  })
-                )}
+                  });
+                })()}
               </tbody>
             </table>
           </div>
-          <div className="mt-4 text-xs text-gray-500 italic">
-            * Esta lista é atualizada em tempo real conforme os condôminos confirmam seus votos.
+          <div className="mt-4 text-xs text-gray-500 italic flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
+            <span>* Esta lista é atualizada em tempo real conforme os condôminos confirmam seus votos.</span>
+            <span className="font-medium text-slate-700">Dica: Digite o nome ou unidade na busca acima para verificar se um condômino específico já votou.</span>
           </div>
         </Card>
 
