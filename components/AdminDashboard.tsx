@@ -16,7 +16,8 @@ import {
   Menu,
   X,
   UserCog,
-  Shield
+  Shield,
+  Video
 } from 'lucide-react';
 import { Button, Card } from './ui';
 import { LogoZip } from './LogoZip';
@@ -94,6 +95,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isTourOpen, setIsTourOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedUrna, setCopiedUrna] = useState(false);
+  const [copiedTransmission, setCopiedTransmission] = useState(false);
+
+  const handleCopyTransmissionLink = () => {
+    const safeKey = selectedAssemblyId || condoName.trim().replace(/[^a-zA-Z0-9]/g, '_');
+    const data = { a: 'live', id: safeKey, ts: Date.now() };
+    const token = btoa(JSON.stringify(data));
+    const url = `${window.location.origin}?t=ZV_${token}`;
+    navigator.clipboard.writeText(url);
+    setCopiedTransmission(true);
+    setTimeout(() => setCopiedTransmission(false), 2000);
+  };
 
   // --- Auth Checks ---
   // (Removed unused isSuperUser)
@@ -382,6 +394,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             >
               {copiedUrna ? <Check size={14} /> : <Tablet size={14} />} 
               {copiedUrna ? 'Link da Urna Copiado!' : 'Copiar Link da Urna'}
+            </Button>
+
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleCopyTransmissionLink}
+              className={`flex items-center gap-2 transition-all text-xs font-semibold py-2 px-3 ${copiedTransmission ? 'bg-green-50 border-green-200 text-green-600' : 'border-indigo-200 text-indigo-600 hover:bg-indigo-50'}`}
+            >
+              {copiedTransmission ? <Check size={14} /> : <Video size={14} />} 
+              {copiedTransmission ? 'Link Copiado!' : 'Copiar Link de Transmissão'}
             </Button>
 
             <Button 

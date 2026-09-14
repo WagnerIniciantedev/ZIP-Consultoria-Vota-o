@@ -56,14 +56,14 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('t');
-    let isResidentAccess = params.get('access') === 'resident';
+    let isResidentAccess = params.get('access') === 'resident' || params.get('access') === 'live' || params.get('access') === 'transmission';
     let isUrnaAccess = params.get('access') === 'urna';
 
     if (token) {
       try {
         const cleanToken = token.startsWith('ZV_') ? token.substring(3) : token;
         const decoded = JSON.parse(atob(cleanToken));
-        if (decoded.a === 'r') isResidentAccess = true;
+        if (decoded.a === 'r' || decoded.a === 'live') isResidentAccess = true;
         if (decoded.a === 'u') isUrnaAccess = true;
       } catch (e) {
         console.error("Invalid token format in lazy init", e);
@@ -103,17 +103,18 @@ const App: React.FC = () => {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
 
   // Auth State
+  const [currentResident, setCurrentResident] = useState<Resident | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('t');
-    let isResidentAccess = params.get('access') === 'resident';
+    let isResidentAccess = params.get('access') === 'resident' || params.get('access') === 'live' || params.get('access') === 'transmission';
     let isUrnaAccess = params.get('access') === 'urna';
 
     if (token) {
       try {
         const cleanToken = token.startsWith('ZV_') ? token.substring(3) : token;
         const decoded = JSON.parse(atob(cleanToken));
-        if (decoded.a === 'r') isResidentAccess = true;
+        if (decoded.a === 'r' || decoded.a === 'live') isResidentAccess = true;
         if (decoded.a === 'u') isUrnaAccess = true;
       } catch (e) {}
     }
@@ -1215,9 +1216,15 @@ const App: React.FC = () => {
         condoName={condoName || 'Condomínio'}
         assemblyTitle="Assembleia Geral ao Vivo"
         currentUser={currentUser}
-        currentResident={null}
-        isAdmin={true}
-        onExit={() => setCurrentView(AppView.COMPANY_DASHBOARD)}
+        currentResident={currentUser ? null : currentResident}
+        isAdmin={currentUser ? true : false}
+        onExit={() => {
+          if (currentUser) {
+            setCurrentView(AppView.COMPANY_DASHBOARD);
+          } else {
+            setCurrentView(AppView.VOTE_IDENTIFY);
+          }
+        }}
       />
     );
   }
@@ -1443,8 +1450,12 @@ const App: React.FC = () => {
         onVoteSubmit={handleVoteSubmit}
         onRegisterAttendance={(units, zoomName) => handleRegisterAttendance(selectedAssemblyId, units, zoomName)}
         hasVoted={(pId, unit) => votes.some(v => v.unit === unit && v.pollId === pId)}
-        isResidentLink={new URLSearchParams(window.location.search).get('access') === 'resident'}
+        isResidentLink={new URLSearchParams(window.location.search).get('access') === 'resident' || new URLSearchParams(window.location.search).get('access') === 'live' || new URLSearchParams(window.location.search).get('access') === 'transmission'}
         isConnected={isConnected}
+        onOpenLiveRoom={(res) => {
+          setCurrentResident(res);
+          setCurrentView(AppView.LIVE_ASSEMBLY);
+        }}
         onBack={() => {
           if (currentUser) {
             setCurrentView(AppView.ADMIN_DASHBOARD);

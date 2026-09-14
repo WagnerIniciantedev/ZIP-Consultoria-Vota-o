@@ -24,7 +24,8 @@ import {
   Key,
   Shield,
   FileText,
-  FileImage
+  FileImage,
+  Video
 } from 'lucide-react';
 import { identifyResident, identifyResidentWithPassword } from '../services/dataService';
 import { db, auth, functions, doc, onSnapshot, getDoc } from '../services/firebase';
@@ -41,6 +42,7 @@ interface ResidentVotingProps {
   onBack: () => void;
   isResidentLink?: boolean;
   isConnected?: boolean;
+  onOpenLiveRoom?: (resident: Resident) => void;
 }
 
 // Internal State for Navigation
